@@ -3,23 +3,101 @@ export type NavigationItem = {
   label: string;
   href: string;
   group: "workspace" | "manage" | "system";
+  access?: "all" | "editor" | "admin" | "site-owner";
 };
 
 export const navigationItems: NavigationItem[] = [
   { key: "overview", label: "概览", href: "/overview", group: "workspace" },
-  { key: "upload", label: "上传", href: "/", group: "workspace" },
+  {
+    key: "upload",
+    label: "上传",
+    href: "/",
+    group: "workspace",
+    access: "editor"
+  },
   { key: "library", label: "图片库", href: "/library", group: "workspace" },
   { key: "albums", label: "相册", href: "/albums", group: "workspace" },
   { key: "tags", label: "标签", href: "/tags", group: "workspace" },
   { key: "favorites", label: "收藏", href: "/favorites", group: "workspace" },
-  { key: "trash", label: "回收站", href: "/trash", group: "workspace" },
-  { key: "storage", label: "存储", href: "/storage", group: "manage" },
-  { key: "analytics", label: "数据统计", href: "/analytics", group: "manage" },
-  { key: "team", label: "团队", href: "/team", group: "manage" },
-  { key: "tokens", label: "API Token", href: "/tokens", group: "manage" },
-  { key: "audit", label: "活动与审计", href: "/audit", group: "manage" },
+  {
+    key: "trash",
+    label: "回收站",
+    href: "/trash",
+    group: "workspace",
+    access: "editor"
+  },
+  {
+    key: "storage",
+    label: "存储",
+    href: "/storage",
+    group: "manage",
+    access: "site-owner"
+  },
+  {
+    key: "analytics",
+    label: "数据统计",
+    href: "/analytics",
+    group: "manage",
+    access: "admin"
+  },
+  {
+    key: "team",
+    label: "团队",
+    href: "/team",
+    group: "manage",
+    access: "admin"
+  },
+  {
+    key: "tokens",
+    label: "API Token",
+    href: "/tokens",
+    group: "manage",
+    access: "admin"
+  },
+  {
+    key: "audit",
+    label: "活动与审计",
+    href: "/audit",
+    group: "manage",
+    access: "admin"
+  },
   { key: "settings", label: "设置中心", href: "/settings", group: "system" }
 ];
+
+export type WorkspaceRole = "owner" | "admin" | "editor" | "viewer";
+export type SiteRole = "owner" | "member";
+
+const roleLevel: Record<WorkspaceRole, number> = {
+  viewer: 0,
+  editor: 1,
+  admin: 2,
+  owner: 3
+};
+
+export function canAccessNavigationItem(
+  item: NavigationItem,
+  access: { workspaceRole: WorkspaceRole; siteRole: SiteRole }
+) {
+  switch (item.access ?? "all") {
+    case "all":
+      return true;
+    case "editor":
+      return roleLevel[access.workspaceRole] >= roleLevel.editor;
+    case "admin":
+      return roleLevel[access.workspaceRole] >= roleLevel.admin;
+    case "site-owner":
+      return access.siteRole === "owner";
+  }
+}
+
+export function filterNavigationItems(access: {
+  workspaceRole: WorkspaceRole;
+  siteRole: SiteRole;
+}) {
+  return navigationItems.filter((item) =>
+    canAccessNavigationItem(item, access)
+  );
+}
 
 export const sectionContent = {
   overview: {

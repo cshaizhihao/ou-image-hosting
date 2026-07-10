@@ -25,6 +25,7 @@ import {
   useRef,
   useState
 } from "react";
+import { workspaceHeaders } from "@/lib/api";
 import { AppShell } from "./app-shell";
 
 type LibraryImage = {
@@ -169,6 +170,7 @@ export function ImageLibrary() {
         const response = await fetch(`/api/uploads?${params}`, {
           credentials: "same-origin",
           cache: "no-store",
+          headers: workspaceHeaders(),
           signal
         });
         const payload = (await response.json()) as LibraryResponse;
@@ -235,7 +237,7 @@ export function ImageLibrary() {
       const response = await fetch("/api/uploads/bulk", {
         method: "POST",
         credentials: "same-origin",
-        headers: { "content-type": "application/json" },
+        headers: workspaceHeaders({ "content-type": "application/json" }),
         body: JSON.stringify({
           ids: Array.from(selected),
           action: "trash"

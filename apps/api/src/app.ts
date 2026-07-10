@@ -1,9 +1,19 @@
 import cookie from "@fastify/cookie";
 import rateLimit from "@fastify/rate-limit";
-import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
+import Fastify, {
+  LogController,
+  type FastifyReply,
+  type FastifyRequest
+} from "fastify";
 import { access, constants, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import {
+  hashRequestIp,
+  isIpAllowed,
+  normalizeIpAllowlist,
+  type Principal
+} from "./access.js";
 import {
   createOpaqueToken,
   hashOpaqueToken,
@@ -15,12 +25,15 @@ import {
 import { PublicError } from "./errors.js";
 import {
   AppStore,
+  defaultNotificationPreferences,
   type AppState,
+  type StoredApiToken,
   type StoredUser,
   type ThemePreference
 } from "./store.js";
 import { registerUploadRoutes } from "./uploads.js";
 import { registerInfrastructureRoutes } from "./infrastructure.js";
+import { registerWorkspaceSecurityRoutes } from "./workspace-security.js";
 
 const SESSION_COOKIE = "ou_session";
 const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
@@ -56,6 +69,21 @@ type ProfileBody = {
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const themeValues = ["light", "dark", "system"] as const;
+const principalByRequest = new WeakMap<FastifyRequest, Principal>();
+
+export function redactCapabilityUrl(value: string) {
+  return value
+    .replace(/(\/shares\/)[^/?#]+/g, "$1[REDACTED]")
+    .replace(/(\/invites\/)[^/?#]+/g, "$1[REDACTED]");
+}
+
+function normalizeOrigin(value: string) {
+  try {
+    return new URL(value).origin;
+  } catch {
+    throw new Error("APP_ORIGIN 必须是有效的绝对 URL");
+  }
+}
 
 function publicUser(user: StoredUser) {
   return {
@@ -64,6 +92,7 @@ function publicUser(user: StoredUser) {
     displayName: user.displayName,
     role: user.role,
     theme: user.theme,
+    mfaEnabled: Boolean(user.totpEnabledAt),
     onboardingCompleted: user.onboardingCompleted,
     createdAt: user.createdAt
   };
@@ -98,6 +127,19 @@ function useSecureCookies() {
   return process.env.NODE_ENV === "production";
 }
 
+function trustedProxyConfiguration() {
+  if (process.env.TRUST_PROXY !== "true") return false;
+  const configured = process.env.TRUST_PROXY_ADDRESSES
+    ?.split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const trusted = normalizeIpAllowlist(configured);
+  if (trusted.length === 0) {
+    throw new Error("TRUST_PROXY=true 时必须配置 TRUST_PROXY_ADDRESSES");
+  }
+  return trusted;
+}
+
 function setSessionCookie(reply: FastifyReply, token: string) {
   reply.setCookie(SESSION_COOKIE, token, {
     httpOnly: true,
@@ -114,6 +156,31 @@ function clearSessionCookie(reply: FastifyReply) {
     sameSite: "lax",
     secure: useSecureCookies(),
     path: "/"
+  });
+}
+
+function addPersonalWorkspace(
+  state: AppState,
+  user: StoredUser
+) {
+  const workspaceId = `personal-${user.id}`;
+  state.workspaces.push({
+    id: workspaceId,
+    name: `${user.displayName}的空间`,
+    description: "",
+    slug: workspaceId,
+    personal: true,
+    ownerUserId: user.id,
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt
+  });
+  state.workspaceMembers.push({
+    id: randomUUID(),
+    workspaceId,
+    userId: user.id,
+    role: "owner",
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt
   });
 }
 
@@ -135,8 +202,9 @@ export async function buildApp(options: BuildAppOptions = {}) {
     path.resolve(process.cwd(), ".data");
   const store =
     options.store ?? new AppStore(path.join(dataDirectory, "ou-image.json"));
-  const appOrigin =
-    options.appOrigin ?? process.env.APP_ORIGIN ?? "http://localhost:3000";
+  const appOrigin = normalizeOrigin(
+    options.appOrigin ?? process.env.APP_ORIGIN ?? "http://localhost:3000"
+  );
   const exposeDevelopmentResetToken =
     options.exposeDevelopmentResetToken ??
     (process.env.NODE_ENV !== "production" &&
@@ -146,6 +214,8 @@ export async function buildApp(options: BuildAppOptions = {}) {
   await store.initialize();
 
   const app = Fastify({
+    trustProxy: trustedProxyConfiguration(),
+    logController: new LogController({ disableRequestLogging: true }),
     logger: {
       level: process.env.NODE_ENV === "production" ? "info" : "warn",
       redact: {
@@ -174,7 +244,22 @@ export async function buildApp(options: BuildAppOptions = {}) {
   app.addHook("onRequest", async (request) => {
     if (!["POST", "PUT", "PATCH", "DELETE"].includes(request.method)) return;
     const origin = request.headers.origin;
-    if (origin && origin !== appOrigin) {
+    const hasSessionCookie = Boolean(request.cookies[SESSION_COOKIE]);
+    const hasBrowserSignal =
+      typeof request.headers["sec-fetch-site"] === "string";
+    const requiresOrigin = hasSessionCookie || hasBrowserSignal;
+    let normalizedOrigin: string | undefined;
+    if (origin) {
+      try {
+        normalizedOrigin = new URL(origin).origin;
+      } catch {
+        throw new PublicError(403, "INVALID_ORIGIN", "请求来源未获授权");
+      }
+    }
+    if (
+      (requiresOrigin && !normalizedOrigin) ||
+      (normalizedOrigin && normalizedOrigin !== appOrigin)
+    ) {
       throw new PublicError(403, "INVALID_ORIGIN", "请求来源未获授权");
     }
   });
@@ -244,18 +329,93 @@ export async function buildApp(options: BuildAppOptions = {}) {
         expiresAt: new Date(
           timestamp.getTime() + SESSION_DURATION_MS
         ).toISOString(),
-        userAgent: request.headers["user-agent"]?.slice(0, 300)
+        userAgent: request.headers["user-agent"]?.slice(0, 300),
+        ipHash: hashRequestIp(request)
       });
     });
     setSessionCookie(reply, token);
   };
 
-  const authenticatedUser = (request: FastifyRequest) => {
+  const principalForToken = (
+    request: FastifyRequest,
+    token: StoredApiToken,
+    state: AppState
+  ): Principal => {
+    const timestamp = now().getTime();
+    if (
+      token.revokedAt ||
+      (token.expiresAt &&
+        new Date(token.expiresAt).getTime() <= timestamp)
+    ) {
+      throw new PublicError(401, "INVALID_API_TOKEN", "API Token 无效");
+    }
+    if (!isIpAllowed(request.ip, token.ipAllowlist ?? [])) {
+      throw new PublicError(
+        403,
+        "TOKEN_IP_DENIED",
+        "当前 IP 不在 API Token 白名单中"
+      );
+    }
+    const headerWorkspace = request.headers["x-workspace-id"];
+    if (headerWorkspace && headerWorkspace !== token.workspaceId) {
+      throw new PublicError(
+        403,
+        "TOKEN_WORKSPACE_MISMATCH",
+        "API Token 固定于创建时的工作区"
+      );
+    }
+    const user = state.users.find((item) => item.id === token.userId);
+    const membership = state.workspaceMembers.find(
+      (item) =>
+        item.workspaceId === token.workspaceId &&
+        item.userId === token.userId
+    );
+    const workspace = state.workspaces.find(
+      (item) => item.id === token.workspaceId
+    );
+    if (!user || !membership || !workspace) {
+      throw new PublicError(401, "INVALID_API_TOKEN", "API Token 无效");
+    }
+    return {
+      kind: "api-token",
+      user,
+      workspace,
+      workspaceId: workspace.id,
+      role: membership.role,
+      scopes: token.scopes,
+      apiToken: token
+    };
+  };
+
+  const authenticatedUser = (request: FastifyRequest): Principal => {
+    const authorization = request.headers.authorization;
+    const state = store.snapshot();
+    if (authorization !== undefined) {
+      const match =
+        /^Bearer (ouh_([A-Za-z0-9-]+)_[A-Za-z0-9_-]+)$/.exec(
+        authorization
+      );
+      if (!match?.[1]) {
+        throw new PublicError(401, "INVALID_API_TOKEN", "API Token 无效");
+      }
+      const tokenValue = match[1];
+      const prefix = match[2];
+      const token = state.apiTokens.find(
+        (item) =>
+          item.prefix === prefix &&
+          item.tokenHash === hashOpaqueToken(tokenValue)
+      );
+      if (!token) {
+        throw new PublicError(401, "INVALID_API_TOKEN", "API Token 无效");
+      }
+      const principal = principalForToken(request, token, state);
+      principalByRequest.set(request, principal);
+      return principal;
+    }
     const token = request.cookies[SESSION_COOKIE];
     if (!token) {
       throw new PublicError(401, "UNAUTHENTICATED", "请先登录");
     }
-    const state = store.snapshot();
     const timestamp = now().getTime();
     const session = state.sessions.find(
       (item) =>
@@ -269,13 +429,100 @@ export async function buildApp(options: BuildAppOptions = {}) {
     if (!user) {
       throw new PublicError(401, "UNAUTHENTICATED", "登录状态已失效");
     }
-    return { user, session };
+    const workspaceId =
+      request.headers["x-workspace-id"]?.toString() ??
+      `personal-${user.id}`;
+    const membership = state.workspaceMembers.find(
+      (item) =>
+        item.workspaceId === workspaceId && item.userId === user.id
+    );
+    const workspace = state.workspaces.find(
+      (item) => item.id === workspaceId
+    );
+    if (!membership || !workspace) {
+      throw new PublicError(404, "WORKSPACE_NOT_FOUND", "工作区不存在");
+    }
+    const principal: Principal = {
+      kind: "session",
+      user,
+      workspace,
+      workspaceId,
+      role: membership.role,
+      scopes: [],
+      session
+    };
+    principalByRequest.set(request, principal);
+    return principal;
   };
+
+  app.addHook("onResponse", async (request) => {
+    const principal = principalByRequest.get(request);
+    if (!principal) return;
+    const timestamp = now();
+    const snapshot = store.snapshot();
+    const sessionDue = principal.session
+      ? (() => {
+          const session = snapshot.sessions.find(
+            (item) => item.id === principal.session!.id
+          );
+          return Boolean(
+            session &&
+              timestamp.getTime() -
+                new Date(session.lastSeenAt).getTime() >=
+                5 * 60 * 1000
+          );
+        })()
+      : false;
+    const tokenDue = principal.apiToken
+      ? (() => {
+          const token = snapshot.apiTokens.find(
+            (item) => item.id === principal.apiToken!.id
+          );
+          return Boolean(
+            token &&
+              (!token.lastUsedAt ||
+                timestamp.getTime() -
+                  new Date(token.lastUsedAt).getTime() >=
+                  5 * 60 * 1000)
+          );
+        })()
+      : false;
+    if (!sessionDue && !tokenDue) return;
+    await store.update((state) => {
+      if (sessionDue && principal.session) {
+        const session = state.sessions.find(
+          (item) => item.id === principal.session!.id
+        );
+        if (
+          session &&
+          timestamp.getTime() -
+            new Date(session.lastSeenAt).getTime() >=
+            5 * 60 * 1000
+        ) {
+          session.lastSeenAt = timestamp.toISOString();
+        }
+      }
+      if (tokenDue && principal.apiToken) {
+        const token = state.apiTokens.find(
+          (item) => item.id === principal.apiToken!.id
+        );
+        if (
+          token &&
+          (!token.lastUsedAt ||
+            timestamp.getTime() -
+              new Date(token.lastUsedAt).getTime() >=
+              5 * 60 * 1000)
+        ) {
+          token.lastUsedAt = timestamp.toISOString();
+        }
+      }
+    });
+  });
 
   app.get("/health", async () => ({
     status: "ok",
     service: "ou-image-api",
-    version: "0.8.0"
+    version: "0.9.0"
   }));
 
   app.get("/setup/status", async () => {
@@ -368,7 +615,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
           defaultStorage: "local",
           theme: request.body.theme ?? "system"
         };
-        state.users.push({
+        const user: StoredUser = {
           id: userId,
           email,
           displayName,
@@ -377,9 +624,14 @@ export async function buildApp(options: BuildAppOptions = {}) {
           theme: request.body.theme ?? "system",
           onboardingCompleted: false,
           failedLoginCount: 0,
+          passwordUpdatedAt: timestamp,
+          notificationPreferences: defaultNotificationPreferences(),
+          notificationReadEventIds: [],
           createdAt: timestamp,
           updatedAt: timestamp
-        });
+        };
+        state.users.push(user);
+        addPersonalWorkspace(state, user);
       });
 
       await createSession(userId, request, reply);
@@ -427,7 +679,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
         if (draft.users.some((user) => user.email === email)) {
           throw new PublicError(409, "EMAIL_EXISTS", "该邮箱已注册");
         }
-        draft.users.push({
+        const user: StoredUser = {
           id: userId,
           email,
           displayName,
@@ -436,9 +688,14 @@ export async function buildApp(options: BuildAppOptions = {}) {
           theme: "system",
           onboardingCompleted: false,
           failedLoginCount: 0,
+          passwordUpdatedAt: timestamp,
+          notificationPreferences: defaultNotificationPreferences(),
+          notificationReadEventIds: [],
           createdAt: timestamp,
           updatedAt: timestamp
-        });
+        };
+        draft.users.push(user);
+        addPersonalWorkspace(draft, user);
       });
       await createSession(userId, request, reply);
       return reply.status(201).send({
@@ -507,13 +764,41 @@ export async function buildApp(options: BuildAppOptions = {}) {
         );
       }
 
+      let challengeToken: string | undefined;
       await store.update((draft) => {
         const current = draft.users.find((item) => item.id === user.id);
         if (!current) return;
         current.failedLoginCount = 0;
         delete current.lockedUntil;
         current.updatedAt = timestamp.toISOString();
+        if (current.totpEnabledAt && current.totpSecretCiphertext) {
+          challengeToken = createOpaqueToken();
+          draft.loginChallenges = draft.loginChallenges.filter(
+            (challenge) =>
+              !(
+                challenge.userId === current.id &&
+                challenge.purpose === "login" &&
+                !challenge.usedAt
+              )
+          );
+          draft.loginChallenges.push({
+            id: randomUUID(),
+            userId: current.id,
+            purpose: "login",
+            tokenHash: hashOpaqueToken(challengeToken),
+            createdAt: timestamp.toISOString(),
+            expiresAt: new Date(
+              timestamp.getTime() + 5 * 60 * 1000
+            ).toISOString()
+          });
+        }
       });
+      if (challengeToken) {
+        return reply.status(202).send({
+          requiresTwoFactor: true,
+          challengeToken
+        });
+      }
       await createSession(user.id, request, reply);
       return { user: publicUser(user) };
     }
@@ -534,8 +819,51 @@ export async function buildApp(options: BuildAppOptions = {}) {
   });
 
   app.get("/auth/session", async (request) => {
-    const { user } = authenticatedUser(request);
-    return { user: publicUser(user) };
+    const principal = authenticatedUser(request);
+    const state = store.snapshot();
+    const workspaces = state.workspaceMembers
+      .filter((membership) => membership.userId === principal.user.id)
+      .map((membership) => {
+        const workspace = state.workspaces.find(
+          (item) => item.id === membership.workspaceId
+        );
+        return workspace
+          ? {
+              id: workspace.id,
+              name: workspace.name,
+              personal: workspace.personal,
+              role: membership.role
+            }
+          : undefined;
+      })
+      .filter(
+        (
+          workspace
+        ): workspace is {
+          id: string;
+          name: string;
+          personal: boolean;
+          role: typeof principal.role;
+        } => Boolean(workspace)
+      );
+    const defaultWorkspace =
+      workspaces.find((workspace) => workspace.personal) ?? workspaces[0];
+    return {
+      user: publicUser(principal.user),
+      workspace: {
+        id: principal.workspace.id,
+        name: principal.workspace.name,
+        role: principal.role
+      },
+      workspaces,
+      defaultWorkspace,
+      authType: principal.kind
+    };
+  });
+
+  app.get("/me", async (request) => {
+    const principal = authenticatedUser(request);
+    return { user: publicUser(principal.user) };
   });
 
   app.post<{ Body: ForgotBody }>(
@@ -633,6 +961,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
         }
         currentReset.usedAt = timestamp.toISOString();
         user.passwordHash = passwordHash;
+        user.passwordUpdatedAt = timestamp.toISOString();
         user.failedLoginCount = 0;
         delete user.lockedUntil;
         user.updatedAt = timestamp.toISOString();
@@ -686,6 +1015,13 @@ export async function buildApp(options: BuildAppOptions = {}) {
     dataDirectory,
     now,
     authenticate: authenticatedUser
+  });
+
+  registerWorkspaceSecurityRoutes(app, {
+    store,
+    now,
+    authenticate: authenticatedUser,
+    createSession
   });
 
   registerInfrastructureRoutes(app, {

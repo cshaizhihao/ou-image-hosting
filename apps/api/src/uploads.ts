@@ -16,6 +16,10 @@ import {
   buildDeliveryUrl,
   canonicalFilePath
 } from "./delivery.js";
+import {
+  requireCapability,
+  type Principal
+} from "./access.js";
 import { PublicError } from "./errors.js";
 import { registerImageDetailRoutes } from "./image-details.js";
 import { registerOrganizationRoutes } from "./organization.js";
@@ -24,8 +28,7 @@ import {
   type AppState,
   type AppStore,
   type StoredImage,
-  type StoredImageVersion,
-  type StoredUser
+  type StoredImageVersion
 } from "./store.js";
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
@@ -51,10 +54,7 @@ type UploadRouteOptions = {
   store: AppStore;
   dataDirectory: string;
   now: () => Date;
-  authenticate: (request: FastifyRequest) => {
-    user: StoredUser;
-    session: { id: string };
-  };
+  authenticate: (request: FastifyRequest) => Principal;
 };
 
 type UrlUploadBody = { url: string };
@@ -73,7 +73,8 @@ type BulkBody = {
 function publicImage(
   image: StoredImage,
   state: AppState,
-  timestamp: Date
+  timestamp: Date,
+  userId?: string
 ) {
   return {
     id: image.id,
@@ -91,7 +92,9 @@ function publicImage(
       timestamp
     ),
     originalUrl: buildDeliveryUrl(state, image.id, "original", timestamp),
-    favorite: image.favorite,
+    favorite: userId
+      ? image.favoriteUserIds.includes(userId)
+      : image.favorite,
     albumIds: image.albumIds,
     tagIds: image.tagIds,
     createdAt: image.createdAt,
@@ -179,7 +182,7 @@ async function readRemoteImage(rawUrl: string) {
       signal: AbortSignal.timeout(10_000),
       headers: {
         accept: "image/avif,image/webp,image/png,image/jpeg,image/gif",
-        "user-agent": "OU-Image-Hosting/0.8.0"
+        "user-agent": "OU-Image-Hosting/0.9.0"
       }
     });
   } catch {
@@ -240,12 +243,12 @@ export async function registerUploadRoutes(
     buffer,
     filename,
     mime,
-    userId
+    principal
   }: {
     buffer: Buffer;
     filename: string;
     mime: string;
-    userId: string;
+    principal: Principal;
   }) => {
     if (buffer.byteLength === 0) {
       throw new PublicError(400, "EMPTY_FILE", "图片文件不能为空");
@@ -286,7 +289,7 @@ export async function registerUploadRoutes(
       .snapshot()
       .images.find(
         (image) =>
-          image.userId === userId &&
+          image.workspaceId === principal.workspaceId &&
           image.sha256 === sha256
       );
     if (existing) {
@@ -300,7 +303,8 @@ export async function registerUploadRoutes(
         image: publicImage(
           { ...existing, deletedAt: undefined },
           store.snapshot(),
-          now()
+          now(),
+          principal.user.id
         ),
         duplicate: true
       };
@@ -354,7 +358,8 @@ export async function registerUploadRoutes(
     };
     const image: StoredImage = {
       id,
-      userId,
+      userId: principal.user.id,
+      workspaceId: principal.workspaceId,
       name: sanitizeFilename(filename),
       size: buffer.byteLength,
       mime: mimeByFormat[typedFormat],
@@ -367,6 +372,7 @@ export async function registerUploadRoutes(
       currentVersionId: originalVersion.id,
       versions: [originalVersion],
       favorite: false,
+      favoriteUserIds: [],
       albumIds: [],
       tagIds: [],
       createdAt: timestamp,
@@ -376,16 +382,24 @@ export async function registerUploadRoutes(
       state.images.push(image);
     });
     return {
-      image: publicImage(image, store.snapshot(), now()),
+      image: publicImage(
+        image,
+        store.snapshot(),
+        now(),
+        principal.user.id
+      ),
       duplicate: false
     };
   };
 
   app.get("/uploads/summary", async (request) => {
-    const { user } = authenticate(request);
+    const principal = authenticate(request);
+    requireCapability(principal, "read", ["analytics:read"]);
     const images = store
       .snapshot()
-      .images.filter((image) => image.userId === user.id);
+      .images.filter(
+        (image) => image.workspaceId === principal.workspaceId
+      );
     return {
       count: images.filter((image) => !image.deletedAt).length,
       bytes: calculateImageStorageBytes(images),
@@ -417,7 +431,8 @@ export async function registerUploadRoutes(
       }
     },
     async (request) => {
-      const { user } = authenticate(request);
+      const principal = authenticate(request);
+      requireCapability(principal, "read", ["images:read"]);
       const page = Math.max(1, Number(request.query.page ?? 1));
       const limit = Math.min(
         100,
@@ -429,7 +444,9 @@ export async function registerUploadRoutes(
       const state = store.snapshot();
       const images = state.images
         .filter((image) => !image.deletedAt)
-        .filter((image) => image.userId === user.id)
+        .filter(
+          (image) => image.workspaceId === principal.workspaceId
+        )
         .filter(
           (image) =>
             !query || image.name.toLocaleLowerCase().includes(query)
@@ -448,7 +465,9 @@ export async function registerUploadRoutes(
       return {
         images: images
           .slice(start, start + limit)
-          .map((image) => publicImage(image, state, now())),
+          .map((image) =>
+            publicImage(image, state, now(), principal.user.id)
+          ),
         page: safePage,
         limit,
         total,
@@ -479,7 +498,8 @@ export async function registerUploadRoutes(
       }
     },
     async (request) => {
-      const { user } = authenticate(request);
+      const principal = authenticate(request);
+      requireCapability(principal, "write", ["images:delete"]);
       const ids = new Set(request.body.ids);
       const timestamp = now().toISOString();
       const updated = await store.update((state) => {
@@ -487,7 +507,7 @@ export async function registerUploadRoutes(
         state.images.forEach((image) => {
           if (
             ids.has(image.id) &&
-            image.userId === user.id &&
+            image.workspaceId === principal.workspaceId &&
             !image.deletedAt
           ) {
             image.deletedAt = timestamp;
@@ -508,7 +528,8 @@ export async function registerUploadRoutes(
       bodyLimit: MAX_FILE_SIZE + 1024 * 1024
     },
     async (request, reply) => {
-      const { user } = authenticate(request);
+      const principal = authenticate(request);
+      requireCapability(principal, "write", ["images:write"]);
       let part;
       try {
         part = await request.file();
@@ -528,7 +549,7 @@ export async function registerUploadRoutes(
         buffer,
         filename: part.filename,
         mime: part.mimetype,
-        userId: user.id
+        principal
       });
       return reply.status(result.duplicate ? 200 : 201).send(result);
     }
@@ -550,11 +571,12 @@ export async function registerUploadRoutes(
       }
     },
     async (request, reply) => {
-      const { user } = authenticate(request);
+      const principal = authenticate(request);
+      requireCapability(principal, "write", ["images:write"]);
       const remote = await readRemoteImage(request.body.url);
       const result = await ingest({
         ...remote,
-        userId: user.id
+        principal
       });
       return reply.status(result.duplicate ? 200 : 201).send(result);
     }

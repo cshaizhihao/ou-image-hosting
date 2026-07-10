@@ -9,10 +9,10 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
 import {
-  assertDeliveryAccess,
-  buildDeliveryUrl,
-  canonicalFilePath
-} from "./delivery.js";
+  requireCapability,
+  type Principal
+} from "./access.js";
+import { buildDeliveryUrl } from "./delivery.js";
 import { PublicError } from "./errors.js";
 import {
   createOpaqueToken,
@@ -24,8 +24,7 @@ import type {
   AppState,
   StoredImage,
   StoredImageShare,
-  StoredImageVersion,
-  StoredUser
+  StoredImageVersion
 } from "./store.js";
 import {
   calculateImageStorageBytes,
@@ -53,10 +52,7 @@ type ImageDetailRouteOptions = {
   dataDirectory: string;
   now: () => Date;
   quotaBytes: number;
-  authenticate: (request: FastifyRequest) => {
-    user: StoredUser;
-    session: { id: string };
-  };
+  authenticate: (request: FastifyRequest) => Principal;
 };
 
 type IdParams = { id: string };
@@ -143,11 +139,28 @@ function publicShare(share: StoredImageShare) {
   };
 }
 
+function visibleShares(
+  state: AppState,
+  imageId: string,
+  principal: Principal
+) {
+  const allowed =
+    principal.kind === "session" ||
+    principal.scopes.includes("shares:read");
+  if (!allowed) return [];
+  return state.imageShares.filter(
+    (share) =>
+      share.imageId === imageId &&
+      share.workspaceId === principal.workspaceId
+  );
+}
+
 function publicDetail(
   image: StoredImage,
   shares: StoredImageShare[],
   state: AppState,
-  timestamp: Date
+  timestamp: Date,
+  userId: string
 ) {
   return {
     id: image.id,
@@ -159,7 +172,7 @@ function publicDetail(
     height: image.height,
     sha256: image.sha256,
     currentVersionId: image.currentVersionId,
-    favorite: image.favorite,
+    favorite: image.favoriteUserIds.includes(userId),
     albumIds: image.albumIds,
     tagIds: image.tagIds,
     createdAt: image.createdAt,
@@ -207,11 +220,14 @@ function storagePath(storageRoot: string, key: string) {
   return target;
 }
 
-function findOwnedImage(store: AppStore, id: string, userId: string) {
+function findOwnedImage(store: AppStore, id: string, workspaceId: string) {
   const image = store
     .snapshot()
     .images.find(
-      (item) => item.id === id && item.userId === userId && !item.deletedAt
+      (item) =>
+        item.id === id &&
+        item.workspaceId === workspaceId &&
+        !item.deletedAt
     );
   if (!image) {
     throw new PublicError(404, "IMAGE_NOT_FOUND", "图片不存在");
@@ -335,13 +351,48 @@ export function registerImageDetailRoutes(
     "/uploads/:id",
     { schema: { params: idParamsSchema } },
     async (request) => {
-      const { user } = authenticate(request);
-      const image = findOwnedImage(store, request.params.id, user.id);
-      const state = store.snapshot();
-      const shares = state.imageShares.filter(
-        (share) => share.imageId === image.id
+      const principal = authenticate(request);
+      requireCapability(principal, "read", ["images:read"]);
+      const image = findOwnedImage(
+        store,
+        request.params.id,
+        principal.workspaceId
       );
-      return { image: publicDetail(image, shares, state, now()) };
+      const state = store.snapshot();
+      return {
+        image: publicDetail(
+          image,
+          visibleShares(state, image.id, principal),
+          state,
+          now(),
+          principal.user.id
+        )
+      };
+    }
+  );
+
+  app.get<{ Params: IdParams }>(
+    "/uploads/:id/shares",
+    { schema: { params: idParamsSchema } },
+    async (request) => {
+      const principal = authenticate(request);
+      requireCapability(principal, "read", ["shares:read"]);
+      const image = findOwnedImage(
+        store,
+        request.params.id,
+        principal.workspaceId
+      );
+      return {
+        shares: store
+          .snapshot()
+          .imageShares.filter(
+            (share) =>
+              share.imageId === image.id &&
+              share.workspaceId === principal.workspaceId
+          )
+          .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+          .map(publicShare)
+      };
     }
   );
 
@@ -361,15 +412,16 @@ export function registerImageDetailRoutes(
       }
     },
     async (request) => {
-      const { user } = authenticate(request);
-      findOwnedImage(store, request.params.id, user.id);
+      const principal = authenticate(request);
+      requireCapability(principal, "write", ["images:write"]);
+      findOwnedImage(store, request.params.id, principal.workspaceId);
       const name = assertImageName(request.body.name);
       const timestamp = now().toISOString();
       const image = await store.update((state) => {
         const current = state.images.find(
           (item) =>
             item.id === request.params.id &&
-            item.userId === user.id &&
+            item.workspaceId === principal.workspaceId &&
             !item.deletedAt
         );
         if (!current) {
@@ -383,9 +435,10 @@ export function registerImageDetailRoutes(
       return {
         image: publicDetail(
           image,
-          state.imageShares.filter((share) => share.imageId === image.id),
+          visibleShares(state, image.id, principal),
           state,
-          now()
+          now(),
+          principal.user.id
         )
       };
     }
@@ -419,8 +472,13 @@ export function registerImageDetailRoutes(
       }
     },
     async (request, reply) => {
-      const { user } = authenticate(request);
-      const image = findOwnedImage(store, request.params.id, user.id);
+      const principal = authenticate(request);
+      requireCapability(principal, "write", ["images:write"]);
+      const image = findOwnedImage(
+        store,
+        request.params.id,
+        principal.workspaceId
+      );
       const input = await readFile(storagePath(storageRoot, image.originalKey));
       let transformed;
       try {
@@ -474,7 +532,9 @@ export function registerImageDetailRoutes(
       const updated = await store.update((state) => {
         const current = state.images.find(
           (item) =>
-            item.id === image.id && item.userId === user.id && !item.deletedAt
+            item.id === image.id &&
+            item.workspaceId === principal.workspaceId &&
+            !item.deletedAt
         );
         if (!current) {
           throw new PublicError(404, "IMAGE_NOT_FOUND", "图片不存在");
@@ -499,9 +559,10 @@ export function registerImageDetailRoutes(
       return reply.status(201).send({
         image: publicDetail(
           updated,
-          state.imageShares.filter((share) => share.imageId === updated.id),
+          visibleShares(state, updated.id, principal),
           state,
-          now()
+          now(),
+          principal.user.id
         ),
         version: publicVersion(updated.id, version, state, now())
       });
@@ -524,8 +585,13 @@ export function registerImageDetailRoutes(
       }
     },
     async (request, reply) => {
-      const { user } = authenticate(request);
-      const image = findOwnedImage(store, request.params.id, user.id);
+      const principal = authenticate(request);
+      requireCapability(principal, "write", ["images:write"]);
+      const image = findOwnedImage(
+        store,
+        request.params.id,
+        principal.workspaceId
+      );
       const source = image.versions.find(
         (version) => version.id === request.params.versionId
       );
@@ -543,7 +609,9 @@ export function registerImageDetailRoutes(
       const updated = await store.update((state) => {
         const current = state.images.find(
           (item) =>
-            item.id === image.id && item.userId === user.id && !item.deletedAt
+            item.id === image.id &&
+            item.workspaceId === principal.workspaceId &&
+            !item.deletedAt
         );
         if (!current) {
           throw new PublicError(404, "IMAGE_NOT_FOUND", "图片不存在");
@@ -566,9 +634,10 @@ export function registerImageDetailRoutes(
       return reply.status(201).send({
         image: publicDetail(
           updated,
-          state.imageShares.filter((share) => share.imageId === updated.id),
+          visibleShares(state, updated.id, principal),
           state,
-          now()
+          now(),
+          principal.user.id
         ),
         version: publicVersion(updated.id, restored, state, now())
       });
@@ -605,9 +674,14 @@ export function registerImageDetailRoutes(
       }
     },
     async (request, reply) => {
+      const principal = authenticate(request);
+      requireCapability(principal, "read", ["images:read"]);
       const state = store.snapshot();
       const image = state.images.find(
-        (item) => item.id === request.params.id && !item.deletedAt
+        (item) =>
+          item.id === request.params.id &&
+          item.workspaceId === principal.workspaceId &&
+          !item.deletedAt
       );
       const version = image?.versions.find(
         (item) => item.id === request.params.versionId
@@ -615,15 +689,6 @@ export function registerImageDetailRoutes(
       if (!image || !version) {
         throw new PublicError(404, "VERSION_NOT_FOUND", "图片版本不存在");
       }
-      assertDeliveryAccess(
-        request,
-        state,
-        canonicalFilePath(
-          image.id,
-          `versions/${request.params.versionId}`
-        ),
-        now()
-      );
       return sendImage(
         reply,
         storagePath(storageRoot, version.originalKey),
@@ -654,14 +719,20 @@ export function registerImageDetailRoutes(
       }
     },
     async (request, reply) => {
-      const { user } = authenticate(request);
-      const image = findOwnedImage(store, request.params.id, user.id);
+      const principal = authenticate(request);
+      requireCapability(principal, "write", ["shares:write"]);
+      const image = findOwnedImage(
+        store,
+        request.params.id,
+        principal.workspaceId
+      );
       const token = createOpaqueToken();
       const timestamp = now();
       const share: StoredImageShare = {
         id: randomUUID(),
         imageId: image.id,
-        userId: user.id,
+        userId: principal.user.id,
+        workspaceId: principal.workspaceId,
         tokenHash: hashOpaqueToken(token),
         passwordHash: request.body.password
           ? await hashPassword(request.body.password)
@@ -701,15 +772,16 @@ export function registerImageDetailRoutes(
       }
     },
     async (request, reply) => {
-      const { user } = authenticate(request);
-      findOwnedImage(store, request.params.id, user.id);
+      const principal = authenticate(request);
+      requireCapability(principal, "write", ["shares:write"]);
+      findOwnedImage(store, request.params.id, principal.workspaceId);
       const timestamp = now().toISOString();
       await store.update((state) => {
         const share = state.imageShares.find(
           (item) =>
             item.id === request.params.shareId &&
             item.imageId === request.params.id &&
-            item.userId === user.id
+            item.workspaceId === principal.workspaceId
         );
         if (!share) {
           throw new PublicError(404, "SHARE_NOT_FOUND", "分享链接不存在");

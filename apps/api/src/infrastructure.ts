@@ -24,17 +24,24 @@ import {
 import path from "node:path";
 import { promisify } from "node:util";
 import { gunzip, gzip } from "node:zlib";
+import {
+  requireSession,
+  type Principal
+} from "./access.js";
 import { PublicError } from "./errors.js";
-import type {
-  AppState,
-  AppStore,
-  BackupSettings,
-  RemoteStorageSettings,
-  StorageProvider,
-  StoredBackup,
-  StoredStorageMigration,
-  StoredUser
+import {
+  migrateAppState,
+  type AppState,
+  type AppStore,
+  type BackupSettings,
+  type RemoteStorageSettings,
+  type StorageProvider,
+  type StoredBackup,
+  type StoredStorageMigration
 } from "./store.js";
+type LegacyBackupState = Omit<Partial<AppState>, "schemaVersion"> & {
+  schemaVersion: number;
+};
 
 const gzipAsync = promisify(gzip);
 const gunzipAsync = promisify(gunzip);
@@ -43,10 +50,7 @@ type InfrastructureOptions = {
   store: AppStore;
   dataDirectory: string;
   now: () => Date;
-  authenticate: (request: FastifyRequest) => {
-    user: StoredUser;
-    session: { id: string };
-  };
+  authenticate: (request: FastifyRequest) => Principal;
 };
 
 type RemoteInput = {
@@ -112,7 +116,7 @@ type BackupEnvelope = {
       sha256: string;
     }>;
   };
-  state: AppState;
+  state: LegacyBackupState;
   files: Array<{
     path: string;
     contentBase64: string;
@@ -151,11 +155,12 @@ function requireOwner(
   request: FastifyRequest,
   authenticate: InfrastructureOptions["authenticate"]
 ) {
-  const authenticated = authenticate(request);
-  if (authenticated.user.role !== "owner") {
+  const principal = authenticate(request);
+  requireSession(principal);
+  if (principal.user.role !== "owner") {
     throw new PublicError(403, "OWNER_REQUIRED", "仅站点所有者可执行该操作");
   }
-  return authenticated;
+  return principal;
 }
 
 function secretKey() {
@@ -1164,7 +1169,7 @@ export function registerInfrastructureRoutes(
       const stateJson = JSON.stringify(envelope.state);
       if (
         envelope.format !== "ou-image-backup-v1" ||
-        envelope.state.schemaVersion !== 5 ||
+        ![5, 6].includes(envelope.state.schemaVersion) ||
         sha256(stateJson) !== envelope.manifest.stateSha256 ||
         envelope.files.length !== envelope.manifest.files.length
       ) {
@@ -1223,11 +1228,11 @@ export function registerInfrastructureRoutes(
         await mkdir(path.dirname(target), { recursive: true });
         await writeFile(target, content, { mode: 0o600 });
       }
+      const migratedState = migrateAppState(envelope.state);
       await store.update((draft) => {
         const backups = draft.backups;
         const migrations = draft.storageMigrations;
-        Object.assign(draft, structuredClone(envelope.state));
-        draft.schemaVersion = 5;
+        Object.assign(draft, migratedState);
         draft.backups = backups;
         draft.storageMigrations = migrations;
       });

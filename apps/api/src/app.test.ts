@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import FormData from "form-data";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   access,
   mkdtemp,
@@ -13,12 +13,28 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
 import sharp from "sharp";
-import { buildApp } from "./app.js";
+import { buildApp, redactCapabilityUrl } from "./app.js";
+import {
+  isIpAllowed,
+  normalizeIpAllowlist,
+  sanitizeAuditMetadata
+} from "./access.js";
+import {
+  hashOpaqueToken,
+  hashPassword,
+  totpAt
+} from "./security.js";
 import { AppStore } from "./store.js";
 
 const apps: Awaited<ReturnType<typeof buildApp>>[] = [];
+const rawInjectors = new WeakMap<
+  Awaited<ReturnType<typeof buildApp>>,
+  (request: any) => Promise<any>
+>();
 const temporaryDirectories: string[] = [];
 const initialSecretKey = process.env.OU_SECRET_KEY;
+const initialTrustProxy = process.env.TRUST_PROXY;
+const initialTrustProxyAddresses = process.env.TRUST_PROXY_ADDRESSES;
 
 async function createTestApp(
   options: {
@@ -38,8 +54,37 @@ async function createTestApp(
     exposeDevelopmentResetToken: true,
     now: options.now
   });
+  const inject = app.inject.bind(app) as (request: any) => Promise<any>;
+  rawInjectors.set(app, inject);
+  app.inject = ((requestOptions: any) => {
+    if (
+      typeof requestOptions === "object" &&
+      requestOptions !== null &&
+      ["POST", "PUT", "PATCH", "DELETE"].includes(
+        String(requestOptions.method ?? "GET").toUpperCase()
+      ) &&
+      requestOptions.cookies?.ou_session &&
+      !requestOptions.headers?.origin
+    ) {
+      return inject({
+        ...requestOptions,
+        headers: {
+          ...requestOptions.headers,
+          origin: "http://localhost:3000"
+        }
+      });
+    }
+    return inject(requestOptions);
+  }) as any;
   apps.push(app);
   return app;
+}
+
+function rawInject(
+  app: Awaited<ReturnType<typeof buildApp>>,
+  request: any
+) {
+  return rawInjectors.get(app)!(request);
 }
 
 afterEach(async () => {
@@ -48,6 +93,13 @@ afterEach(async () => {
     delete process.env.OU_SECRET_KEY;
   } else {
     process.env.OU_SECRET_KEY = initialSecretKey;
+  }
+  if (initialTrustProxy === undefined) delete process.env.TRUST_PROXY;
+  else process.env.TRUST_PROXY = initialTrustProxy;
+  if (initialTrustProxyAddresses === undefined) {
+    delete process.env.TRUST_PROXY_ADDRESSES;
+  } else {
+    process.env.TRUST_PROXY_ADDRESSES = initialTrustProxyAddresses;
   }
   await Promise.all(apps.splice(0).map((app) => app.close()));
   await Promise.all(
@@ -71,7 +123,7 @@ describe("OU-Image API", () => {
     const status = await app.inject({ method: "GET", url: "/setup/status" });
 
     expect(health.statusCode).toBe(200);
-    expect(health.json()).toMatchObject({ status: "ok", version: "0.8.0" });
+    expect(health.json()).toMatchObject({ status: "ok", version: "0.9.0" });
     expect(status.json()).toEqual({ setupComplete: false, site: null });
   });
 
@@ -414,7 +466,7 @@ describe("OU-Image API", () => {
     expect(summary.json().count).toBe(1);
   });
 
-  it("migrates schema v4 into infrastructure schema v5", async () => {
+  it("migrates schema v4 into workspace schema v6", async () => {
     const dataDirectory = await mkdtemp(
       path.join(tmpdir(), "ou-image-store-migration-")
     );
@@ -473,13 +525,15 @@ describe("OU-Image API", () => {
     const store = new AppStore(filePath);
     await store.initialize();
     const state = store.snapshot();
-    expect(state.schemaVersion).toBe(5);
+    expect(state.schemaVersion).toBe(6);
     expect(state.imageShares).toEqual([]);
     expect(state.albums).toEqual([]);
     expect(state.tags).toEqual([]);
     expect(state.images[0]).toMatchObject({
       currentVersionId: "legacy-version",
       favorite: true,
+      favoriteUserIds: ["legacy-user"],
+      workspaceId: "personal-legacy-user",
       albumIds: [],
       tagIds: [],
       updatedAt: "2026-01-01T00:00:00.000Z",
@@ -508,6 +562,8 @@ describe("OU-Image API", () => {
     });
     expect(state.backups).toEqual([]);
     expect(state.storageMigrations).toEqual([]);
+    expect(state.workspaces).toEqual([]);
+    expect(state.workspaceMembers).toEqual([]);
   });
 
   it("renames, transforms and restores image versions", async () => {
@@ -661,7 +717,8 @@ describe("OU-Image API", () => {
 
     const historicalFile = await app.inject({
       method: "GET",
-      url: detail.json().image.versions[1].originalUrl.replace("/api", "")
+      url: detail.json().image.versions[1].originalUrl.replace("/api", ""),
+      cookies
     });
     expect(historicalFile.statusCode).toBe(200);
     expect(historicalFile.headers["content-type"]).toContain("image/webp");
@@ -1217,10 +1274,16 @@ describe("OU-Image API", () => {
     });
     const hiddenHistoricalFile = await app.inject({
       method: "GET",
+      url: `/files/${imageId}/versions/${trashedVersionId}`,
+      cookies
+    });
+    const unauthenticatedHistoricalFile = await app.inject({
+      method: "GET",
       url: `/files/${imageId}/versions/${trashedVersionId}`
     });
     expect(hiddenCurrentFile.statusCode).toBe(404);
     expect(hiddenHistoricalFile.statusCode).toBe(404);
+    expect(unauthenticatedHistoricalFile.statusCode).toBe(401);
     const trash = await app.inject({
       method: "GET",
       url: "/trash",
@@ -1802,7 +1865,7 @@ describe("OU-Image API", () => {
     );
     expect(envelope).toMatchObject({
       format: "ou-image-backup-v1",
-      state: { schemaVersion: 5 }
+      state: { schemaVersion: 6 }
     });
     expect(envelope.manifest.files).toHaveLength(2);
 
@@ -1879,5 +1942,1317 @@ describe("OU-Image API", () => {
     });
     expect(removed.statusCode).toBe(204);
     expect(backups.json()).toEqual({ backups: [] });
+  });
+
+  it("enforces browser origins while allowing originless bearer automation", async () => {
+    const app = await createTestApp();
+    const setup = await app.inject({
+      method: "POST",
+      url: "/setup",
+      payload: owner
+    });
+    const cookie = setup.cookies.find((item) => item.name === "ou_session")!;
+    const cookieHeader = `ou_session=${cookie.value}`;
+
+    const missing = await rawInject(app, {
+      method: "PATCH",
+      url: "/me",
+      headers: { cookie: cookieHeader },
+      payload: { theme: "dark" }
+    });
+    const mismatched = await rawInject(app, {
+      method: "PATCH",
+      url: "/me",
+      headers: {
+        cookie: cookieHeader,
+        origin: "https://evil.example"
+      },
+      payload: { theme: "dark" }
+    });
+    const valid = await rawInject(app, {
+      method: "PATCH",
+      url: "/me",
+      headers: {
+        cookie: cookieHeader,
+        origin: "http://localhost:3000"
+      },
+      payload: { theme: "dark" }
+    });
+    expect(missing.statusCode).toBe(403);
+    expect(missing.json().error.code).toBe("INVALID_ORIGIN");
+    expect(mismatched.statusCode).toBe(403);
+    expect(valid.statusCode).toBe(200);
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api-tokens",
+      cookies: { ou_session: cookie.value },
+      payload: {
+        name: "automation",
+        scopes: ["organization:write"]
+      }
+    });
+    const bearer = created.json().value as string;
+    const bearerWrite = await rawInject(app, {
+      method: "POST",
+      url: "/tags",
+      headers: { authorization: `Bearer ${bearer}` },
+      payload: { name: "CI", color: "#112233" }
+    });
+    expect(bearerWrite.statusCode).toBe(201);
+  });
+
+  it("redacts capability URLs and centrally sanitizes audit metadata", () => {
+    expect(
+      redactCapabilityUrl(
+        "/shares/super-secret-token/access?x=1&next=/invites/another-token"
+      )
+    ).toBe(
+      "/shares/[REDACTED]/access?x=1&next=/invites/[REDACTED]"
+    );
+    const sanitized = sanitizeAuditMetadata({
+      operation: "member.update",
+      token: "never-store-me",
+      recoveryCode: "never-store-me",
+      description: "x".repeat(500),
+      count: 2
+    });
+    expect(sanitized).toEqual({
+      operation: "member.update",
+      description: "x".repeat(200),
+      count: 2
+    });
+  });
+
+  it("isolates workspace resources and enforces the RBAC matrix", async () => {
+    const store = new AppStore(null);
+    const app = await createTestApp({ store });
+    const setup = await app.inject({
+      method: "POST",
+      url: "/setup",
+      payload: owner
+    });
+    const ownerCookie = setup.cookies.find(
+      (item) => item.name === "ou_session"
+    )!.value;
+    const firstWorkspace = await app.inject({
+      method: "POST",
+      url: "/workspaces",
+      cookies: { ou_session: ownerCookie },
+      payload: { name: "Alpha" }
+    });
+    const secondWorkspace = await app.inject({
+      method: "POST",
+      url: "/workspaces",
+      cookies: { ou_session: ownerCookie },
+      payload: { name: "Beta" }
+    });
+    const alphaId = firstWorkspace.json().workspace.id as string;
+    const betaId = secondWorkspace.json().workspace.id as string;
+    const png = await sharp({
+      create: {
+        width: 4,
+        height: 4,
+        channels: 3,
+        background: "#778899"
+      }
+    })
+      .png()
+      .toBuffer();
+    const form = new FormData();
+    form.append("file", png, {
+      filename: "beta.png",
+      contentType: "image/png"
+    });
+    const upload = await app.inject({
+      method: "POST",
+      url: "/uploads",
+      headers: { ...form.getHeaders(), "x-workspace-id": betaId },
+      cookies: { ou_session: ownerCookie },
+      payload: form.getBuffer()
+    });
+    const imageId = upload.json().image.id as string;
+    const crossWorkspace = await app.inject({
+      method: "GET",
+      url: `/uploads/${imageId}`,
+      headers: { "x-workspace-id": alphaId },
+      cookies: { ou_session: ownerCookie }
+    });
+    expect(crossWorkspace.statusCode).toBe(404);
+
+    const timestamp = new Date().toISOString();
+    const passwordHash = await hashPassword("Secure-Password-2026!");
+    const viewerId = randomUUID();
+    const editorId = randomUUID();
+    const adminId = randomUUID();
+    const secondAdminId = randomUUID();
+    const sessions = [
+      ["viewer-token", viewerId, "viewer"],
+      ["editor-token", editorId, "editor"],
+      ["admin-token", adminId, "admin"],
+      ["admin-two-token", secondAdminId, "admin"]
+    ] as const;
+    await store.update((state) => {
+      for (const [token, userId, role] of sessions) {
+        state.users.push({
+          id: userId,
+          email: `${role}-${userId}@example.com`,
+          displayName: role,
+          passwordHash,
+          role: "member",
+          theme: "system",
+          onboardingCompleted: true,
+          failedLoginCount: 0,
+          createdAt: timestamp,
+          updatedAt: timestamp
+        });
+        state.workspaceMembers.push({
+          id: randomUUID(),
+          workspaceId: alphaId,
+          userId,
+          role,
+          createdAt: timestamp,
+          updatedAt: timestamp
+        });
+        state.sessions.push({
+          id: randomUUID(),
+          userId,
+          tokenHash: hashOpaqueToken(token),
+          createdAt: timestamp,
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          lastSeenAt: timestamp
+        });
+      }
+    });
+
+    for (const token of ["viewer-token", "editor-token"]) {
+      const denied = await app.inject({
+        method: "GET",
+        url: `/workspaces/${alphaId}/members`,
+        headers: { "x-workspace-id": alphaId },
+        cookies: { ou_session: token }
+      });
+      expect(denied.statusCode).toBe(403);
+    }
+    const ownerId = store.snapshot().workspaces.find(
+      (item) => item.id === alphaId
+    )!.ownerUserId;
+    for (const targetId of [ownerId, secondAdminId]) {
+      const changed = await app.inject({
+        method: "PATCH",
+        url: `/workspaces/${alphaId}/members/${targetId}`,
+        headers: { "x-workspace-id": alphaId },
+        cookies: { ou_session: "admin-token" },
+        payload: { role: "viewer" }
+      });
+      const removed = await app.inject({
+        method: "DELETE",
+        url: `/workspaces/${alphaId}/members/${targetId}`,
+        headers: { "x-workspace-id": alphaId },
+        cookies: { ou_session: "admin-token" }
+      });
+      expect(changed.statusCode).toBe(403);
+      expect(removed.statusCode).toBe(403);
+    }
+    const selfDowngrade = await app.inject({
+      method: "PATCH",
+      url: `/workspaces/${alphaId}/members/${ownerId}`,
+      headers: { "x-workspace-id": alphaId },
+      cookies: { ou_session: ownerCookie },
+      payload: { role: "admin" }
+    });
+    expect(selfDowngrade.statusCode).toBe(400);
+    expect(selfDowngrade.json().error.code).toBe("SOLE_OWNER_REQUIRED");
+  });
+
+  it("returns 404 for management IDORs and audits critical revocations", async () => {
+    const store = new AppStore(null);
+    const app = await createTestApp({ store });
+    const setup = await app.inject({
+      method: "POST",
+      url: "/setup",
+      payload: { ...owner, registrationEnabled: true }
+    });
+    const ownerCookie = setup.cookies.find(
+      (item) => item.name === "ou_session"
+    )!.value;
+    const alpha = await app.inject({
+      method: "POST",
+      url: "/workspaces",
+      cookies: { ou_session: ownerCookie },
+      payload: { name: "Audit Alpha" }
+    });
+    const beta = await app.inject({
+      method: "POST",
+      url: "/workspaces",
+      cookies: { ou_session: ownerCookie },
+      payload: { name: "Audit Beta" }
+    });
+    const disposable = await app.inject({
+      method: "POST",
+      url: "/workspaces",
+      cookies: { ou_session: ownerCookie },
+      payload: { name: "Disposable" }
+    });
+    const alphaId = alpha.json().workspace.id as string;
+    const betaId = beta.json().workspace.id as string;
+    const disposableId = disposable.json().workspace.id as string;
+
+    const acceptedInvite = await app.inject({
+      method: "POST",
+      url: `/workspaces/${alphaId}/invitations`,
+      headers: { "x-workspace-id": alphaId },
+      cookies: { ou_session: ownerCookie },
+      payload: { email: "invitee@example.com", role: "viewer" }
+    });
+    const invitee = await app.inject({
+      method: "POST",
+      url: "/auth/register",
+      payload: {
+        displayName: "Invitee",
+        email: "invitee@example.com",
+        password: "Invitee-Password-2026!"
+      }
+    });
+    const inviteeCookie = invitee.cookies.find(
+      (item) => item.name === "ou_session"
+    )!.value;
+    const accepted = await app.inject({
+      method: "POST",
+      url: `/invites/${acceptedInvite.json().token}/accept`,
+      cookies: { ou_session: inviteeCookie }
+    });
+    expect(accepted.statusCode).toBe(200);
+
+    const revokedInvite = await app.inject({
+      method: "POST",
+      url: `/workspaces/${alphaId}/invitations`,
+      headers: { "x-workspace-id": alphaId },
+      cookies: { ou_session: ownerCookie },
+      payload: { email: "revoked@example.com", role: "editor" }
+    });
+    const revokeInvite = await app.inject({
+      method: "DELETE",
+      url:
+        `/workspaces/${alphaId}/invitations/` +
+        revokedInvite.json().invitation.id,
+      headers: { "x-workspace-id": alphaId },
+      cookies: { ou_session: ownerCookie }
+    });
+    expect(revokeInvite.statusCode).toBe(204);
+
+    const alphaToken = await app.inject({
+      method: "POST",
+      url: "/api-tokens",
+      headers: { "x-workspace-id": alphaId },
+      cookies: { ou_session: ownerCookie },
+      payload: { name: "alpha-token", scopes: ["images:read"] }
+    });
+    const revokeToken = await app.inject({
+      method: "DELETE",
+      url: `/api-tokens/${alphaToken.json().token.id}`,
+      headers: { "x-workspace-id": alphaId },
+      cookies: { ou_session: ownerCookie }
+    });
+    expect(revokeToken.statusCode).toBe(204);
+
+    const secondLogin = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: { email: owner.email, password: owner.password }
+    });
+    expect(secondLogin.statusCode).toBe(200);
+    const sessionList = await app.inject({
+      method: "GET",
+      url: "/auth/sessions",
+      cookies: { ou_session: ownerCookie }
+    });
+    const otherSessionId = sessionList
+      .json()
+      .sessions.find((session: { current: boolean }) => !session.current).id;
+    const revokeSession = await app.inject({
+      method: "DELETE",
+      url: `/auth/sessions/${otherSessionId}`,
+      cookies: { ou_session: ownerCookie }
+    });
+    expect(revokeSession.statusCode).toBe(204);
+    await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: { email: owner.email, password: owner.password }
+    });
+    const revokeOthers = await app.inject({
+      method: "DELETE",
+      url: "/auth/sessions",
+      cookies: { ou_session: ownerCookie }
+    });
+    expect(revokeOthers.statusCode).toBe(204);
+
+    const foreignUserId = randomUUID();
+    const foreignSessionId = randomUUID();
+    const timestamp = new Date().toISOString();
+    const passwordHash = await hashPassword("Foreign-Password-2026!");
+    await store.update((state) => {
+      state.users.push({
+        id: foreignUserId,
+        email: "foreign@example.com",
+        displayName: "Foreign",
+        passwordHash,
+        role: "member",
+        theme: "system",
+        onboardingCompleted: true,
+        failedLoginCount: 0,
+        createdAt: timestamp,
+        updatedAt: timestamp
+      });
+      state.workspaceMembers.push({
+        id: randomUUID(),
+        workspaceId: betaId,
+        userId: foreignUserId,
+        role: "viewer",
+        createdAt: timestamp,
+        updatedAt: timestamp
+      });
+      state.sessions.push({
+        id: foreignSessionId,
+        userId: foreignUserId,
+        tokenHash: hashOpaqueToken("foreign-session"),
+        createdAt: timestamp,
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        lastSeenAt: timestamp
+      });
+    });
+    const betaInvite = await app.inject({
+      method: "POST",
+      url: `/workspaces/${betaId}/invitations`,
+      headers: { "x-workspace-id": betaId },
+      cookies: { ou_session: ownerCookie },
+      payload: { email: "beta@example.com", role: "viewer" }
+    });
+    const betaToken = await app.inject({
+      method: "POST",
+      url: "/api-tokens",
+      headers: { "x-workspace-id": betaId },
+      cookies: { ou_session: ownerCookie },
+      payload: { name: "beta-token", scopes: ["images:read"] }
+    });
+    const idorResponses = await Promise.all([
+      app.inject({
+        method: "DELETE",
+        url: `/workspaces/${alphaId}/members/${foreignUserId}`,
+        headers: { "x-workspace-id": alphaId },
+        cookies: { ou_session: ownerCookie }
+      }),
+      app.inject({
+        method: "DELETE",
+        url:
+          `/workspaces/${alphaId}/invitations/` +
+          betaInvite.json().invitation.id,
+        headers: { "x-workspace-id": alphaId },
+        cookies: { ou_session: ownerCookie }
+      }),
+      app.inject({
+        method: "DELETE",
+        url: `/api-tokens/${betaToken.json().token.id}`,
+        headers: { "x-workspace-id": alphaId },
+        cookies: { ou_session: ownerCookie }
+      }),
+      app.inject({
+        method: "DELETE",
+        url: `/auth/sessions/${foreignSessionId}`,
+        cookies: { ou_session: ownerCookie }
+      })
+    ]);
+    expect(idorResponses.map((response) => response.statusCode)).toEqual([
+      404,
+      404,
+      404,
+      404
+    ]);
+
+    const deleteWorkspace = await app.inject({
+      method: "DELETE",
+      url: `/workspaces/${disposableId}`,
+      headers: { "x-workspace-id": disposableId },
+      cookies: { ou_session: ownerCookie }
+    });
+    expect(deleteWorkspace.statusCode).toBe(204);
+    const events = store.snapshot().auditEvents;
+    const actions = new Set(events.map((event) => event.action));
+    for (const action of [
+      "workspace.delete",
+      "invitation.revoke",
+      "invitation.accept",
+      "api_token.revoke",
+      "session.revoke",
+      "session.revoke_others"
+    ]) {
+      expect(actions.has(action)).toBe(true);
+    }
+    const serialized = JSON.stringify(events);
+    expect(serialized).not.toContain(acceptedInvite.json().token);
+    expect(serialized).not.toContain(alphaToken.json().value);
+    expect(serialized).not.toContain(owner.password);
+  });
+
+  it("enforces strict bearer priority and exact API token scopes", async () => {
+    const store = new AppStore(null);
+    const app = await createTestApp({ store });
+    const setup = await app.inject({
+      method: "POST",
+      url: "/setup",
+      payload: owner
+    });
+    const cookie = setup.cookies.find((item) => item.name === "ou_session")!;
+    const tokens = new Map<string, string>();
+    for (const [name, scope] of [
+      ["organization-write", "organization:write"],
+      ["images-write", "images:write"],
+      ["shares-write", "shares:write"],
+      ["images-read", "images:read"],
+      ["expired", "images:read"]
+    ] as const) {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api-tokens",
+        cookies: { ou_session: cookie.value },
+        payload: { name, scopes: [scope] }
+      });
+      tokens.set(name, response.json().value);
+    }
+    const scopeCases = [
+      {
+        token: tokens.get("organization-write")!,
+        method: "GET",
+        url: "/albums"
+      },
+      {
+        token: tokens.get("images-write")!,
+        method: "POST",
+        url: "/uploads/bulk",
+        payload: { ids: ["missing"], action: "trash" }
+      },
+      {
+        token: tokens.get("shares-write")!,
+        method: "GET",
+        url: "/uploads/missing/shares"
+      }
+    ] as const;
+    for (const item of scopeCases) {
+      const response = await rawInject(app, {
+        method: item.method,
+        url: item.url,
+        headers: { authorization: `Bearer ${item.token}` },
+        payload: "payload" in item ? item.payload : undefined
+      });
+      expect(response.statusCode).toBe(403);
+      expect(response.json().error.code).toBe("TOKEN_SCOPE_DENIED");
+    }
+    const management = await rawInject(app, {
+      method: "GET",
+      url: "/api-tokens",
+      headers: {
+        authorization: `Bearer ${tokens.get("images-read")!}`
+      }
+    });
+    expect(management.statusCode).toBe(403);
+    expect(management.json().error.code).toBe("API_TOKEN_RESTRICTED");
+    const unknown = await rawInject(app, {
+      method: "GET",
+      url: "/uploads",
+      headers: {
+        authorization:
+          "Bearer ouh_aaaaaaaaaaaa_unknown-secret-value"
+      }
+    });
+    expect(unknown.statusCode).toBe(401);
+    expect(unknown.json().error.code).toBe("INVALID_API_TOKEN");
+    const workspaceMismatch = await rawInject(app, {
+      method: "POST",
+      url: "/tags",
+      headers: {
+        authorization: `Bearer ${tokens.get("organization-write")!}`,
+        "x-workspace-id": "another-workspace"
+      },
+      payload: { name: "Mismatch", color: "#334455" }
+    });
+    expect(workspaceMismatch.statusCode).toBe(403);
+    expect(workspaceMismatch.json().error.code).toBe(
+      "TOKEN_WORKSPACE_MISMATCH"
+    );
+    const malformedWithCookie = await rawInject(app, {
+      method: "GET",
+      url: "/uploads",
+      headers: {
+        authorization: "Bearer invalid",
+        cookie: `ou_session=${cookie.value}`
+      }
+    });
+    expect(malformedWithCookie.statusCode).toBe(401);
+    expect(malformedWithCookie.json().error.code).toBe("INVALID_API_TOKEN");
+
+    const expiredRecord = store.snapshot().apiTokens.find(
+      (item) => item.name === "expired"
+    )!;
+    await store.update((state) => {
+      state.apiTokens.find((item) => item.id === expiredRecord.id)!.expiresAt =
+        new Date(Date.now() - 60_000).toISOString();
+    });
+    const expired = await rawInject(app, {
+      method: "GET",
+      url: "/uploads",
+      headers: {
+        authorization: `Bearer ${tokens.get("expired")!}`
+      }
+    });
+    expect(expired.statusCode).toBe(401);
+    expect(expired.json().error.code).toBe("INVALID_API_TOKEN");
+
+    const tokenRecord = store.snapshot().apiTokens.find(
+      (item) => item.name === "images-read"
+    )!;
+    await store.update((state) => {
+      state.apiTokens.find((item) => item.id === tokenRecord.id)!.revokedAt =
+        new Date().toISOString();
+    });
+    const revoked = await rawInject(app, {
+      method: "GET",
+      url: "/uploads",
+      headers: {
+        authorization: `Bearer ${tokens.get("images-read")!}`
+      }
+    });
+    expect(revoked.statusCode).toBe(401);
+  });
+
+  it("normalizes IP allowlists and only trusts explicitly configured proxies", async () => {
+    expect(
+      normalizeIpAllowlist([
+        "2001:0db8:0000:0000:0000:0000:0000:0000/64",
+        "::/0",
+        "2001:db8::1/128",
+        "::ffff:192.0.2.0/120",
+        "::ffff:c000:201"
+      ])
+    ).toEqual([
+      "2001:db8::/64",
+      "::/0",
+      "2001:db8::1/128",
+      "192.0.2.0/24",
+      "192.0.2.1"
+    ]);
+    expect(isIpAllowed("2001:db8::abcd", ["2001:db8::/64"])).toBe(true);
+    expect(isIpAllowed("2001:db9::1", ["2001:db8::/64"])).toBe(false);
+    for (const invalid of [
+      "999.1.1.1",
+      "127.0.0.1/24",
+      "2001:db8::1/64",
+      "2001:db8::/129",
+      "::ffff:192.0.2.0/95"
+    ]) {
+      expect(() => normalizeIpAllowlist([invalid])).toThrow();
+    }
+
+    delete process.env.TRUST_PROXY;
+    delete process.env.TRUST_PROXY_ADDRESSES;
+    const directApp = await createTestApp();
+    const setup = await directApp.inject({
+      method: "POST",
+      url: "/setup",
+      payload: owner
+    });
+    const cookie = setup.cookies.find(
+      (item) => item.name === "ou_session"
+    )!.value;
+    const cidrToken = await directApp.inject({
+      method: "POST",
+      url: "/api-tokens",
+      cookies: { ou_session: cookie },
+      payload: {
+        name: "cidr-restricted",
+        scopes: ["images:read"],
+        ipAllowlist: ["10.0.0.0/8"]
+      }
+    });
+    expect(cidrToken.json().token.ipAllowlist).toEqual(["10.0.0.0/8"]);
+    const invalidAllowlist = await directApp.inject({
+      method: "POST",
+      url: "/api-tokens",
+      cookies: { ou_session: cookie },
+      payload: {
+        name: "invalid-restricted",
+        scopes: ["images:read"],
+        ipAllowlist: ["2001:db8::1/64"]
+      }
+    });
+    expect(invalidAllowlist.statusCode).toBe(400);
+    expect(invalidAllowlist.json().error.code).toBe(
+      "INVALID_IP_ALLOWLIST"
+    );
+    const forgedWithoutProxy = await rawInject(directApp, {
+      method: "GET",
+      url: "/uploads",
+      remoteAddress: "127.0.0.1",
+      headers: {
+        authorization: `Bearer ${cidrToken.json().value}`,
+        "x-forwarded-for": "10.1.2.3"
+      }
+    });
+    expect(forgedWithoutProxy.statusCode).toBe(403);
+    expect(forgedWithoutProxy.json().error.code).toBe("TOKEN_IP_DENIED");
+
+    const exactToken = await directApp.inject({
+      method: "POST",
+      url: "/api-tokens",
+      cookies: { ou_session: cookie },
+      payload: {
+        name: "exact-restricted",
+        scopes: ["images:read"],
+        ipAllowlist: ["127.0.0.1"]
+      }
+    });
+    const exactAllowed = await rawInject(directApp, {
+      method: "GET",
+      url: "/uploads",
+      remoteAddress: "127.0.0.1",
+      headers: { authorization: `Bearer ${exactToken.json().value}` }
+    });
+    expect(exactAllowed.statusCode).toBe(200);
+
+    process.env.TRUST_PROXY = "true";
+    process.env.TRUST_PROXY_ADDRESSES = "127.0.0.1";
+    const proxyApp = await createTestApp();
+    const proxySetup = await proxyApp.inject({
+      method: "POST",
+      url: "/setup",
+      payload: { ...owner, email: "proxy@example.com" }
+    });
+    const proxyCookie = proxySetup.cookies.find(
+      (item) => item.name === "ou_session"
+    )!.value;
+    const proxyToken = await proxyApp.inject({
+      method: "POST",
+      url: "/api-tokens",
+      cookies: { ou_session: proxyCookie },
+      payload: {
+        name: "trusted-proxy",
+        scopes: ["images:read"],
+        ipAllowlist: ["10.0.0.0/8"]
+      }
+    });
+    const proxiedAllowed = await rawInject(proxyApp, {
+      method: "GET",
+      url: "/uploads",
+      remoteAddress: "127.0.0.1",
+      headers: {
+        authorization: `Bearer ${proxyToken.json().value}`,
+        "x-forwarded-for": "10.1.2.3"
+      }
+    });
+    expect(proxiedAllowed.statusCode).toBe(200);
+    const untrustedProxy = await rawInject(proxyApp, {
+      method: "GET",
+      url: "/uploads",
+      remoteAddress: "192.0.2.10",
+      headers: {
+        authorization: `Bearer ${proxyToken.json().value}`,
+        "x-forwarded-for": "10.1.2.3"
+      }
+    });
+    expect(untrustedProxy.statusCode).toBe(403);
+    expect(untrustedProxy.json().error.code).toBe("TOKEN_IP_DENIED");
+
+    process.env.TRUST_PROXY = "true";
+    delete process.env.TRUST_PROXY_ADDRESSES;
+    await expect(createTestApp()).rejects.toThrow(
+      "TRUST_PROXY_ADDRESSES"
+    );
+  });
+
+  it("serves workspace notifications, preferences, quiet hours and bounded read state", async () => {
+    const timestamp = new Date("2026-07-11T12:00:00.000Z");
+    const store = new AppStore(null);
+    const app = await createTestApp({ store, now: () => timestamp });
+    const setup = await app.inject({
+      method: "POST",
+      url: "/setup",
+      payload: owner
+    });
+    const cookie = setup.cookies.find(
+      (item) => item.name === "ou_session"
+    )!.value;
+    const state = store.snapshot();
+    const userId = state.users[0]!.id;
+    const workspaceId = `personal-${userId}`;
+    await store.update((draft) => {
+      draft.workspaces.push({
+        id: "second-workspace",
+        name: "Second",
+        description: "",
+        slug: "second-workspace",
+        personal: false,
+        ownerUserId: userId,
+        createdAt: timestamp.toISOString(),
+        updatedAt: timestamp.toISOString()
+      });
+      draft.workspaceMembers.push({
+        id: "second-membership",
+        workspaceId: "second-workspace",
+        userId,
+        role: "owner",
+        createdAt: timestamp.toISOString(),
+        updatedAt: timestamp.toISOString()
+      });
+      draft.auditEvents.push(
+        {
+          id: "security-own",
+          workspaceId,
+          actorUserId: userId,
+          actorType: "session",
+          action: "password.update",
+          result: "success",
+          createdAt: "2026-07-11T11:59:00.000Z"
+        },
+        {
+          id: "collaboration",
+          workspaceId,
+          actorUserId: "another-user",
+          actorType: "session",
+          action: "member.update",
+          result: "success",
+          createdAt: "2026-07-11T11:58:00.000Z"
+        },
+        {
+          id: "system",
+          workspaceId,
+          actorType: "system",
+          action: "backup.completed",
+          result: "success",
+          createdAt: "2026-07-11T11:57:00.000Z"
+        },
+        {
+          id: "security-foreign-actor",
+          workspaceId,
+          actorUserId: "another-user",
+          actorType: "session",
+          action: "session.revoke",
+          result: "success",
+          createdAt: "2026-07-11T11:56:00.000Z"
+        },
+        {
+          id: "other-workspace",
+          workspaceId: "unrelated-workspace",
+          actorUserId: userId,
+          actorType: "session",
+          action: "workspace.update",
+          result: "success",
+          createdAt: "2026-07-11T11:55:00.000Z"
+        },
+        {
+          id: "second-workspace-read",
+          workspaceId: "second-workspace",
+          actorUserId: userId,
+          actorType: "session",
+          action: "workspace.update",
+          result: "success",
+          createdAt: "2026-07-11T11:54:00.000Z"
+        }
+      );
+      draft.users[0]!.notificationReadEventIds = [
+        "second-workspace-read"
+      ];
+    });
+    const initial = await app.inject({
+      method: "GET",
+      url: "/notifications?limit=20",
+      cookies: { ou_session: cookie }
+    });
+    expect(initial.statusCode).toBe(200);
+    expect(initial.json().notifications.map((item: { id: string }) => item.id))
+      .toEqual(["security-own", "collaboration", "system"]);
+    expect(initial.json()).toMatchObject({
+      unreadCount: 3,
+      badgeSuppressed: false
+    });
+    expect(Object.keys(initial.json().notifications[0]).sort()).toEqual([
+      "action",
+      "category",
+      "createdAt",
+      "id",
+      "read"
+    ]);
+
+    const updated = await app.inject({
+      method: "PATCH",
+      url: "/me/notifications",
+      cookies: { ou_session: cookie },
+      payload: {
+        security: false,
+        quietHours: {
+          enabled: true,
+          start: "23:00",
+          end: "09:00",
+          timezone: "America/New_York"
+        }
+      }
+    });
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json().preferences).toMatchObject({
+      security: false,
+      quietHours: { enabled: true, timezone: "America/New_York" }
+    });
+    const quiet = await app.inject({
+      method: "GET",
+      url: "/notifications",
+      cookies: { ou_session: cookie }
+    });
+    expect(quiet.json().notifications).toHaveLength(2);
+    expect(
+      quiet.json().notifications.map((item: { id: string }) => item.id)
+    ).toEqual(["collaboration", "system"]);
+    expect(quiet.json()).toMatchObject({
+      unreadCount: 0,
+      badgeSuppressed: true
+    });
+    const invisibleRead = await app.inject({
+      method: "POST",
+      url: "/notifications/read",
+      cookies: { ou_session: cookie },
+      payload: {
+        ids: ["security-foreign-actor", "other-workspace"]
+      }
+    });
+    expect(invisibleRead.statusCode).toBe(200);
+    expect(invisibleRead.json().readEventIds).toEqual([
+      "second-workspace-read"
+    ]);
+    const readAll = await app.inject({
+      method: "POST",
+      url: "/notifications/read",
+      cookies: { ou_session: cookie },
+      payload: { all: true }
+    });
+    expect(readAll.statusCode).toBe(200);
+    expect(readAll.json().readEventIds).toEqual([
+      "collaboration",
+      "system",
+      "second-workspace-read"
+    ]);
+    const secondWorkspaceFeed = await app.inject({
+      method: "GET",
+      url: "/notifications",
+      headers: { "x-workspace-id": "second-workspace" },
+      cookies: { ou_session: cookie }
+    });
+    expect(secondWorkspaceFeed.statusCode).toBe(200);
+    expect(secondWorkspaceFeed.json().notifications).toEqual([
+      {
+        id: "second-workspace-read",
+        category: "collaboration",
+        action: "workspace.update",
+        read: true,
+        createdAt: "2026-07-11T11:54:00.000Z"
+      }
+    ]);
+
+    await store.update((draft) => {
+      for (let index = 0; index < 505; index += 1) {
+        draft.auditEvents.push({
+          id: `bulk-${index}`,
+          workspaceId,
+          actorType: "system",
+          action: "system.notice",
+          result: "success",
+          createdAt: new Date(
+            timestamp.getTime() + index * 1000
+          ).toISOString()
+        });
+      }
+    });
+    const bounded = await app.inject({
+      method: "POST",
+      url: "/notifications/read",
+      cookies: { ou_session: cookie },
+      payload: { all: true }
+    });
+    expect(bounded.json().readEventIds).toHaveLength(500);
+    expect(
+      store.snapshot().users[0]!.notificationReadEventIds
+    ).toHaveLength(500);
+
+    const token = await app.inject({
+      method: "POST",
+      url: "/api-tokens",
+      cookies: { ou_session: cookie },
+      payload: { name: "notification-denied", scopes: ["images:read"] }
+    });
+    const denied = await rawInject(app, {
+      method: "GET",
+      url: "/notifications",
+      headers: { authorization: `Bearer ${token.json().value}` }
+    });
+    expect(denied.statusCode).toBe(403);
+    expect(denied.json().error.code).toBe("API_TOKEN_RESTRICTED");
+  });
+
+  it("exports filtered audit CSV with BOM, workspace isolation and formula protection", async () => {
+    const store = new AppStore(null);
+    const app = await createTestApp({ store });
+    const setup = await app.inject({
+      method: "POST",
+      url: "/setup",
+      payload: owner
+    });
+    const cookie = setup.cookies.find(
+      (item) => item.name === "ou_session"
+    )!.value;
+    const userId = store.snapshot().users[0]!.id;
+    const workspaceId = `personal-${userId}`;
+    await store.update(async (state) => {
+      const dangerous = [
+        "=SUM(1,1)",
+        "+cmd",
+        "-cmd",
+        "@cmd",
+        "\tcmd",
+        "\rcmd",
+        "\ncmd",
+        "  =trimmed",
+        "comma,\"quote\"\r\nnext"
+      ];
+      dangerous.forEach((action, index) => {
+        state.auditEvents.push({
+          id: `csv-current-${index}`,
+          workspaceId,
+          actorUserId: userId,
+          actorType: "session",
+          action,
+          result: "success",
+          resourceType: index === 0 ? "@image" : "image",
+          resourceId: index === 0 ? "-danger" : `resource-${index}`,
+          createdAt: new Date(
+            Date.parse("2026-07-11T10:00:00.000Z") + index
+          ).toISOString()
+        });
+      });
+      state.auditEvents.push({
+        id: "csv-other",
+        workspaceId: "other-workspace",
+        actorUserId: userId,
+        actorType: "session",
+        action: "=SUM(1,1)",
+        result: "success",
+        resourceType: "image",
+        resourceId: "foreign",
+        createdAt: "2026-07-11T09:00:00.000Z"
+      });
+      for (const role of ["viewer", "editor"] as const) {
+        const id = `csv-${role}`;
+        state.users.push({
+          id,
+          email: `${role}@csv.example`,
+          displayName: role,
+          passwordHash: "unused",
+          role: "member",
+          theme: "system",
+          onboardingCompleted: true,
+          failedLoginCount: 0,
+          createdAt: "2026-07-11T08:00:00.000Z",
+          updatedAt: "2026-07-11T08:00:00.000Z"
+        });
+        state.workspaceMembers.push({
+          id: `membership-${role}`,
+          workspaceId,
+          userId: id,
+          role,
+          createdAt: "2026-07-11T08:00:00.000Z",
+          updatedAt: "2026-07-11T08:00:00.000Z"
+        });
+        state.sessions.push({
+          id: `session-${role}`,
+          userId: id,
+          tokenHash: hashOpaqueToken(`csv-${role}-session`),
+          createdAt: "2026-07-11T08:00:00.000Z",
+          lastSeenAt: "2026-07-11T08:00:00.000Z",
+          expiresAt: "2030-07-11T08:00:00.000Z"
+        });
+      }
+    });
+    const exported = await app.inject({
+      method: "GET",
+      url: "/audit/export",
+      cookies: { ou_session: cookie }
+    });
+    expect(exported.statusCode).toBe(200);
+    expect(exported.headers["content-type"]).toContain("text/csv");
+    expect(exported.headers["cache-control"]).toBe("no-store");
+    expect(exported.headers["content-disposition"]).toBe(
+      'attachment; filename="ou-image-audit.csv"'
+    );
+    expect(exported.body.charCodeAt(0)).toBe(0xfeff);
+    expect(exported.body).toContain(`"'=SUM(1,1)"`);
+    expect(exported.body).toContain(`"'+cmd"`);
+    expect(exported.body).toContain(`"'-cmd"`);
+    expect(exported.body).toContain(`"'@cmd"`);
+    expect(exported.body).toContain(`"'\tcmd"`);
+    expect(exported.body).toContain(`"'\rcmd"`);
+    expect(exported.body).toContain(`"'\ncmd"`);
+    expect(exported.body).toContain(`"'  =trimmed"`);
+    expect(exported.body).toContain(`"comma,""quote""\r\nnext"`);
+    expect(exported.body).toContain(`"'@image"`);
+    expect(exported.body).toContain(`"'-danger"`);
+    expect(exported.body).not.toContain("foreign");
+    for (const role of ["viewer", "editor"] as const) {
+      const deniedRole = await app.inject({
+        method: "GET",
+        url: "/audit/export",
+        headers: { "x-workspace-id": workspaceId },
+        cookies: { ou_session: `csv-${role}-session` }
+      });
+      expect(deniedRole.statusCode).toBe(403);
+      expect(deniedRole.json().error.code).toBe("INSUFFICIENT_ROLE");
+    }
+
+    const token = await app.inject({
+      method: "POST",
+      url: "/api-tokens",
+      cookies: { ou_session: cookie },
+      payload: { name: "audit-export-denied", scopes: ["images:read"] }
+    });
+    const denied = await rawInject(app, {
+      method: "GET",
+      url: "/audit/export",
+      headers: { authorization: `Bearer ${token.json().value}` }
+    });
+    expect(denied.statusCode).toBe(403);
+    expect(denied.json().error.code).toBe("API_TOKEN_RESTRICTED");
+  });
+
+  it("atomically consumes MFA challenges, TOTP steps and recovery codes", async () => {
+    process.env.OU_SECRET_KEY = "round-eight-test-secret";
+    let timestamp = new Date("2026-07-11T00:00:00.000Z");
+    const store = new AppStore(null);
+    const app = await createTestApp({
+      store,
+      now: () => new Date(timestamp)
+    });
+    const setup = await app.inject({
+      method: "POST",
+      url: "/setup",
+      payload: owner
+    });
+    const cookies = {
+      ou_session: setup.cookies.find(
+        (item) => item.name === "ou_session"
+      )!.value
+    };
+    const begin = await app.inject({
+      method: "POST",
+      url: "/auth/2fa/setup",
+      cookies,
+      payload: { currentPassword: owner.password }
+    });
+    expect(begin.statusCode).toBe(200);
+    const secret = begin.json().manualKey as string;
+    const challengeToken = begin.json().challengeToken as string;
+    const firstCode = totpAt(secret, timestamp).code;
+    const confirmed = await app.inject({
+      method: "POST",
+      url: "/auth/2fa/confirm",
+      cookies,
+      payload: { challengeToken, code: firstCode }
+    });
+    expect(confirmed.statusCode).toBe(200);
+    const enabledSnapshot = store.snapshot().users[0]!;
+    const enabledSecret = enabledSnapshot.totpSecretCiphertext;
+    const enabledRecoveryHashes = enabledSnapshot.recoveryCodeHashes;
+    const repeatedSetup = await app.inject({
+      method: "POST",
+      url: "/auth/2fa/setup",
+      cookies,
+      payload: { currentPassword: owner.password }
+    });
+    expect(repeatedSetup.statusCode).toBe(409);
+    expect(repeatedSetup.json().error.code).toBe("MFA_ALREADY_ENABLED");
+    const unchangedUser = store.snapshot().users[0]!;
+    expect(unchangedUser.totpSecretCiphertext).toBe(enabledSecret);
+    expect(unchangedUser.recoveryCodeHashes).toEqual(enabledRecoveryHashes);
+    const repeatedChallenge = await app.inject({
+      method: "POST",
+      url: "/auth/2fa/confirm",
+      cookies,
+      payload: { challengeToken, code: firstCode }
+    });
+    expect(repeatedChallenge.statusCode).toBe(400);
+    expect(repeatedChallenge.json().error.code).toBe(
+      "INVALID_MFA_CHALLENGE"
+    );
+
+    timestamp = new Date(timestamp.getTime() + 30_000);
+    const secondCode = totpAt(secret, timestamp).code;
+    const totpRace = await Promise.all([
+      app.inject({
+        method: "POST",
+        url: "/auth/2fa/recovery-codes",
+        cookies,
+        payload: { currentPassword: owner.password, code: secondCode }
+      }),
+      app.inject({
+        method: "POST",
+        url: "/auth/2fa/recovery-codes",
+        cookies,
+        payload: { currentPassword: owner.password, code: secondCode }
+      })
+    ]);
+    expect(totpRace.map((item) => item.statusCode).sort()).toEqual([
+      200,
+      409
+    ]);
+    expect(
+      totpRace.find((item) => item.statusCode === 409)!.json().error.code
+    ).toBe("TOTP_REPLAYED");
+    const recoveryCode = totpRace.find(
+      (item) => item.statusCode === 200
+    )!.json().recoveryCodes[0] as string;
+    const recoveryRace = await Promise.all([
+      app.inject({
+        method: "POST",
+        url: "/auth/2fa/recovery-codes",
+        cookies,
+        payload: { currentPassword: owner.password, code: recoveryCode }
+      }),
+      app.inject({
+        method: "POST",
+        url: "/auth/2fa/recovery-codes",
+        cookies,
+        payload: { currentPassword: owner.password, code: recoveryCode }
+      })
+    ]);
+    expect(recoveryRace.map((item) => item.statusCode).sort()).toEqual([
+      200,
+      400
+    ]);
+    expect(
+      recoveryRace.find((item) => item.statusCode === 400)!.json().error.code
+    ).toBe("INVALID_RECOVERY_CODE");
+    const regenerationAudit = store
+      .snapshot()
+      .auditEvents.find(
+        (event) => event.action === "mfa.recovery_codes.regenerate"
+      );
+    expect(regenerationAudit).toBeDefined();
+    expect(JSON.stringify(regenerationAudit)).not.toContain(recoveryCode);
+    expect(JSON.stringify(regenerationAudit)).not.toContain(secondCode);
+  });
+
+  it("restores legacy v5 backup state through the v6 migration", async () => {
+    const store = new AppStore(null);
+    let dataDirectory = "";
+    const app = await createTestApp({
+      store,
+      onDataDirectory: (value) => {
+        dataDirectory = value;
+      }
+    });
+    const setup = await app.inject({
+      method: "POST",
+      url: "/setup",
+      payload: owner
+    });
+    const cookies = {
+      ou_session: setup.cookies.find(
+        (item) => item.name === "ou_session"
+      )!.value
+    };
+    const png = await sharp({
+      create: {
+        width: 2,
+        height: 2,
+        channels: 3,
+        background: "#445566"
+      }
+    })
+      .png()
+      .toBuffer();
+    const form = new FormData();
+    form.append("file", png, {
+      filename: "legacy.png",
+      contentType: "image/png"
+    });
+    await app.inject({
+      method: "POST",
+      url: "/uploads",
+      headers: form.getHeaders(),
+      cookies,
+      payload: form.getBuffer()
+    });
+    const backupResponse = await app.inject({
+      method: "POST",
+      url: "/backups",
+      cookies
+    });
+    const backupId = backupResponse.json().backup.id as string;
+    const backup = store.snapshot().backups.find(
+      (item) => item.id === backupId
+    )!;
+    const archivePath = path.join(dataDirectory, backup.archiveKey);
+    const envelope = JSON.parse(
+      gunzipSync(await readFile(archivePath)).toString("utf8")
+    );
+    envelope.state.schemaVersion = 5;
+    for (const key of [
+      "workspaces",
+      "workspaceMembers",
+      "workspaceInvitations",
+      "apiTokens",
+      "loginChallenges",
+      "auditEvents"
+    ]) {
+      delete envelope.state[key];
+    }
+    for (const image of envelope.state.images) {
+      delete image.workspaceId;
+      delete image.favoriteUserIds;
+    }
+    envelope.manifest.stateSha256 = createHash("sha256")
+      .update(JSON.stringify(envelope.state))
+      .digest("hex");
+    const legacyArchive = gzipSync(Buffer.from(JSON.stringify(envelope)));
+    await writeFile(archivePath, legacyArchive);
+    await store.update((state) => {
+      const current = state.backups.find((item) => item.id === backupId)!;
+      current.checksum = createHash("sha256")
+        .update(legacyArchive)
+        .digest("hex");
+      current.size = legacyArchive.byteLength;
+    });
+    const restored = await app.inject({
+      method: "POST",
+      url: `/backups/${backupId}/restore`,
+      cookies
+    });
+    expect(restored.statusCode).toBe(200);
+    const state = store.snapshot();
+    expect(state.schemaVersion).toBe(6);
+    expect(state.workspaces).toHaveLength(1);
+    expect(state.workspaceMembers[0]).toMatchObject({ role: "owner" });
+    expect(state.users[0]).toMatchObject({
+      notificationPreferences: {
+        security: true,
+        collaboration: true,
+        system: true,
+        quietHours: {
+          enabled: false,
+          start: "22:00",
+          end: "08:00",
+          timezone: "UTC"
+        }
+      },
+      notificationReadEventIds: []
+    });
+    expect(state.images[0]).toMatchObject({
+      workspaceId: `personal-${state.users[0]!.id}`,
+      favoriteUserIds: []
+    });
   });
 });

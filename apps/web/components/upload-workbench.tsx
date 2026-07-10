@@ -27,6 +27,7 @@ import {
   useRef,
   useState
 } from "react";
+import { workspaceHeaders } from "@/lib/api";
 import { AppShell } from "./app-shell";
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
@@ -148,7 +149,8 @@ export function UploadWorkbench() {
     try {
       const response = await fetch("/api/uploads/summary", {
         credentials: "include",
-        cache: "no-store"
+        cache: "no-store",
+        headers: workspaceHeaders()
       });
       if (!response.ok) throw new Error("无法读取存储摘要");
       const payload = (await response.json()) as UploadSummary;
@@ -284,6 +286,9 @@ export function UploadWorkbench() {
       request.open("POST", "/api/uploads");
       request.withCredentials = true;
       request.responseType = "json";
+      workspaceHeaders().forEach((value, key) => {
+        request.setRequestHeader(key, value);
+      });
 
       request.upload.addEventListener("progress", (event) => {
         if (!event.lengthComputable) return;
@@ -425,7 +430,7 @@ export function UploadWorkbench() {
         const response = await fetch("/api/uploads/from-url", {
           method: "POST",
           credentials: "include",
-          headers: { "Content-Type": "application/json" },
+          headers: workspaceHeaders({ "content-type": "application/json" }),
           body: JSON.stringify({ url })
         });
         const payload = (await response.json()) as

@@ -1,4 +1,5 @@
 export type ThemePreference = "light" | "dark" | "system";
+export type WorkspaceRole = "owner" | "admin" | "editor" | "viewer";
 
 export type SessionUser = {
   id: string;
@@ -9,6 +10,23 @@ export type SessionUser = {
   onboardingCompleted: boolean;
   createdAt: string;
 };
+
+export type WorkspaceSummary = {
+  id: string;
+  name: string;
+  role: WorkspaceRole;
+  description?: string;
+  memberCount?: number;
+  createdAt?: string;
+};
+
+export type SessionBootstrap = {
+  user: SessionUser;
+  workspaces: WorkspaceSummary[];
+  defaultWorkspace: WorkspaceSummary;
+};
+
+const WORKSPACE_STORAGE_KEY = "ou-workspace-id";
 
 export type ApiErrorPayload = {
   error?: {
@@ -31,13 +49,17 @@ export async function apiRequest<T>(
   path: string,
   init: RequestInit = {}
 ): Promise<T> {
+  const isFormData =
+    typeof FormData !== "undefined" && init.body instanceof FormData;
   const response = await fetch(`/api${path}`, {
     ...init,
     credentials: "same-origin",
-    headers: {
-      ...(init.body ? { "content-type": "application/json" } : {}),
+    headers: workspaceHeaders({
+      ...(init.body && !isFormData
+        ? { "content-type": "application/json" }
+        : {}),
       ...init.headers
-    }
+    })
   });
 
   if (!response.ok) {
@@ -51,6 +73,50 @@ export async function apiRequest<T>(
 
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
+}
+
+export function workspaceHeaders(initial?: HeadersInit) {
+  const headers = new Headers(initial);
+  const workspaceId =
+    typeof window !== "undefined"
+      ? window.localStorage.getItem(WORKSPACE_STORAGE_KEY)
+      : null;
+  if (workspaceId && !headers.has("x-workspace-id")) {
+    headers.set("x-workspace-id", workspaceId);
+  }
+  return headers;
+}
+
+export function getStoredWorkspaceId() {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem(WORKSPACE_STORAGE_KEY);
+}
+
+export function setStoredWorkspaceId(workspaceId: string) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(WORKSPACE_STORAGE_KEY, workspaceId);
+}
+
+export function normalizeSessionBootstrap(payload: {
+  user: SessionUser;
+  workspaces?: WorkspaceSummary[];
+  defaultWorkspace?: WorkspaceSummary;
+}): SessionBootstrap {
+  const fallback: WorkspaceSummary = {
+    id: "default",
+    name: "默认工作区",
+    role: payload.user.role === "owner" ? "owner" : "viewer"
+  };
+  const workspaces =
+    payload.workspaces && payload.workspaces.length > 0
+      ? payload.workspaces
+      : [payload.defaultWorkspace ?? fallback];
+  const defaultWorkspace =
+    payload.defaultWorkspace ??
+    workspaces.find((workspace) => workspace.role === "owner") ??
+    workspaces[0] ??
+    fallback;
+  return { user: payload.user, workspaces, defaultWorkspace };
 }
 
 export function applyTheme(theme: ThemePreference) {

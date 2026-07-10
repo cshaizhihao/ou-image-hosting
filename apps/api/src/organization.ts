@@ -2,6 +2,10 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { randomUUID } from "node:crypto";
 import { unlink } from "node:fs/promises";
 import path from "node:path";
+import {
+  requireCapability,
+  type Principal
+} from "./access.js";
 import { buildDeliveryUrl } from "./delivery.js";
 import { PublicError } from "./errors.js";
 import type {
@@ -9,18 +13,14 @@ import type {
   AppStore,
   StoredAlbum,
   StoredImage,
-  StoredTag,
-  StoredUser
+  StoredTag
 } from "./store.js";
 
 type OrganizationRouteOptions = {
   store: AppStore;
   dataDirectory: string;
   now: () => Date;
-  authenticate: (request: FastifyRequest) => {
-    user: StoredUser;
-    session: { id: string };
-  };
+  authenticate: (request: FastifyRequest) => Principal;
 };
 
 type IdParams = { id: string };
@@ -66,7 +66,8 @@ const idArraySchema = {
 function publicImage(
   image: StoredImage,
   state: AppState,
-  timestamp: Date
+  timestamp: Date,
+  userId: string
 ) {
   return {
     id: image.id,
@@ -84,7 +85,7 @@ function publicImage(
       timestamp
     ),
     originalUrl: buildDeliveryUrl(state, image.id, "original", timestamp),
-    favorite: image.favorite,
+    favorite: image.favoriteUserIds.includes(userId),
     albumIds: image.albumIds,
     tagIds: image.tagIds,
     createdAt: image.createdAt,
@@ -102,7 +103,7 @@ function publicAlbum(
     ? state.images.find(
         (image) =>
           image.id === album.coverImageId &&
-          image.userId === album.userId &&
+          image.workspaceId === album.workspaceId &&
           !image.deletedAt
       )
     : undefined;
@@ -116,7 +117,7 @@ function publicAlbum(
       : undefined,
     imageCount: state.images.filter(
       (image) =>
-        image.userId === album.userId &&
+        image.workspaceId === album.workspaceId &&
         !image.deletedAt &&
         image.albumIds.includes(album.id)
     ).length,
@@ -132,7 +133,7 @@ function publicTag(tag: StoredTag, state: AppState) {
     color: tag.color,
     imageCount: state.images.filter(
       (image) =>
-        image.userId === tag.userId &&
+        image.workspaceId === tag.workspaceId &&
         !image.deletedAt &&
         image.tagIds.includes(tag.id)
     ).length,
@@ -175,13 +176,13 @@ function normalizeColor(value: string) {
 function findOwnedImage(
   state: AppState,
   id: string,
-  userId: string,
+  workspaceId: string,
   includeDeleted = false
 ) {
   const image = state.images.find(
     (item) =>
       item.id === id &&
-      item.userId === userId &&
+      item.workspaceId === workspaceId &&
       (includeDeleted || !item.deletedAt)
   );
   if (!image) {
@@ -190,9 +191,9 @@ function findOwnedImage(
   return image;
 }
 
-function findAlbum(state: AppState, id: string, userId: string) {
+function findAlbum(state: AppState, id: string, workspaceId: string) {
   const album = state.albums.find(
-    (item) => item.id === id && item.userId === userId
+    (item) => item.id === id && item.workspaceId === workspaceId
   );
   if (!album) {
     throw new PublicError(404, "ALBUM_NOT_FOUND", "相册不存在");
@@ -200,9 +201,9 @@ function findAlbum(state: AppState, id: string, userId: string) {
   return album;
 }
 
-function findTag(state: AppState, id: string, userId: string) {
+function findTag(state: AppState, id: string, workspaceId: string) {
   const tag = state.tags.find(
-    (item) => item.id === id && item.userId === userId
+    (item) => item.id === id && item.workspaceId === workspaceId
   );
   if (!tag) {
     throw new PublicError(404, "TAG_NOT_FOUND", "标签不存在");
@@ -213,23 +214,23 @@ function findTag(state: AppState, id: string, userId: string) {
 function validateCover(
   state: AppState,
   coverImageId: string | undefined,
-  userId: string
+  workspaceId: string
 ) {
   if (coverImageId) {
-    findOwnedImage(state, coverImageId, userId);
+    findOwnedImage(state, coverImageId, workspaceId);
   }
 }
 
 function validateRelations(
   state: AppState,
-  userId: string,
+  workspaceId: string,
   albumIds: string[] | undefined,
   tagIds: string[] | undefined
 ) {
   if (albumIds) {
     const valid = new Set(
       state.albums
-        .filter((album) => album.userId === userId)
+        .filter((album) => album.workspaceId === workspaceId)
         .map((album) => album.id)
     );
     if (albumIds.some((id) => !valid.has(id))) {
@@ -242,7 +243,9 @@ function validateRelations(
   }
   if (tagIds) {
     const valid = new Set(
-      state.tags.filter((tag) => tag.userId === userId).map((tag) => tag.id)
+      state.tags
+        .filter((tag) => tag.workspaceId === workspaceId)
+        .map((tag) => tag.id)
     );
     if (tagIds.some((id) => !valid.has(id))) {
       throw new PublicError(
@@ -274,10 +277,13 @@ async function removeFile(filePath: string) {
 function imageCollection(
   images: StoredImage[],
   state: AppState,
-  timestamp: Date
+  timestamp: Date,
+  userId: string
 ) {
   return {
-    images: images.map((image) => publicImage(image, state, timestamp)),
+    images: images.map((image) =>
+      publicImage(image, state, timestamp, userId)
+    ),
     total: images.length
   };
 }
@@ -290,11 +296,14 @@ export function registerOrganizationRoutes(
   const storageRoot = path.join(dataDirectory, "storage");
 
   app.get("/albums", async (request) => {
-    const { user } = authenticate(request);
+    const principal = authenticate(request);
+    requireCapability(principal, "read", ["organization:read"]);
     const state = store.snapshot();
     return {
       albums: state.albums
-        .filter((album) => album.userId === user.id)
+        .filter(
+          (album) => album.workspaceId === principal.workspaceId
+        )
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
         .map((album) => publicAlbum(album, state, now()))
     };
@@ -321,13 +330,19 @@ export function registerOrganizationRoutes(
       }
     },
     async (request, reply) => {
-      const { user } = authenticate(request);
+      const principal = authenticate(request);
+      requireCapability(principal, "write", ["organization:write"]);
       const state = store.snapshot();
-      validateCover(state, request.body.coverImageId, user.id);
+      validateCover(
+        state,
+        request.body.coverImageId,
+        principal.workspaceId
+      );
       const timestamp = now().toISOString();
       const album: StoredAlbum = {
         id: randomUUID(),
-        userId: user.id,
+        userId: principal.user.id,
+        workspaceId: principal.workspaceId,
         name: validateName(request.body.name, 60, "INVALID_ALBUM_NAME"),
         description: validateDescription(request.body.description),
         coverImageId: request.body.coverImageId,
@@ -335,7 +350,7 @@ export function registerOrganizationRoutes(
         updatedAt: timestamp
       };
       await store.update((draft) => {
-        validateCover(draft, album.coverImageId, user.id);
+        validateCover(draft, album.coverImageId, principal.workspaceId);
         draft.albums.push(album);
       });
       return reply.status(201).send({
@@ -367,12 +382,21 @@ export function registerOrganizationRoutes(
       }
     },
     async (request) => {
-      const { user } = authenticate(request);
+      const principal = authenticate(request);
+      requireCapability(principal, "write", ["organization:write"]);
       const timestamp = now().toISOString();
       const album = await store.update((state) => {
-        const current = findAlbum(state, request.params.id, user.id);
+        const current = findAlbum(
+          state,
+          request.params.id,
+          principal.workspaceId
+        );
         if (request.body.coverImageId) {
-          validateCover(state, request.body.coverImageId, user.id);
+          validateCover(
+            state,
+            request.body.coverImageId,
+            principal.workspaceId
+          );
         }
         if (request.body.name !== undefined) {
           current.name = validateName(
@@ -402,15 +426,16 @@ export function registerOrganizationRoutes(
     "/albums/:id",
     { schema: { params: idParamsSchema } },
     async (request, reply) => {
-      const { user } = authenticate(request);
+      const principal = authenticate(request);
+      requireCapability(principal, "write", ["organization:write"]);
       const timestamp = now().toISOString();
       await store.update((state) => {
-        findAlbum(state, request.params.id, user.id);
+        findAlbum(state, request.params.id, principal.workspaceId);
         state.albums = state.albums.filter(
           (album) => album.id !== request.params.id
         );
         state.images.forEach((image) => {
-          if (image.userId === user.id) {
+          if (image.workspaceId === principal.workspaceId) {
             const albumIds = image.albumIds.filter(
               (albumId) => albumId !== request.params.id
             );
@@ -429,30 +454,33 @@ export function registerOrganizationRoutes(
     "/albums/:id/images",
     { schema: { params: idParamsSchema } },
     async (request) => {
-      const { user } = authenticate(request);
+      const principal = authenticate(request);
+      requireCapability(principal, "read", ["organization:read"]);
       const state = store.snapshot();
-      findAlbum(state, request.params.id, user.id);
+      findAlbum(state, request.params.id, principal.workspaceId);
       return imageCollection(
         state.images
           .filter(
             (image) =>
-              image.userId === user.id &&
+              image.workspaceId === principal.workspaceId &&
               !image.deletedAt &&
               image.albumIds.includes(request.params.id)
           )
           .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
         state,
-        now()
+        now(),
+        principal.user.id
       );
     }
   );
 
   app.get("/tags", async (request) => {
-    const { user } = authenticate(request);
+    const principal = authenticate(request);
+    requireCapability(principal, "read", ["organization:read"]);
     const state = store.snapshot();
     return {
       tags: state.tags
-        .filter((tag) => tag.userId === user.id)
+        .filter((tag) => tag.workspaceId === principal.workspaceId)
         .sort((a, b) => a.name.localeCompare(b.name, "zh-CN"))
         .map((tag) => publicTag(tag, state))
     };
@@ -477,11 +505,13 @@ export function registerOrganizationRoutes(
       }
     },
     async (request, reply) => {
-      const { user } = authenticate(request);
+      const principal = authenticate(request);
+      requireCapability(principal, "write", ["organization:write"]);
       const timestamp = now().toISOString();
       const tag: StoredTag = {
         id: randomUUID(),
-        userId: user.id,
+        userId: principal.user.id,
+        workspaceId: principal.workspaceId,
         name: validateName(request.body.name, 40, "INVALID_TAG_NAME"),
         color: normalizeColor(request.body.color),
         createdAt: timestamp,
@@ -516,10 +546,15 @@ export function registerOrganizationRoutes(
       }
     },
     async (request) => {
-      const { user } = authenticate(request);
+      const principal = authenticate(request);
+      requireCapability(principal, "write", ["organization:write"]);
       const timestamp = now().toISOString();
       const tag = await store.update((state) => {
-        const current = findTag(state, request.params.id, user.id);
+        const current = findTag(
+          state,
+          request.params.id,
+          principal.workspaceId
+        );
         if (request.body.name !== undefined) {
           current.name = validateName(
             request.body.name,
@@ -541,13 +576,14 @@ export function registerOrganizationRoutes(
     "/tags/:id",
     { schema: { params: idParamsSchema } },
     async (request, reply) => {
-      const { user } = authenticate(request);
+      const principal = authenticate(request);
+      requireCapability(principal, "write", ["organization:write"]);
       const timestamp = now().toISOString();
       await store.update((state) => {
-        findTag(state, request.params.id, user.id);
+        findTag(state, request.params.id, principal.workspaceId);
         state.tags = state.tags.filter((tag) => tag.id !== request.params.id);
         state.images.forEach((image) => {
-          if (image.userId === user.id) {
+          if (image.workspaceId === principal.workspaceId) {
             const tagIds = image.tagIds.filter(
               (tagId) => tagId !== request.params.id
             );
@@ -582,7 +618,8 @@ export function registerOrganizationRoutes(
       }
     },
     async (request) => {
-      const { user } = authenticate(request);
+      const principal = authenticate(request);
+      requireCapability(principal, "write", ["organization:write"]);
       const timestamp = now().toISOString();
       if (request.params.id === request.body.targetTagId) {
         throw new PublicError(
@@ -592,12 +629,16 @@ export function registerOrganizationRoutes(
         );
       }
       const result = await store.update((state) => {
-        findTag(state, request.params.id, user.id);
-        const target = findTag(state, request.body.targetTagId, user.id);
+        findTag(state, request.params.id, principal.workspaceId);
+        const target = findTag(
+          state,
+          request.body.targetTagId,
+          principal.workspaceId
+        );
         let mergedImages = 0;
         state.images.forEach((image) => {
           if (
-            image.userId === user.id &&
+            image.workspaceId === principal.workspaceId &&
             image.tagIds.includes(request.params.id)
           ) {
             image.tagIds = [
@@ -629,20 +670,22 @@ export function registerOrganizationRoutes(
     "/tags/:id/images",
     { schema: { params: idParamsSchema } },
     async (request) => {
-      const { user } = authenticate(request);
+      const principal = authenticate(request);
+      requireCapability(principal, "read", ["organization:read"]);
       const state = store.snapshot();
-      findTag(state, request.params.id, user.id);
+      findTag(state, request.params.id, principal.workspaceId);
       return imageCollection(
         state.images
           .filter(
             (image) =>
-              image.userId === user.id &&
+              image.workspaceId === principal.workspaceId &&
               !image.deletedAt &&
               image.tagIds.includes(request.params.id)
           )
           .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
         state,
-        now()
+        now(),
+        principal.user.id
       );
     }
   );
@@ -665,22 +708,29 @@ export function registerOrganizationRoutes(
       }
     },
     async (request) => {
-      const { user } = authenticate(request);
+      const principal = authenticate(request);
+      requireCapability(principal, "write", ["organization:write"]);
       const timestamp = now().toISOString();
       const image = await store.update((state) => {
         const current = findOwnedImage(
           state,
           request.params.id,
-          user.id
+          principal.workspaceId
         );
         validateRelations(
           state,
-          user.id,
+          principal.workspaceId,
           request.body.albumIds,
           request.body.tagIds
         );
         if (request.body.favorite !== undefined) {
-          current.favorite = request.body.favorite;
+          const favoriteUserIds = new Set(current.favoriteUserIds);
+          if (request.body.favorite) {
+            favoriteUserIds.add(principal.user.id);
+          } else {
+            favoriteUserIds.delete(principal.user.id);
+          }
+          current.favoriteUserIds = [...favoriteUserIds];
         }
         if (request.body.albumIds !== undefined) {
           current.albumIds = request.body.albumIds;
@@ -691,40 +741,53 @@ export function registerOrganizationRoutes(
         current.updatedAt = timestamp;
         return current;
       });
-      return { image: publicImage(image, store.snapshot(), now()) };
+      return {
+        image: publicImage(
+          image,
+          store.snapshot(),
+          now(),
+          principal.user.id
+        )
+      };
     }
   );
 
   app.get("/favorites", async (request) => {
-    const { user } = authenticate(request);
+    const principal = authenticate(request);
+    requireCapability(principal, "read", ["organization:read"]);
     const state = store.snapshot();
     return imageCollection(
       state.images
         .filter(
           (image) =>
-            image.userId === user.id &&
+            image.workspaceId === principal.workspaceId &&
             !image.deletedAt &&
-            image.favorite
+            image.favoriteUserIds.includes(principal.user.id)
         )
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
       state,
-      now()
+      now(),
+      principal.user.id
     );
   });
 
   app.get("/trash", async (request) => {
-    const { user } = authenticate(request);
+    const principal = authenticate(request);
+    requireCapability(principal, "read", ["images:read"]);
     const state = store.snapshot();
     return imageCollection(
       state.images
         .filter(
-          (image) => image.userId === user.id && Boolean(image.deletedAt)
+          (image) =>
+            image.workspaceId === principal.workspaceId &&
+            Boolean(image.deletedAt)
         )
         .sort((a, b) =>
           (b.deletedAt ?? "").localeCompare(a.deletedAt ?? "")
         ),
       state,
-      now()
+      now(),
+      principal.user.id
     );
   });
 
@@ -750,13 +813,18 @@ export function registerOrganizationRoutes(
       }
     },
     async (request) => {
-      const { user } = authenticate(request);
+      const principal = authenticate(request);
+      requireCapability(
+        principal,
+        request.body.action === "delete" ? "admin" : "write",
+        ["images:delete"]
+      );
       const ids = new Set(request.body.ids);
       const state = store.snapshot();
       const images = state.images.filter(
         (image) =>
           ids.has(image.id) &&
-          image.userId === user.id &&
+          image.workspaceId === principal.workspaceId &&
           Boolean(image.deletedAt)
       );
       if (images.length !== ids.size) {
@@ -774,7 +842,7 @@ export function registerOrganizationRoutes(
           draft.images.forEach((image) => {
             if (
               ids.has(image.id) &&
-              image.userId === user.id &&
+              image.workspaceId === principal.workspaceId &&
               image.deletedAt
             ) {
               delete image.deletedAt;
@@ -792,7 +860,7 @@ export function registerOrganizationRoutes(
         const targets = draft.images.filter(
           (image) =>
             ids.has(image.id) &&
-            image.userId === user.id &&
+            image.workspaceId === principal.workspaceId &&
             Boolean(image.deletedAt)
         );
         if (targets.length !== ids.size) {
@@ -817,7 +885,7 @@ export function registerOrganizationRoutes(
         );
         draft.albums.forEach((album) => {
           if (
-            album.userId === user.id &&
+            album.workspaceId === principal.workspaceId &&
             album.coverImageId &&
             ids.has(album.coverImageId)
           ) {

@@ -3,7 +3,12 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as Tooltip from "@radix-ui/react-tooltip";
-import { navigationItems } from "@ou-image/shared";
+import {
+  filterNavigationItems,
+  navigationItems,
+  type NavigationItem,
+  type WorkspaceRole as SharedWorkspaceRole
+} from "@ou-image/shared";
 import { Button, cn } from "@ou-image/ui";
 import {
   Activity,
@@ -33,8 +38,27 @@ import {
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
-import { apiRequest, type SessionUser } from "@/lib/api";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState
+} from "react";
+import {
+  getNotifications,
+  markAllNotificationsRead,
+  type NotificationItem
+} from "@/lib/admin-api";
+import {
+  apiRequest,
+  getStoredWorkspaceId,
+  normalizeSessionBootstrap,
+  setStoredWorkspaceId,
+  type SessionUser,
+  type WorkspaceRole,
+  type WorkspaceSummary
+} from "@/lib/api";
 
 const iconMap: Record<string, LucideIcon> = {
   overview: Activity,
@@ -62,6 +86,21 @@ function formatStorage(value: number) {
   return `${(value / 1024 / 1024 / 1024).toFixed(1)} GB`;
 }
 
+const notificationCategoryCopy = {
+  security: "安全",
+  collaboration: "协作",
+  system: "系统"
+} as const;
+
+function formatNotificationTime(value: string) {
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(new Date(value));
+}
+
 function Brand({ compact = false }: { compact?: boolean }) {
   return (
     <Link className={cn("brand", compact && "brand--compact")} href="/">
@@ -86,9 +125,11 @@ function Brand({ compact = false }: { compact?: boolean }) {
 
 function Navigation({
   activeKey,
+  items,
   onNavigate
 }: {
   activeKey: string;
+  items: NavigationItem[];
   onNavigate?: () => void;
 }) {
   const groups = [
@@ -100,11 +141,12 @@ function Navigation({
   return (
     <nav aria-label="主导航" className="sidebar-nav">
       {groups.map((group) => {
-        const items = navigationItems.filter((item) => item.group === group.key);
+        const groupItems = items.filter((item) => item.group === group.key);
+        if (groupItems.length === 0) return null;
         return (
           <div className="sidebar-nav__group" key={group.key}>
             <span className="sidebar-nav__label">{group.label}</span>
-            {items.map((item) => {
+            {groupItems.map((item) => {
               const Icon = iconMap[item.key] ?? FileImage;
               return (
                 <Link
@@ -126,6 +168,79 @@ function Navigation({
         );
       })}
     </nav>
+  );
+}
+
+const roleCopy: Record<WorkspaceRole, string> = {
+  owner: "所有者",
+  admin: "管理员",
+  editor: "编辑者",
+  viewer: "只读"
+};
+
+function WorkspaceSwitcher({
+  current,
+  workspaces,
+  onChange,
+  compact = false
+}: {
+  current: WorkspaceSummary | null;
+  workspaces: WorkspaceSummary[];
+  onChange: (workspace: WorkspaceSummary) => void;
+  compact?: boolean;
+}) {
+  return (
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger asChild>
+        <button
+          aria-label="切换工作区"
+          className={cn("workspace-switcher", compact && "workspace-switcher--mobile")}
+          type="button"
+        >
+          <span className="workspace-switcher__avatar">
+            {(current?.name ?? "OU").slice(0, 2).toUpperCase()}
+          </span>
+          <span>
+            <strong>{current?.name ?? "正在读取工作区"}</strong>
+            <small>
+              {current ? roleCopy[current.role] : "安全工作区"}
+            </small>
+          </span>
+          <ChevronDown aria-hidden="true" size={16} />
+        </button>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content
+          align={compact ? "start" : "center"}
+          className="workspace-menu"
+          sideOffset={8}
+        >
+          <div className="workspace-menu__head">
+            <strong>切换工作区</strong>
+            <span>权限会随工作区自动更新</span>
+          </div>
+          <DropdownMenu.Separator className="dropdown-separator" />
+          {workspaces.map((workspace) => (
+            <DropdownMenu.Item
+              className="workspace-menu__item"
+              key={workspace.id}
+              onSelect={() => onChange(workspace)}
+            >
+              <span className="workspace-menu__avatar">
+                {workspace.name.slice(0, 2).toUpperCase()}
+              </span>
+              <span>
+                <strong>{workspace.name}</strong>
+                <small>{roleCopy[workspace.role]}</small>
+              </span>
+              {current?.id === workspace.id && (
+                <span className="workspace-menu__current">当前</span>
+              )}
+            </DropdownMenu.Item>
+          ))}
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
   );
 }
 
@@ -161,13 +276,63 @@ export function AppShell({
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [commandOpen, setCommandOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [notificationUnreadCount, setNotificationUnreadCount] = useState(0);
+  const [notificationQuiet, setNotificationQuiet] = useState(false);
+  const [notificationLoading, setNotificationLoading] = useState(false);
+  const [notificationBusy, setNotificationBusy] = useState(false);
+  const [notificationError, setNotificationError] = useState("");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
+  const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([]);
+  const [currentWorkspace, setCurrentWorkspace] =
+    useState<WorkspaceSummary | null>(null);
   const [storageSummary, setStorageSummary] = useState<{
     bytes: number;
     quotaBytes: number;
   } | null>(null);
+
+  const loadNotifications = useCallback(async () => {
+    if (!getStoredWorkspaceId()) return;
+    setNotificationLoading(true);
+    setNotificationError("");
+    try {
+      const payload = await getNotifications(20);
+      setNotifications(payload.notifications);
+      setNotificationUnreadCount(payload.unreadCount);
+      setNotificationQuiet(payload.badgeSuppressed);
+    } catch {
+      setNotificationError("通知加载失败，请稍后重试。");
+    } finally {
+      setNotificationLoading(false);
+    }
+  }, []);
+
+  const changeNotificationsOpen = (open: boolean) => {
+    setNotificationsOpen(open);
+    if (open) void loadNotifications();
+  };
+
+  const markNotificationsRead = async () => {
+    setNotificationBusy(true);
+    setNotificationError("");
+    try {
+      const payload = await markAllNotificationsRead();
+      const readIds = new Set(payload.readEventIds);
+      setNotifications((current) =>
+        current.map((notification) => ({
+          ...notification,
+          read: notification.read || readIds.has(notification.id)
+        }))
+      );
+      setNotificationUnreadCount(payload.unreadCount);
+    } catch {
+      setNotificationError("通知状态更新失败，请稍后重试。");
+    } finally {
+      setNotificationBusy(false);
+    }
+  };
 
   useEffect(() => {
     const saved = window.localStorage.getItem("ou-theme");
@@ -185,13 +350,35 @@ export function AppShell({
   }, []);
 
   useEffect(() => {
-    apiRequest<{ user: SessionUser }>("/auth/session")
-      .then(({ user }) => setSessionUser(user))
+    apiRequest<{
+      user: SessionUser;
+      workspaces?: WorkspaceSummary[];
+      defaultWorkspace?: WorkspaceSummary;
+    }>("/auth/session")
+      .then((payload) => {
+        const bootstrap = normalizeSessionBootstrap(payload);
+        const storedId = getStoredWorkspaceId();
+        const selected =
+          bootstrap.workspaces.find((workspace) => workspace.id === storedId) ??
+          bootstrap.defaultWorkspace;
+        setStoredWorkspaceId(selected.id);
+        setSessionUser(bootstrap.user);
+        setWorkspaces(bootstrap.workspaces);
+        setCurrentWorkspace(selected);
+        void apiRequest<{ bytes: number; quotaBytes: number }>(
+          "/uploads/summary"
+        )
+          .then(setStorageSummary)
+          .catch(() => setStorageSummary(null));
+      })
       .catch(() => router.replace("/login"));
-    apiRequest<{ bytes: number; quotaBytes: number }>("/uploads/summary")
-      .then(setStorageSummary)
-      .catch(() => undefined);
   }, [router]);
+
+  useEffect(() => {
+    if (sessionUser && currentWorkspace) {
+      void loadNotifications();
+    }
+  }, [currentWorkspace, loadNotifications, sessionUser]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -204,13 +391,49 @@ export function AppShell({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  const visibleItems = useMemo(
+    () => {
+      if (!sessionUser || !currentWorkspace) {
+        return navigationItems.filter(
+          (item) => (item.access ?? "all") === "all"
+        );
+      }
+      return filterNavigationItems({
+        workspaceRole: currentWorkspace.role as SharedWorkspaceRole,
+        siteRole: sessionUser.role
+      });
+    },
+    [currentWorkspace, sessionUser]
+  );
+
   const filteredItems = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    if (!normalized) return navigationItems;
-    return navigationItems.filter((item) =>
+    if (!normalized) return visibleItems;
+    return visibleItems.filter((item) =>
       `${item.label} ${item.key}`.toLowerCase().includes(normalized)
     );
-  }, [query]);
+  }, [query, visibleItems]);
+  const hasUnreadNotifications = notifications.some(
+    (notification) => !notification.read
+  );
+
+  const changeWorkspace = (workspace: WorkspaceSummary) => {
+    if (workspace.id === currentWorkspace?.id) return;
+    const nextItems = sessionUser
+      ? filterNavigationItems({
+          workspaceRole: workspace.role as SharedWorkspaceRole,
+          siteRole: sessionUser.role
+        })
+      : [];
+    const destination = nextItems.some((item) => item.key === activeKey)
+      ? pathname
+      : (nextItems.find((item) => item.key === "library")?.href ??
+        nextItems[0]?.href ??
+        "/");
+    setStoredWorkspaceId(workspace.id);
+    setCurrentWorkspace(workspace);
+    window.location.assign(destination);
+  };
 
   const toggleTheme = () => {
     const nextTheme = theme === "light" ? "dark" : "light";
@@ -226,16 +449,14 @@ export function AppShell({
           <div className="sidebar__brand">
             <Brand />
           </div>
-          <div className="workspace-switcher">
-            <span className="workspace-switcher__avatar">OU</span>
-            <span>
-              <strong>默认工作区</strong>
-              <small>个人空间</small>
-            </span>
-            <ChevronDown aria-hidden="true" size={16} />
-          </div>
-          <Navigation activeKey={activeKey} />
-          <div className="sidebar__storage">
+          <WorkspaceSwitcher
+            current={currentWorkspace}
+            onChange={changeWorkspace}
+            workspaces={workspaces}
+          />
+          <Navigation activeKey={activeKey} items={visibleItems} />
+          {sessionUser?.role === "owner" && (
+            <div className="sidebar__storage">
             <div>
               <span>存储空间</span>
               <strong>
@@ -257,7 +478,8 @@ export function AppShell({
               />
             </div>
             <Link href="/storage">本地存储运行中</Link>
-          </div>
+            </div>
+          )}
         </aside>
 
         <header className="topbar">
@@ -291,8 +513,15 @@ export function AppShell({
                       </button>
                     </Dialog.Close>
                   </div>
+                  <WorkspaceSwitcher
+                    compact
+                    current={currentWorkspace}
+                    onChange={changeWorkspace}
+                    workspaces={workspaces}
+                  />
                   <Navigation
                     activeKey={activeKey}
+                    items={visibleItems}
                     onNavigate={() => setMobileMenuOpen(false)}
                   />
                 </Dialog.Content>
@@ -312,12 +541,14 @@ export function AppShell({
           </button>
 
           <div className="topbar__actions">
-            <Button asChild className="quick-upload" size="compact">
-              <Link href="/">
-                <ImageUp aria-hidden="true" size={17} />
-                快速上传
-              </Link>
-            </Button>
+            {visibleItems.some((item) => item.key === "upload") && (
+              <Button asChild className="quick-upload" size="compact">
+                <Link href="/">
+                  <ImageUp aria-hidden="true" size={17} />
+                  快速上传
+                </Link>
+              </Button>
+            )}
             <IconTooltip label={theme === "light" ? "切换深色模式" : "切换浅色模式"}>
               <button
                 aria-label={theme === "light" ? "切换深色模式" : "切换浅色模式"}
@@ -334,7 +565,7 @@ export function AppShell({
             </IconTooltip>
             <Dialog.Root
               open={notificationsOpen}
-              onOpenChange={setNotificationsOpen}
+              onOpenChange={changeNotificationsOpen}
             >
               <IconTooltip label="通知">
                 <Dialog.Trigger asChild>
@@ -344,6 +575,16 @@ export function AppShell({
                     type="button"
                   >
                     <Bell aria-hidden="true" size={18} />
+                    {notificationUnreadCount > 0 && !notificationQuiet && (
+                      <span
+                        aria-label={`${notificationUnreadCount} 条未读通知`}
+                        className="notification-badge"
+                      >
+                        {notificationUnreadCount > 9
+                          ? "9+"
+                          : notificationUnreadCount}
+                      </span>
+                    )}
                   </button>
                 </Dialog.Trigger>
               </IconTooltip>
@@ -360,21 +601,73 @@ export function AppShell({
                         工作区的重要状态会显示在这里。
                       </Dialog.Description>
                     </div>
-                    <Dialog.Close asChild>
-                      <button
-                        aria-label="关闭通知"
-                        className="icon-button"
-                        type="button"
+                    <div className="notification-head-actions">
+                      <Button
+                        disabled={
+                          notificationBusy || !hasUnreadNotifications
+                        }
+                        onClick={() => void markNotificationsRead()}
+                        size="compact"
+                        variant="ghost"
                       >
-                        <X aria-hidden="true" size={20} />
-                      </button>
-                    </Dialog.Close>
+                        全部标为已读
+                      </Button>
+                      <Dialog.Close asChild>
+                        <button
+                          aria-label="关闭通知"
+                          className="icon-button"
+                          type="button"
+                        >
+                          <X aria-hidden="true" size={20} />
+                        </button>
+                      </Dialog.Close>
+                    </div>
                   </div>
-                  <div className="drawer-empty">
-                    <Bell aria-hidden="true" size={28} />
-                    <strong>暂无通知</strong>
-                    <p>新的上传结果和系统状态会及时出现在这里。</p>
-                  </div>
+                  {notificationQuiet && (
+                    <div className="notification-quiet">
+                      免打扰时段已启用，未读通知仍会保留在这里。
+                    </div>
+                  )}
+                  {notificationError && (
+                    <div className="notification-error" role="alert">
+                      {notificationError}
+                    </div>
+                  )}
+                  {notificationLoading && notifications.length === 0 ? (
+                    <div className="drawer-empty">
+                      <Bell aria-hidden="true" size={28} />
+                      <strong>正在读取通知</strong>
+                    </div>
+                  ) : notifications.length === 0 ? (
+                    <div className="drawer-empty">
+                      <Bell aria-hidden="true" size={28} />
+                      <strong>暂无通知</strong>
+                      <p>新的安全、协作和系统事件会出现在这里。</p>
+                    </div>
+                  ) : (
+                    <div className="notification-list">
+                      {notifications.map((notification) => (
+                        <article
+                          className={cn(
+                            "notification-item",
+                            !notification.read && "is-unread"
+                          )}
+                          key={notification.id}
+                        >
+                          <span className="notification-item__dot" />
+                          <div>
+                            <span>
+                              {notificationCategoryCopy[notification.category]}
+                            </span>
+                            <strong>{notification.action}</strong>
+                            <time dateTime={notification.createdAt}>
+                              {formatNotificationTime(notification.createdAt)}
+                            </time>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  )}
                 </Dialog.Content>
               </Dialog.Portal>
             </Dialog.Root>
@@ -403,6 +696,11 @@ export function AppShell({
                   <div className="dropdown-profile">
                     <strong>{sessionUser?.displayName ?? "正在读取账号"}</strong>
                     <span>{sessionUser?.email ?? "安全会话"}</span>
+                    {currentWorkspace && (
+                      <small>
+                        {currentWorkspace.name} · {roleCopy[currentWorkspace.role]}
+                      </small>
+                    )}
                   </div>
                   <DropdownMenu.Separator className="dropdown-separator" />
                   <DropdownMenu.Item asChild>
@@ -425,22 +723,36 @@ export function AppShell({
                     <LogOut aria-hidden="true" size={16} />
                     退出登录
                   </DropdownMenu.Item>
-                  <DropdownMenu.Item asChild>
-                    <Link className="dropdown-item" href="/audit">
-                      <Activity aria-hidden="true" size={16} />
-                      活动记录
-                    </Link>
-                  </DropdownMenu.Item>
+                  {visibleItems.some((item) => item.key === "audit") && (
+                    <DropdownMenu.Item asChild>
+                      <Link className="dropdown-item" href="/audit">
+                        <Activity aria-hidden="true" size={16} />
+                        活动记录
+                      </Link>
+                    </DropdownMenu.Item>
+                  )}
                 </DropdownMenu.Content>
               </DropdownMenu.Portal>
             </DropdownMenu.Root>
           </div>
         </header>
 
-        <div className="app-content">{children}</div>
+        <div className="app-content">
+          {currentWorkspace ? (
+            children
+          ) : (
+            <div
+              aria-live="polite"
+              className="workspace-page"
+              role="status"
+            >
+              正在载入安全工作区…
+            </div>
+          )}
+        </div>
 
         <nav aria-label="移动端导航" className="mobile-bottom-nav">
-          {navigationItems
+          {visibleItems
             .filter((item) => mobileKeys.includes(item.key))
             .map((item) => {
               const Icon =
