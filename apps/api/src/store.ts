@@ -43,21 +43,38 @@ export type StoredPasswordReset = {
   usedAt?: string;
 };
 
+export type StoredImage = {
+  id: string;
+  userId: string;
+  name: string;
+  size: number;
+  mime: string;
+  format: "jpeg" | "png" | "webp" | "gif" | "avif";
+  width: number;
+  height: number;
+  sha256: string;
+  originalKey: string;
+  thumbnailKey: string;
+  createdAt: string;
+};
+
 export type AppState = {
-  schemaVersion: 1;
+  schemaVersion: 2;
   setupComplete: boolean;
   site?: SiteConfig;
   users: StoredUser[];
   sessions: StoredSession[];
   passwordResets: StoredPasswordReset[];
+  images: StoredImage[];
 };
 
 const initialState = (): AppState => ({
-  schemaVersion: 1,
+  schemaVersion: 2,
   setupComplete: false,
   users: [],
   sessions: [],
-  passwordResets: []
+  passwordResets: [],
+  images: []
 });
 
 export class AppStore {
@@ -70,7 +87,19 @@ export class AppStore {
     if (!this.filePath) return;
     try {
       const contents = await readFile(this.filePath, "utf8");
-      this.state = JSON.parse(contents) as AppState;
+      const parsed = JSON.parse(contents) as Partial<AppState>;
+      this.state = {
+        ...initialState(),
+        ...parsed,
+        schemaVersion: 2,
+        users: parsed.users ?? [],
+        sessions: parsed.sessions ?? [],
+        passwordResets: parsed.passwordResets ?? [],
+        images: parsed.images ?? []
+      };
+      if (parsed.schemaVersion !== 2 || !parsed.images) {
+        await this.persist(this.state);
+      }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       await this.persist(this.state);

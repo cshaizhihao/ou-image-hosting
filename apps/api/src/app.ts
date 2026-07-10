@@ -12,27 +12,19 @@ import {
   validatePassword,
   verifyPassword
 } from "./security.js";
+import { PublicError } from "./errors.js";
 import {
   AppStore,
   type AppState,
   type StoredUser,
   type ThemePreference
 } from "./store.js";
+import { registerUploadRoutes } from "./uploads.js";
 
 const SESSION_COOKIE = "ou_session";
 const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
 const RESET_DURATION_MS = 30 * 60 * 1000;
 const LOGIN_LOCK_MS = 10 * 60 * 1000;
-
-class PublicError extends Error {
-  constructor(
-    public readonly statusCode: number,
-    public readonly code: string,
-    message: string
-  ) {
-    super(message);
-  }
-}
 
 type BuildAppOptions = {
   store?: AppStore;
@@ -184,7 +176,9 @@ export async function buildApp(options: BuildAppOptions = {}) {
   });
 
   app.addHook("onSend", async (_request, reply, payload) => {
-    reply.header("cache-control", "no-store");
+    if (!reply.hasHeader("cache-control")) {
+      reply.header("cache-control", "no-store");
+    }
     reply.header("x-content-type-options", "nosniff");
     reply.header("referrer-policy", "same-origin");
     return payload;
@@ -264,9 +258,10 @@ export async function buildApp(options: BuildAppOptions = {}) {
         item.tokenHash === hashOpaqueToken(token) &&
         new Date(item.expiresAt).getTime() > timestamp
     );
-    const user = session
-      ? state.users.find((item) => item.id === session.userId)
-      : undefined;
+    if (!session) {
+      throw new PublicError(401, "UNAUTHENTICATED", "登录状态已失效");
+    }
+    const user = state.users.find((item) => item.id === session.userId);
     if (!user) {
       throw new PublicError(401, "UNAUTHENTICATED", "登录状态已失效");
     }
@@ -276,7 +271,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   app.get("/health", async () => ({
     status: "ok",
     service: "ou-image-api",
-    version: "0.3.0"
+    version: "0.4.0"
   }));
 
   app.get("/setup/status", async () => {
@@ -681,6 +676,13 @@ export async function buildApp(options: BuildAppOptions = {}) {
       return { user: publicUser(updated) };
     }
   );
+
+  await registerUploadRoutes(app, {
+    store,
+    dataDirectory,
+    now,
+    authenticate: authenticatedUser
+  });
 
   return app;
 }

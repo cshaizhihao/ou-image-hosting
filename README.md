@@ -9,8 +9,8 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.3.0-ef8f8f" alt="Version 0.3.0" />
-  <img src="https://img.shields.io/badge/progress-2%20%2F%2010-303030" alt="Round 2 of 10" />
+  <img src="https://img.shields.io/badge/version-0.4.0-ef8f8f" alt="Version 0.4.0" />
+  <img src="https://img.shields.io/badge/progress-3%20%2F%2010-303030" alt="Round 3 of 10" />
   <img src="https://img.shields.io/badge/license-MIT-black" alt="MIT License" />
 </p>
 
@@ -26,21 +26,33 @@ OU-Image Hosting 面向个人创作者、开发者和小型团队，目标不是
 
 ## 当前版本
 
-当前版本：**v0.3.0**
+当前版本：**v0.4.0**
 
-第 2 / 10 轮已经完成：
+第 3 / 10 轮已经完成：
 
-- 三步首次安装向导与运行环境检查
-- 管理员账号、站点名称、注册开关和默认主题配置
-- 登录、开放注册、退出与七天安全会话
-- 找回密码、30 分钟一次性重置令牌和旧会话撤销
-- `scrypt` 密码散列、登录失败锁定、接口限流和日志脱敏
-- 首次使用引导与浅色、深色、跟随系统主题偏好
-- 同源 API 代理、认证路由保护和真实用户菜单
-- JSON 文件持久化单机模式，可在后续迁移到 PostgreSQL
-- 8 个单元/集成测试与完整浏览器端认证流程验证
+- 本地选择、拖拽、剪贴板粘贴和图片 URL 四种上传入口
+- 串行上传队列、逐文件/总进度、暂停、恢复、取消和失败重试
+- JPG、PNG、WebP、GIF、AVIF 内容验证与单文件 20 MB 限制
+- Sharp 元数据读取、自动旋转与 640px WebP 缩略图
+- SHA-256 内容去重与重复文件即时反馈
+- 原图/缩略图文件服务、绝对链接复制和缓存策略
+- 默认 2 GB 存储配额、实时使用汇总和侧栏容量进度
+- URL 上传私网地址拦截、10 秒超时和下载大小限制
+- schema v2 数据迁移与原子 JSON 持久化
+- 10 个单元/集成测试与真实浏览器上传验证
 
 ## 应用截图
+
+### 上传工作台
+
+<p align="center">
+  <img src="./docs/screenshots/v0.4.0-upload-desktop.png" width="49%" alt="OU-Image Hosting 桌面上传队列" />
+  <img src="./docs/screenshots/v0.4.0-url-upload-dialog.png" width="49%" alt="OU-Image Hosting URL 上传对话框" />
+</p>
+
+<p align="center">
+  <img src="./docs/screenshots/v0.4.0-upload-mobile-dark.png" width="280" alt="OU-Image Hosting 移动端深色上传队列" />
+</p>
 
 ### 安装与初始化
 
@@ -104,6 +116,18 @@ pnpm dev
 
 本地数据默认保存在 `.data/ou-image.json`，文件权限为 `0600`。该目录已加入 `.gitignore`。
 
+### 上传图片
+
+进入上传工作台后可以：
+
+1. 点击或拖入多张图片。
+2. 在任意位置粘贴剪贴板中的图片。
+3. 使用“图片地址”让服务端下载远程图片。
+4. 在队列中暂停、继续、移除或重试单个任务。
+5. 上传完成后复制可访问的原图地址。
+
+原图保存在 `.data/storage/originals`，缩略图保存在 `.data/storage/thumbnails`。相同内容只保存一次。
+
 ## 认证与密码重置
 
 - 会话凭证通过 `HttpOnly`、`SameSite=Lax` Cookie 保存。
@@ -121,6 +145,7 @@ pnpm dev
 | `APP_ORIGIN` | `http://localhost:3000` | 允许发起写请求的 Web 来源 |
 | `API_PROXY_TARGET` | `http://127.0.0.1:4000` | Next.js 同源 API 代理目标 |
 | `OU_DATA_DIR` | `./.data` | 单机持久化数据目录 |
+| `OU_STORAGE_QUOTA_BYTES` | `2147483648` | 本地图片存储配额，单位字节 |
 | `COOKIE_SECURE` | 生产为 `true` | 显式控制会话 Cookie 的 Secure 属性 |
 | `EXPOSE_DEVELOPMENT_RESET_TOKEN` | `false` | 仅开发环境显示本地重置入口 |
 
@@ -153,8 +178,9 @@ scripts/run-low-cpu.sh pnpm check
 
 - Web：Next.js 15、React 19、TypeScript、Tailwind CSS 4
 - UI：Radix UI primitives、Lucide Icons、自有 Design Token
-- API：Fastify 5、Cookie、Rate Limit、Node.js Crypto
-- Persistence：原子写入 JSON 单机仓库
+- API：Fastify 5、Multipart、Cookie、Rate Limit、Node.js Crypto
+- Image：Sharp 元数据、自动旋转与 WebP 缩略图
+- Persistence：原子 JSON 元数据与本地原图/缩略图目录
 - Testing：Vitest、Playwright
 - Workspace：pnpm Monorepo
 
@@ -186,7 +212,7 @@ scripts/run-low-cpu.sh pnpm check
 |---|---:|---|
 | 1 | v0.2.0 | 设计系统、应用壳层和工程基础（已完成） |
 | 2 | v0.3.0 | 安装、认证与首次使用引导（已完成） |
-| 3 | v0.4.0 | 上传引擎、队列与图片处理 |
+| 3 | v0.4.0 | 上传引擎、队列与图片处理（已完成） |
 | 4 | v0.5.0 | 图片库、筛选和批量操作 |
 | 5 | v0.6.0 | 图片详情、编辑、分享与版本 |
 | 6 | v0.7.0 | 相册、标签、收藏和回收站 |

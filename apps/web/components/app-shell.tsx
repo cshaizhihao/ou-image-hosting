@@ -54,6 +54,14 @@ const iconMap: Record<string, LucideIcon> = {
 
 const mobileKeys = ["overview", "library", "upload", "albums", "settings"];
 
+function formatStorage(value: number) {
+  if (value < 1024 * 1024) return `${Math.max(0, value / 1024).toFixed(1)} KB`;
+  if (value < 1024 * 1024 * 1024) {
+    return `${(value / 1024 / 1024).toFixed(1)} MB`;
+  }
+  return `${(value / 1024 / 1024 / 1024).toFixed(1)} GB`;
+}
+
 function Brand({ compact = false }: { compact?: boolean }) {
   return (
     <Link className={cn("brand", compact && "brand--compact")} href="/">
@@ -156,6 +164,10 @@ export function AppShell({
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
+  const [storageSummary, setStorageSummary] = useState<{
+    bytes: number;
+    quotaBytes: number;
+  } | null>(null);
 
   useEffect(() => {
     const saved = window.localStorage.getItem("ou-theme");
@@ -176,6 +188,9 @@ export function AppShell({
     apiRequest<{ user: SessionUser }>("/auth/session")
       .then(({ user }) => setSessionUser(user))
       .catch(() => router.replace("/login"));
+    apiRequest<{ bytes: number; quotaBytes: number }>("/uploads/summary")
+      .then(setStorageSummary)
+      .catch(() => undefined);
   }, [router]);
 
   useEffect(() => {
@@ -223,12 +238,25 @@ export function AppShell({
           <div className="sidebar__storage">
             <div>
               <span>存储空间</span>
-              <strong>尚未配置</strong>
+              <strong>
+                {storageSummary
+                  ? `${formatStorage(storageSummary.bytes)} / ${formatStorage(storageSummary.quotaBytes)}`
+                  : "读取中"}
+              </strong>
             </div>
             <div className="storage-track" aria-hidden="true">
-              <span />
+              <span
+                style={{
+                  width: storageSummary
+                    ? `${Math.min(
+                        100,
+                        (storageSummary.bytes / storageSummary.quotaBytes) * 100
+                      )}%`
+                    : "0%"
+                }}
+              />
             </div>
-            <Link href="/storage">前往配置</Link>
+            <Link href="/storage">本地存储运行中</Link>
           </div>
         </aside>
 

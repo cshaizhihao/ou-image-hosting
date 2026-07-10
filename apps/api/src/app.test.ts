@@ -1,12 +1,23 @@
 import { afterEach, describe, expect, it } from "vitest";
+import FormData from "form-data";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import sharp from "sharp";
 import { buildApp } from "./app.js";
 import { AppStore } from "./store.js";
 
 const apps: Awaited<ReturnType<typeof buildApp>>[] = [];
+const temporaryDirectories: string[] = [];
 
 async function createTestApp() {
+  const dataDirectory = await mkdtemp(
+    path.join(tmpdir(), "ou-image-api-test-")
+  );
+  temporaryDirectories.push(dataDirectory);
   const app = await buildApp({
     store: new AppStore(null),
+    dataDirectory,
     exposeDevelopmentResetToken: true
   });
   apps.push(app);
@@ -15,6 +26,11 @@ async function createTestApp() {
 
 afterEach(async () => {
   await Promise.all(apps.splice(0).map((app) => app.close()));
+  await Promise.all(
+    temporaryDirectories
+      .splice(0)
+      .map((directory) => rm(directory, { recursive: true, force: true }))
+  );
 });
 
 const owner = {
@@ -31,7 +47,7 @@ describe("OU-Image API", () => {
     const status = await app.inject({ method: "GET", url: "/setup/status" });
 
     expect(health.statusCode).toBe(200);
-    expect(health.json()).toMatchObject({ status: "ok", version: "0.3.0" });
+    expect(health.json()).toMatchObject({ status: "ok", version: "0.4.0" });
     expect(status.json()).toEqual({ setupComplete: false, site: null });
   });
 
@@ -188,5 +204,102 @@ describe("OU-Image API", () => {
 
     expect(known.json().message).toBe(unknown.json().message);
     expect(unknown.json().developmentResetToken).toBeUndefined();
+  });
+
+  it("uploads, thumbnails and deduplicates a real PNG", async () => {
+    const app = await createTestApp();
+    const setup = await app.inject({
+      method: "POST",
+      url: "/setup",
+      payload: owner
+    });
+    const cookie = setup.cookies.find((item) => item.name === "ou_session")!;
+    const png = await sharp({
+      create: {
+        width: 16,
+        height: 12,
+        channels: 4,
+        background: { r: 239, g: 143, b: 143, alpha: 1 }
+      }
+    })
+      .png()
+      .toBuffer();
+
+    const upload = async () => {
+      const form = new FormData();
+      form.append("file", png, {
+        filename: "sample.png",
+        contentType: "image/png"
+      });
+      return app.inject({
+        method: "POST",
+        url: "/uploads",
+        headers: form.getHeaders(),
+        cookies: { ou_session: cookie.value },
+        payload: form.getBuffer()
+      });
+    };
+
+    const first = await upload();
+    const duplicate = await upload();
+    expect(first.statusCode).toBe(201);
+    expect(first.json()).toMatchObject({
+      duplicate: false,
+      image: {
+        name: "sample.png",
+        format: "png",
+        width: 16,
+        height: 12
+      }
+    });
+    expect(duplicate.statusCode).toBe(200);
+    expect(duplicate.json()).toMatchObject({
+      duplicate: true,
+      image: { id: first.json().image.id }
+    });
+
+    const summary = await app.inject({
+      method: "GET",
+      url: "/uploads/summary",
+      cookies: { ou_session: cookie.value }
+    });
+    expect(summary.json()).toMatchObject({ count: 1, bytes: png.byteLength });
+
+    const thumbnail = await app.inject({
+      method: "GET",
+      url: first.json().image.thumbnailUrl.replace("/api", "")
+    });
+    const original = await app.inject({
+      method: "GET",
+      url: first.json().image.originalUrl.replace("/api", "")
+    });
+    expect(thumbnail.statusCode).toBe(200);
+    expect(thumbnail.headers["content-type"]).toContain("image/webp");
+    expect(original.statusCode).toBe(200);
+    expect(original.rawPayload.equals(png)).toBe(true);
+  });
+
+  it("protects upload state and blocks private URL targets", async () => {
+    const app = await createTestApp();
+    const anonymous = await app.inject({
+      method: "GET",
+      url: "/uploads/summary"
+    });
+    const setup = await app.inject({
+      method: "POST",
+      url: "/setup",
+      payload: owner
+    });
+    const cookie = setup.cookies.find((item) => item.name === "ou_session")!;
+    const privateUrl = await app.inject({
+      method: "POST",
+      url: "/uploads/from-url",
+      cookies: { ou_session: cookie.value },
+      payload: { url: "http://127.0.0.1/private.png" }
+    });
+
+    expect(anonymous.statusCode).toBe(401);
+    expect(privateUrl.statusCode).toBe(400);
+    expect(privateUrl.json().error.code).toBe("BLOCKED_URL");
   });
 });

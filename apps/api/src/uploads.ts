@@ -1,0 +1,427 @@
+import multipart from "@fastify/multipart";
+import type {
+  FastifyInstance,
+  FastifyReply,
+  FastifyRequest
+} from "fastify";
+import { createHash, randomUUID } from "node:crypto";
+import { lookup } from "node:dns/promises";
+import { createReadStream } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
+import { isIP } from "node:net";
+import path from "node:path";
+import sharp from "sharp";
+import { PublicError } from "./errors.js";
+import {
+  type AppStore,
+  type StoredImage,
+  type StoredUser
+} from "./store.js";
+
+const MAX_FILE_SIZE = 20 * 1024 * 1024;
+const MAX_REMOTE_SIZE = 20 * 1024 * 1024;
+const MAX_PIXELS = 80_000_000;
+const allowedFormats = new Set(["jpeg", "png", "webp", "gif", "avif"]);
+const extensionByFormat = {
+  jpeg: "jpg",
+  png: "png",
+  webp: "webp",
+  gif: "gif",
+  avif: "avif"
+} as const;
+const mimeByFormat = {
+  jpeg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+  gif: "image/gif",
+  avif: "image/avif"
+} as const;
+
+type UploadRouteOptions = {
+  store: AppStore;
+  dataDirectory: string;
+  now: () => Date;
+  authenticate: (request: FastifyRequest) => {
+    user: StoredUser;
+    session: { id: string };
+  };
+};
+
+type UrlUploadBody = { url: string };
+
+function publicImage(image: StoredImage) {
+  return {
+    id: image.id,
+    name: image.name,
+    size: image.size,
+    mime: image.mime,
+    format: image.format,
+    width: image.width,
+    height: image.height,
+    sha256: image.sha256,
+    thumbnailUrl: `/api/files/${image.id}/thumbnail`,
+    originalUrl: `/api/files/${image.id}/original`,
+    createdAt: image.createdAt
+  };
+}
+
+function sanitizeFilename(value: string) {
+  const cleaned = path
+    .basename(value)
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .trim();
+  return (cleaned || `image-${Date.now()}`).slice(0, 180);
+}
+
+function isPrivateIpv4(address: string) {
+  const parts = address.split(".").map(Number);
+  const [a = -1, b = -1] = parts;
+  return (
+    a === 0 ||
+    a === 10 ||
+    a === 127 ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    (a === 100 && b >= 64 && b <= 127) ||
+    a >= 224
+  );
+}
+
+function isPrivateAddress(address: string) {
+  if (isIP(address) === 4) return isPrivateIpv4(address);
+  const normalized = address.toLowerCase();
+  return (
+    normalized === "::" ||
+    normalized === "::1" ||
+    normalized.startsWith("fc") ||
+    normalized.startsWith("fd") ||
+    normalized.startsWith("fe8") ||
+    normalized.startsWith("fe9") ||
+    normalized.startsWith("fea") ||
+    normalized.startsWith("feb") ||
+    normalized.startsWith("ff") ||
+    normalized.startsWith("::ffff:127.") ||
+    normalized.startsWith("::ffff:10.") ||
+    normalized.startsWith("::ffff:192.168.")
+  );
+}
+
+async function assertRemoteUrl(rawUrl: string) {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    throw new PublicError(400, "INVALID_URL", "请输入有效的图片网址");
+  }
+  if (!["http:", "https:"].includes(url.protocol)) {
+    throw new PublicError(400, "INVALID_URL", "只支持 HTTP 或 HTTPS 图片网址");
+  }
+  if (url.username || url.password) {
+    throw new PublicError(400, "INVALID_URL", "图片网址不能包含登录凭证");
+  }
+  let addresses;
+  try {
+    addresses = await lookup(url.hostname, { all: true, verbatim: true });
+  } catch {
+    throw new PublicError(400, "REMOTE_FETCH_FAILED", "无法解析远程图片地址");
+  }
+  if (
+    addresses.length === 0 ||
+    addresses.some(({ address }) => isPrivateAddress(address))
+  ) {
+    throw new PublicError(400, "BLOCKED_URL", "该网址指向受保护的网络地址");
+  }
+  return url;
+}
+
+async function readRemoteImage(rawUrl: string) {
+  const url = await assertRemoteUrl(rawUrl);
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      redirect: "error",
+      signal: AbortSignal.timeout(10_000),
+      headers: {
+        accept: "image/avif,image/webp,image/png,image/jpeg,image/gif",
+        "user-agent": "OU-Image-Hosting/0.4.0"
+      }
+    });
+  } catch {
+    throw new PublicError(400, "REMOTE_FETCH_FAILED", "无法读取远程图片");
+  }
+  if (!response.ok || !response.body) {
+    throw new PublicError(400, "REMOTE_FETCH_FAILED", "远程图片响应不可用");
+  }
+  const declaredLength = Number(response.headers.get("content-length") ?? 0);
+  if (declaredLength > MAX_REMOTE_SIZE) {
+    throw new PublicError(413, "FILE_TOO_LARGE", "图片不能超过 20 MB");
+  }
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_REMOTE_SIZE) {
+      await reader.cancel();
+      throw new PublicError(413, "FILE_TOO_LARGE", "图片不能超过 20 MB");
+    }
+    chunks.push(value);
+  }
+  const buffer = Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)));
+  return {
+    buffer,
+    filename: sanitizeFilename(path.basename(url.pathname) || "remote-image"),
+    mime: response.headers.get("content-type")?.split(";")[0] ?? ""
+  };
+}
+
+export async function registerUploadRoutes(
+  app: FastifyInstance,
+  options: UploadRouteOptions
+) {
+  const { store, dataDirectory, now, authenticate } = options;
+  const storageRoot = path.join(dataDirectory, "storage");
+  const originalsDirectory = path.join(storageRoot, "originals");
+  const thumbnailsDirectory = path.join(storageRoot, "thumbnails");
+  const quotaBytes = Number(
+    process.env.OU_STORAGE_QUOTA_BYTES ?? 2 * 1024 * 1024 * 1024
+  );
+
+  await mkdir(originalsDirectory, { recursive: true });
+  await mkdir(thumbnailsDirectory, { recursive: true });
+  await app.register(multipart, {
+    limits: {
+      files: 1,
+      fields: 4,
+      fileSize: MAX_FILE_SIZE,
+      parts: 5
+    }
+  });
+
+  const ingest = async ({
+    buffer,
+    filename,
+    mime,
+    userId
+  }: {
+    buffer: Buffer;
+    filename: string;
+    mime: string;
+    userId: string;
+  }) => {
+    if (buffer.byteLength === 0) {
+      throw new PublicError(400, "EMPTY_FILE", "图片文件不能为空");
+    }
+    if (buffer.byteLength > MAX_FILE_SIZE) {
+      throw new PublicError(413, "FILE_TOO_LARGE", "图片不能超过 20 MB");
+    }
+
+    let metadata: sharp.Metadata;
+    try {
+      metadata = await sharp(buffer, {
+        animated: true,
+        failOn: "error",
+        limitInputPixels: MAX_PIXELS
+      }).metadata();
+    } catch {
+      throw new PublicError(400, "INVALID_IMAGE", "文件不是有效的受支持图片");
+    }
+
+    const format = metadata.format;
+    const width = metadata.width;
+    const height = metadata.height;
+    if (
+      !format ||
+      !allowedFormats.has(format) ||
+      !width ||
+      !height
+    ) {
+      throw new PublicError(
+        415,
+        "UNSUPPORTED_IMAGE",
+        "仅支持 JPG、PNG、WebP、GIF 和 AVIF"
+      );
+    }
+
+    const sha256 = createHash("sha256").update(buffer).digest("hex");
+    const existing = store
+      .snapshot()
+      .images.find((image) => image.sha256 === sha256);
+    if (existing) {
+      return { image: publicImage(existing), duplicate: true };
+    }
+
+    const usedBytes = store
+      .snapshot()
+      .images.reduce((total, image) => total + image.size, 0);
+    if (usedBytes + buffer.byteLength > quotaBytes) {
+      throw new PublicError(413, "QUOTA_EXCEEDED", "存储空间不足");
+    }
+
+    const typedFormat = format as StoredImage["format"];
+    const id = randomUUID();
+    const originalKey = `originals/${sha256}.${extensionByFormat[typedFormat]}`;
+    const thumbnailKey = `thumbnails/${id}.webp`;
+    const originalPath = path.join(storageRoot, originalKey);
+    const thumbnailPath = path.join(storageRoot, thumbnailKey);
+
+    const thumbnail = await sharp(buffer, {
+      animated: false,
+      failOn: "error",
+      limitInputPixels: MAX_PIXELS
+    })
+      .rotate()
+      .resize({
+        width: 640,
+        height: 640,
+        fit: "inside",
+        withoutEnlargement: true
+      })
+      .webp({ quality: 82, effort: 3 })
+      .toBuffer();
+
+    await Promise.all([
+      writeFile(originalPath, buffer, { mode: 0o600 }),
+      writeFile(thumbnailPath, thumbnail, { mode: 0o600 })
+    ]);
+
+    const image: StoredImage = {
+      id,
+      userId,
+      name: sanitizeFilename(filename),
+      size: buffer.byteLength,
+      mime: mimeByFormat[typedFormat],
+      format: typedFormat,
+      width,
+      height,
+      sha256,
+      originalKey,
+      thumbnailKey,
+      createdAt: now().toISOString()
+    };
+    await store.update((state) => {
+      state.images.push(image);
+    });
+    return { image: publicImage(image), duplicate: false };
+  };
+
+  app.get("/uploads/summary", async (request) => {
+    authenticate(request);
+    const images = store.snapshot().images;
+    return {
+      count: images.length,
+      bytes: images.reduce((total, image) => total + image.size, 0),
+      quotaBytes
+    };
+  });
+
+  app.get("/uploads", async (request) => {
+    authenticate(request);
+    return {
+      images: store
+        .snapshot()
+        .images.slice()
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+        .slice(0, 100)
+        .map(publicImage)
+    };
+  });
+
+  app.post(
+    "/uploads",
+    {
+      config: { rateLimit: { max: 60, timeWindow: "1 minute" } },
+      bodyLimit: MAX_FILE_SIZE + 1024 * 1024
+    },
+    async (request, reply) => {
+      const { user } = authenticate(request);
+      let part;
+      try {
+        part = await request.file();
+      } catch {
+        throw new PublicError(413, "FILE_TOO_LARGE", "图片不能超过 20 MB");
+      }
+      if (!part || part.fieldname !== "file") {
+        throw new PublicError(400, "FILE_REQUIRED", "请选择需要上传的图片");
+      }
+      let buffer: Buffer;
+      try {
+        buffer = await part.toBuffer();
+      } catch {
+        throw new PublicError(413, "FILE_TOO_LARGE", "图片不能超过 20 MB");
+      }
+      const result = await ingest({
+        buffer,
+        filename: part.filename,
+        mime: part.mimetype,
+        userId: user.id
+      });
+      return reply.status(result.duplicate ? 200 : 201).send(result);
+    }
+  );
+
+  app.post<{ Body: UrlUploadBody }>(
+    "/uploads/from-url",
+    {
+      config: { rateLimit: { max: 10, timeWindow: "1 minute" } },
+      schema: {
+        body: {
+          type: "object",
+          additionalProperties: false,
+          required: ["url"],
+          properties: {
+            url: { type: "string", minLength: 8, maxLength: 2048 }
+          }
+        }
+      }
+    },
+    async (request, reply) => {
+      const { user } = authenticate(request);
+      const remote = await readRemoteImage(request.body.url);
+      const result = await ingest({
+        ...remote,
+        userId: user.id
+      });
+      return reply.status(result.duplicate ? 200 : 201).send(result);
+    }
+  );
+
+  app.get<{ Params: { id: string; variant: "original" | "thumbnail" } }>(
+    "/files/:id/:variant",
+    {
+      schema: {
+        params: {
+          type: "object",
+          required: ["id", "variant"],
+          properties: {
+            id: { type: "string", minLength: 1, maxLength: 80 },
+            variant: { type: "string", enum: ["original", "thumbnail"] }
+          }
+        }
+      }
+    },
+    async (request, reply) => {
+      const image = store
+        .snapshot()
+        .images.find((item) => item.id === request.params.id);
+      if (!image) {
+        throw new PublicError(404, "IMAGE_NOT_FOUND", "图片不存在");
+      }
+      const isThumbnail = request.params.variant === "thumbnail";
+      const key = isThumbnail ? image.thumbnailKey : image.originalKey;
+      reply
+        .type(isThumbnail ? "image/webp" : image.mime)
+        .header(
+          "cache-control",
+          isThumbnail
+            ? "public, max-age=86400"
+            : "public, max-age=31536000, immutable"
+        )
+        .header("content-disposition", "inline");
+      return reply.send(createReadStream(path.join(storageRoot, key)));
+    }
+  );
+}

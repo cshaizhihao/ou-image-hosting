@@ -1,6 +1,6 @@
 {
   "name": "@ou-image/api",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,10 +12,13 @@
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",
+    "@fastify/multipart": "^9.0.3",
     "@fastify/rate-limit": "^10.2.1",
-    "fastify": "^5.3.0"
+    "fastify": "^5.3.0",
+    "sharp": "^0.34.3"
   },
   "devDependencies": {
+    "form-data": "^4.0.4",
     "tsx": "^4.19.0",
     "typescript": "^5.8.0"
   }
