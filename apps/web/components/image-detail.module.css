@@ -1,5 +1,5 @@
 .page {
-  width: min(1320px, 100%);
+  width: min(1440px, 100%);
   padding-bottom: 120px;
 }
 
@@ -318,14 +318,12 @@
   text-align: left;
   transition:
     border-color var(--motion-fast),
-    background var(--motion-fast),
-    transform var(--motion-fast);
+    background var(--motion-fast);
 }
 
 .copyGrid button:hover {
   border-color: color-mix(in srgb, var(--action-primary) 45%, var(--border-default));
   background: var(--surface-hover);
-  transform: translateY(-1px);
 }
 
 .copyGrid button > svg:first-child {

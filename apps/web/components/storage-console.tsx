@@ -9,14 +9,17 @@ import {
   Box,
   Check,
   CheckCircle2,
+  ChevronLeft,
   ChevronRight,
   Cloud,
   Copy,
   Database,
   Download,
+  ExternalLink,
   FileArchive,
   Globe2,
   HardDrive,
+  HelpCircle,
   History,
   KeyRound,
   Link2,
@@ -42,6 +45,10 @@ import {
   useState
 } from "react";
 import { apiRequest } from "@/lib/api";
+import {
+  getStorageProviderGuide,
+  type StorageGuideProvider
+} from "@/lib/storage-guides";
 import { AppShell } from "./app-shell";
 import styles from "./storage-console.module.css";
 
@@ -464,6 +471,167 @@ function ConfirmDialog({
   );
 }
 
+function StorageGuideDialog({
+  provider,
+  onOpenChange
+}: {
+  provider: StorageGuideProvider | null;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const [stepIndex, setStepIndex] = useState(0);
+  const guide = provider ? getStorageProviderGuide(provider) : null;
+
+  useEffect(() => {
+    setStepIndex(0);
+  }, [provider]);
+
+  if (!guide) return null;
+
+  const step = guide.steps[stepIndex]!;
+  const isFirst = stepIndex === 0;
+  const isLast = stepIndex === guide.steps.length - 1;
+
+  return (
+    <Dialog.Root
+      onOpenChange={(open) => {
+        onOpenChange(open);
+      }}
+      open={Boolean(provider)}
+    >
+      <Dialog.Portal>
+        <Dialog.Overlay
+          className={cn(
+            "dialog-overlay dialog-overlay--strong",
+            styles.guideOverlay
+          )}
+        />
+        <Dialog.Content
+          aria-describedby="storage-guide-description"
+          className={cn(styles.dialog, styles.guideDialog)}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowLeft" && !isFirst) {
+              event.preventDefault();
+              setStepIndex((current) => current - 1);
+            }
+            if (event.key === "ArrowRight" && !isLast) {
+              event.preventDefault();
+              setStepIndex((current) => current + 1);
+            }
+          }}
+        >
+          <div className={styles.guideHeader}>
+            <div className={styles.guideProvider}>
+              <span>{guide.eyebrow}</span>
+              <Dialog.Title>{guide.label} 配置教程</Dialog.Title>
+              <Dialog.Description id="storage-guide-description">
+                按步骤准备凭证并完成连接，左右方向键也可以切换步骤。
+              </Dialog.Description>
+            </div>
+            <Dialog.Close asChild>
+              <button
+                aria-label={`关闭 ${guide.label} 配置教程`}
+                className={styles.guideClose}
+                type="button"
+              >
+                <X aria-hidden="true" size={18} />
+              </button>
+            </Dialog.Close>
+          </div>
+
+          <div className={styles.guideProgress}>
+            <span>
+              步骤 {stepIndex + 1} / {guide.steps.length}
+            </span>
+            <div
+              aria-label={`${guide.label} 教程进度`}
+              aria-valuemax={guide.steps.length}
+              aria-valuemin={1}
+              aria-valuenow={stepIndex + 1}
+              role="progressbar"
+            >
+              {guide.steps.map((item, index) => (
+                <i
+                  className={cn(index <= stepIndex && styles.guideProgressDone)}
+                  key={item.title}
+                />
+              ))}
+            </div>
+          </div>
+
+          <section
+            aria-live="polite"
+            className={styles.guideStep}
+            key={`${guide.provider}-${stepIndex}`}
+          >
+            <span className={styles.guideStepNumber}>
+              {String(stepIndex + 1).padStart(2, "0")}
+            </span>
+            <div>
+              <h3>{step.title}</h3>
+              <p>{step.description}</p>
+              <ul>
+                {step.checklist.map((item) => (
+                  <li key={item}>
+                    <Check aria-hidden="true" size={14} />
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </section>
+
+          <div className={styles.guideLinks}>
+            <a
+              href={guide.consoleUrl}
+              rel="noopener noreferrer"
+              target="_blank"
+            >
+              <ExternalLink aria-hidden="true" size={15} />
+              {guide.consoleLabel}
+            </a>
+            <a
+              href={guide.docsUrl}
+              rel="noopener noreferrer"
+              target="_blank"
+            >
+              <ExternalLink aria-hidden="true" size={15} />
+              {guide.docsLabel}
+            </a>
+          </div>
+
+          <div className={styles.guideFooter}>
+            <span>提示：可使用键盘 ← → 切换，Esc 关闭</span>
+            <div>
+              <Button
+                disabled={isFirst}
+                onClick={() => setStepIndex((current) => current - 1)}
+                size="compact"
+                variant="secondary"
+              >
+                <ChevronLeft aria-hidden="true" size={16} />
+                上一步
+              </Button>
+              {isLast ? (
+                <Dialog.Close asChild>
+                  <Button size="compact">完成</Button>
+                </Dialog.Close>
+              ) : (
+                <Button
+                  onClick={() => setStepIndex((current) => current + 1)}
+                  size="compact"
+                >
+                  下一步
+                  <ChevronRight aria-hidden="true" size={16} />
+                </Button>
+              )}
+            </div>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
 export function StorageConsole() {
   const [activeTab, setActiveTab] = useState<StorageTab>("providers");
   const [selectedProvider, setSelectedProvider] =
@@ -478,6 +646,8 @@ export function StorageConsole() {
   const [pendingRestore, setPendingRestore] = useState<Backup | null>(null);
   const [pendingDelete, setPendingDelete] = useState<Backup | null>(null);
   const [migrationDialog, setMigrationDialog] = useState(false);
+  const [guideProvider, setGuideProvider] =
+    useState<StorageGuideProvider | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState("");
@@ -911,46 +1081,65 @@ export function StorageConsole() {
                 const selected = selectedProvider === provider;
                 const active = actualActive === provider;
                 return (
-                  <button
-                    className={cn(
-                      styles.providerCard,
-                      selected && styles.providerActive
-                    )}
+                  <div
+                    className={styles.providerCardShell}
                     key={provider}
-                    onClick={() => setSelectedProvider(provider)}
                     style={{ "--provider-accent": meta.accent } as CSSProperties}
-                    type="button"
                   >
-                    <span className={styles.providerIcon}>
-                      <Icon aria-hidden="true" size={21} />
-                    </span>
-                    <span className={styles.providerCopy}>
-                      <strong>{meta.label}</strong>
-                      <small>{meta.description}</small>
-                    </span>
-                    <span className={styles.providerState}>
-                      {active && <Badge tone="success">当前使用</Badge>}
-                      {selected && !active && <Badge tone="info">正在配置</Badge>}
-                      {state && (
-                        <span
-                          className={cn(
-                            styles.health,
-                            state.status === "configured" &&
-                              styles.healthConfigured,
-                            providerIsHealthy(state) && styles.healthGood
-                          )}
-                        >
-                          {providerIsHealthy(state) ||
-                          state.status === "configured" ? (
-                            <Check size={13} />
-                          ) : (
-                            <X size={13} />
-                          )}
-                          {providerStateCopy(state)}
-                        </span>
+                    <button
+                      aria-pressed={selected}
+                      className={cn(
+                        styles.providerCard,
+                        selected && styles.providerActive
                       )}
-                    </span>
-                  </button>
+                      onClick={() => setSelectedProvider(provider)}
+                      type="button"
+                    >
+                      <span className={styles.providerIcon}>
+                        <Icon aria-hidden="true" size={21} />
+                      </span>
+                      <span className={styles.providerCopy}>
+                        <strong>{meta.label}</strong>
+                        <small>{meta.description}</small>
+                      </span>
+                      <span className={styles.providerState}>
+                        {active && <Badge tone="success">当前使用</Badge>}
+                        {selected && !active && (
+                          <Badge tone="info">正在配置</Badge>
+                        )}
+                        {state && (
+                          <span
+                            className={cn(
+                              styles.health,
+                              state.status === "configured" &&
+                                styles.healthConfigured,
+                              providerIsHealthy(state) && styles.healthGood
+                            )}
+                          >
+                            {providerIsHealthy(state) ||
+                            state.status === "configured" ? (
+                              <Check size={13} />
+                            ) : (
+                              <X size={13} />
+                            )}
+                            {providerStateCopy(state)}
+                          </span>
+                        )}
+                      </span>
+                    </button>
+                    {provider !== "local" && (
+                      <button
+                        aria-haspopup="dialog"
+                        aria-label={`查看 ${meta.label} 配置教程`}
+                        className={styles.providerHelp}
+                        onClick={() => setGuideProvider(provider)}
+                        title={`${meta.label} 配置教程`}
+                        type="button"
+                      >
+                        <HelpCircle aria-hidden="true" size={17} />
+                      </button>
+                    )}
+                  </div>
                 );
               })}
             </div>
@@ -1388,7 +1577,9 @@ export function StorageConsole() {
                           <strong>{progress}%</strong>
                         </div>
                         <div className={styles.progressTrack}>
-                          <span style={{ width: `${progress}%` }} />
+                          <span
+                            style={{ transform: `scaleX(${progress / 100})` }}
+                          />
                         </div>
                         <div className={styles.rowMeta}>
                           <span>{formatDate(migration.createdAt)}</span>
@@ -1594,6 +1785,13 @@ export function StorageConsole() {
           </section>
         )}
       </main>
+
+      <StorageGuideDialog
+        onOpenChange={(open) => {
+          if (!open) setGuideProvider(null);
+        }}
+        provider={guideProvider}
+      />
 
       <ConfirmDialog
         busy={busy === "backup-restore"}

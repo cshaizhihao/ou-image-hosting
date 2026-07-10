@@ -1,5 +1,5 @@
 .page {
-  width: min(1320px, 100%);
+  width: min(1440px, 100%);
   padding-bottom: 120px;
 }
 
@@ -364,14 +364,11 @@
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   background: var(--surface-page);
-  transition:
-    border-color var(--motion-fast),
-    transform var(--motion-fast);
+  transition: border-color var(--motion-fast);
 }
 
 .imageGrid article:hover {
   border-color: var(--border-strong);
-  transform: translateY(-1px);
 }
 
 .imageGrid .imageSelected {
@@ -391,11 +388,6 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transition: transform var(--motion-standard);
-}
-
-.imageGrid article:hover img {
-  transform: scale(1.025);
 }
 
 .imageGrid article > div {
@@ -407,7 +399,7 @@
 
 .imageGrid strong {
   overflow: hidden;
-  font-size: 11px;
+  font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -415,7 +407,7 @@
 .imageGrid small,
 .imageGrid time {
   color: var(--text-tertiary);
-  font-size: 8px;
+  font-size: 12px;
 }
 
 .check,

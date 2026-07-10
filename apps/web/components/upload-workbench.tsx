@@ -602,7 +602,7 @@ export function UploadWorkbench() {
                 className="upload-storage__track"
                 role="progressbar"
               >
-                <span style={{ width: `${quotaPercent}%` }} />
+                <span style={{ transform: `scaleX(${quotaPercent / 100})` }} />
               </div>
               <p>
                 <strong>{formatBytes(summary.bytes)}</strong>
@@ -677,7 +677,7 @@ export function UploadWorkbench() {
               className="upload-total-progress"
               role="progressbar"
             >
-              <span style={{ width: `${totalProgress}%` }} />
+              <span style={{ transform: `scaleX(${totalProgress / 100})` }} />
             </div>
           )}
 
@@ -749,7 +749,9 @@ export function UploadWorkbench() {
                           className="upload-row__progress"
                           role="progressbar"
                         >
-                          <span style={{ width: `${item.progress}%` }} />
+                          <span
+                            style={{ transform: `scaleX(${item.progress / 100})` }}
+                          />
                         </div>
                       )}
                     </div>

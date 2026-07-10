@@ -16,6 +16,7 @@
   <a href="https://github.com/cshaizhihao/ou-image-hosting/releases">
     <img src="https://img.shields.io/github/v/release/cshaizhihao/ou-image-hosting?style=flat-square&color=ef8f8f" alt="Release" />
   </a>
+  <img src="https://img.shields.io/badge/version-v1.0.7-ef8f8f?style=flat-square" alt="Current version v1.0.7" />
   <a href="https://github.com/cshaizhihao/ou-image-hosting/actions/workflows/check.yml">
     <img src="https://img.shields.io/github/actions/workflow/status/cshaizhihao/ou-image-hosting/check.yml?branch=main&style=flat-square&label=check" alt="Check" />
   </a>
@@ -220,6 +221,8 @@ curl --fail http://127.0.0.1:3000/api/health/ready
 ### 团队与管理
 
 - 多工作区与四级角色权限
+- 真实工作区概况面板：图片数量、容量比例、存储状态和快捷入口
+- 页面切换时保持完整权限导航，不再闪退管理与系统菜单
 - 精确 Scope 的 API Token、有效期与 IP/CIDR 白名单
 - TOTP 双因素认证、恢复代码和活跃会话管理
 - 通知偏好、免打扰、审计筛选与 CSV 导出
@@ -228,10 +231,12 @@ curl --fail http://127.0.0.1:3000/api/health/ready
 ### 存储与运维
 
 - 本地原图、缩略图、版本和物理空间统计
-- S3、Cloudflare R2、S3-compatible 配置与迁移
+- S3、Cloudflare R2、S3-compatible 配置、迁移与内置分步教程
 - 自定义域名、链接模板、防盗链和签名 URL
 - gzip 完整备份、严格校验、维护模式与原子恢复
 - `/health/live`、`/health/ready` 与 Docker 健康检查
+
+后台针对浏览器 100% 缩放重新调整了侧栏、顶栏、字号和内容宽度；常用操作保持清晰、紧凑，桌面宽屏不再出现大面积无效留白。
 
 ## 日常运维
 

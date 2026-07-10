@@ -347,7 +347,11 @@ export function AnalyticsConsole() {
                       <span>{format.count} 张 · {format.percentage.toFixed(1)}%</span>
                     </div>
                     <div className={styles.formatTrack}>
-                      <span style={{ width: `${Math.min(100, format.percentage)}%` }} />
+                      <span
+                        style={{
+                          transform: `scaleX(${Math.min(100, format.percentage) / 100})`
+                        }}
+                      />
                     </div>
                     <small>{formatBytes(format.activeCurrentVersionBytes)}</small>
                   </div>

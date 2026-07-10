@@ -1,5 +1,5 @@
 .page {
-  width: min(1280px, 100%);
+  width: min(1440px, 100%);
   padding-bottom: 110px;
 }
 
@@ -750,7 +750,7 @@
 
 .auditMain strong {
   overflow: hidden;
-  font-size: 11px;
+  font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -758,7 +758,7 @@
 .auditMain p {
   margin: 2px 0 0;
   color: var(--text-secondary);
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .auditTime {
@@ -766,7 +766,7 @@
   align-items: center;
   gap: 5px;
   color: var(--text-tertiary);
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .auditList :global(.ou-button--icon) {
@@ -784,7 +784,7 @@
   outline: 0;
   background: var(--surface-raised);
   box-shadow: var(--shadow-overlay);
-  animation: drawerIn var(--motion-slow) var(--ease-out);
+  animation: drawerIn var(--motion-standard) var(--ease-out);
 }
 
 .drawerHead {
@@ -798,7 +798,7 @@
   padding: 18px;
   border-bottom: 1px solid var(--border-default);
   background: color-mix(in srgb, var(--surface-raised) 94%, transparent);
-  backdrop-filter: blur(10px);
+  backdrop-filter: blur(4px);
 }
 
 .drawerHead > div {
@@ -807,14 +807,14 @@
 
 .drawerHead span {
   color: var(--text-accent);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 780;
   letter-spacing: 0.14em;
 }
 
 .drawerHead h2 {
   margin: 3px 0 0;
-  font-size: 18px;
+  font-size: 20px;
 }
 
 .drawerHead p {
@@ -913,7 +913,7 @@
 @keyframes drawerIn {
   from {
     opacity: 0;
-    transform: translateX(18px);
+    transform: translateX(8px);
   }
 }
 
@@ -1226,12 +1226,12 @@
 }
 
 .sessionList strong {
-  font-size: 10px;
+  font-size: 13px;
 }
 
 .sessionList small {
   color: var(--text-secondary);
-  font-size: 8px;
+  font-size: 12px;
 }
 
 .sessionList :global(.ou-button--icon) {

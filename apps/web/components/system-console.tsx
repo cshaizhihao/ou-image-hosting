@@ -294,7 +294,9 @@ export function SystemConsole() {
                           className={styles.jobProgress}
                         >
                           <span
-                            style={{ width: `${progressPercentage(job)}%` }}
+                            style={{
+                              transform: `scaleX(${progressPercentage(job) / 100})`
+                            }}
                           />
                         </div>
                       )}

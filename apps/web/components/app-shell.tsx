@@ -61,6 +61,12 @@ import {
   type WorkspaceRole,
   type WorkspaceSummary
 } from "@/lib/api";
+import {
+  clearShellSessionSnapshot,
+  readShellSessionSnapshot,
+  switchShellSessionWorkspace,
+  writeShellSessionSnapshot
+} from "@/lib/shell-session-cache";
 
 const iconMap: Record<string, LucideIcon> = {
   overview: Activity,
@@ -296,6 +302,7 @@ export function AppShell({
 }) {
   const pathname = usePathname();
   const router = useRouter();
+  const cachedSession = useMemo(() => readShellSessionSnapshot(), []);
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [commandOpen, setCommandOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -308,10 +315,16 @@ export function AppShell({
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [online, setOnline] = useState(true);
   const [query, setQuery] = useState("");
-  const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
-  const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([]);
+  const [sessionUser, setSessionUser] = useState<SessionUser | null>(
+    cachedSession?.user ?? null
+  );
+  const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>(
+    cachedSession?.workspaces ?? []
+  );
   const [currentWorkspace, setCurrentWorkspace] =
-    useState<WorkspaceSummary | null>(null);
+    useState<WorkspaceSummary | null>(
+      cachedSession?.currentWorkspace ?? null
+    );
   const [storageSummary, setStorageSummary] = useState<{
     bytes: number;
     quotaBytes: number;
@@ -400,13 +413,17 @@ export function AppShell({
         setSessionUser(bootstrap.user);
         setWorkspaces(bootstrap.workspaces);
         setCurrentWorkspace(selected);
+        writeShellSessionSnapshot(bootstrap, selected.id);
         void apiRequest<{ bytes: number; quotaBytes: number }>(
           "/uploads/summary"
         )
           .then(setStorageSummary)
           .catch(() => setStorageSummary(null));
       })
-      .catch(() => router.replace("/login"));
+      .catch(() => {
+        clearShellSessionSnapshot();
+        router.replace("/login");
+      });
   }, [router]);
 
   useEffect(() => {
@@ -467,6 +484,7 @@ export function AppShell({
         "/");
     setStoredWorkspaceId(workspace.id);
     setCurrentWorkspace(workspace);
+    switchShellSessionWorkspace(workspace);
     window.location.assign(destination);
   };
 
@@ -752,6 +770,7 @@ export function AppShell({
                     className="dropdown-item dropdown-item--danger"
                     onSelect={(event) => {
                       event.preventDefault();
+                      clearShellSessionSnapshot();
                       apiRequest("/auth/logout", { method: "POST" }).finally(() => {
                         router.replace("/login");
                         router.refresh();
