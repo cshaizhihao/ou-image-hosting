@@ -9,8 +9,8 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.1.1-ef8f8f" alt="Version 0.1.1" />
-  <img src="https://img.shields.io/badge/status-planning-303030" alt="Planning" />
+  <img src="https://img.shields.io/badge/version-0.2.0-ef8f8f" alt="Version 0.2.0" />
+  <img src="https://img.shields.io/badge/status-foundation-303030" alt="Foundation" />
   <img src="https://img.shields.io/badge/license-MIT-black" alt="MIT License" />
 </p>
 
@@ -26,18 +26,19 @@ OU-Image Hosting 不只是一个上传图片并返回链接的工具，而是一
 
 ## 当前版本
 
-当前版本：**v0.1.1**
+当前版本：**v0.2.0**
 
 当前阶段已完成：
 
-- 品牌命名与 Logo 资产入库
-- 品牌视觉规范初稿
-- 十轮开发路线图
-- 完整开发主 Prompt
-- GitHub 仓库、版本与更新流程约定
-- 仓库内容边界与隐私规则
-
-应用代码将在后续轮次从零实现。当前版本不包含可运行服务。
+- pnpm Monorepo 与可复现依赖锁定
+- Next.js Web 应用与 Fastify API 基础服务
+- 三层 Design Token、浅色与深色主题
+- 桌面侧栏、平板折叠栏和移动端底部导航
+- 全局搜索命令面板、通知抽屉和用户菜单
+- 图片拖拽、选择和浏览器本地预览
+- 图片库、相册、标签、存储等模块路由骨架
+- 404、403、500、加载和空状态页面
+- Vitest、Playwright 与低 CPU 构建工具
 
 ## 计划功能
 
@@ -66,57 +67,81 @@ OU-Image Hosting 不只是一个上传图片并返回链接的工具，而是一
 
 ## 应用截图
 
-v0.1.1 为规划基线版本，尚未生成应用界面。第 2 轮完成应用壳层后，README 将加入桌面端、移动端、浅色和深色截图。
-
-当前品牌资产：
+### 桌面端
 
 <p align="center">
-  <img src="./docs/assets/logo/ou-image-hosting-logo.jpg" width="320" alt="欧记图床品牌 Logo" />
+  <img src="./docs/screenshots/v0.2.0-desktop-light.png" width="49%" alt="OU-Image Hosting 桌面浅色模式" />
+  <img src="./docs/screenshots/v0.2.0-desktop-dark.png" width="49%" alt="OU-Image Hosting 桌面深色模式" />
+</p>
+
+### 移动端
+
+<p align="center">
+  <img src="./docs/screenshots/v0.2.0-mobile-light.png" width="260" alt="OU-Image Hosting 手机浅色模式" />
+  <img src="./docs/screenshots/v0.2.0-mobile-dark.png" width="260" alt="OU-Image Hosting 手机深色模式" />
 </p>
 
 ## 使用方式
 
-当前版本用于确认产品、品牌和实施路线：
+当前版本可运行 Web 工作台和 API 健康检查：
 
-1. 阅读 [完整开发主 Prompt](./docs/MASTER_PROMPT.md)。
-2. 阅读 [十轮开发路线图](./docs/ROADMAP.md)。
-3. 阅读 [品牌规范](./docs/brand-guidelines.md)。
-4. 从第 1 轮开始按版本顺序开发，每轮结束更新 README、截图和 CHANGELOG。
+1. 打开上传工作台，选择或拖入图片进行本地预览。
+2. 使用侧栏或移动端底栏浏览各功能模块。
+3. 使用 `Ctrl/Cmd + K` 打开命令面板。
+4. 使用顶栏主题按钮切换浅色和深色模式。
+5. API 健康检查地址为 `http://localhost:4000/health`。
 
 ## 安装方式
-
-当前 v0.1.1 尚未提供应用安装包。
-
-目标安装方式将在部署轮次实现：
 
 ```bash
 git clone https://github.com/cshaizhihao/ou-image-hosting.git
 cd ou-image-hosting
+corepack enable
+corepack prepare pnpm@9.15.9 --activate
+pnpm install
 cp .env.example .env
-docker compose up -d
 ```
 
-开发环境目标命令：
+启动 Web：
 
 ```bash
-pnpm install
 pnpm dev
 ```
 
-在对应功能完成前，README 不会将这些命令标记为可用。
+另一个终端启动 API：
+
+```bash
+pnpm dev:api
+```
+
+生产构建：
+
+```bash
+pnpm check
+```
+
+在 CPU 受限的主机上，可使用项目提供的限速脚本：
+
+```bash
+scripts/run-low-cpu.sh pnpm build
+```
 
 ## 技术架构
 
-计划采用独立原创实现：
+已实现：
 
 - Web：Next.js、React、TypeScript、Tailwind CSS
 - UI：Radix primitives、Lucide Icons、自有设计令牌与组件库
-- API：Fastify、TypeScript、OpenAPI
+- API：Fastify、TypeScript、健康检查
+- Testing：Vitest、Playwright
+
+后续轮次集成：
+
+- API 文档：OpenAPI
 - Database：PostgreSQL、Drizzle ORM
 - Queue：Redis、BullMQ
 - Image：Sharp
 - Storage：Local、S3、Cloudflare R2、S3-compatible
-- Testing：Vitest、Playwright
 - Deployment：Docker Compose
 
 ## 开发与同步规则
@@ -139,16 +164,16 @@ pnpm dev
 
 | 轮次 | 版本 | 目标 |
 |---|---:|---|
-| 1 | v0.1.0 | 品牌、仓库、架构和开发规范 |
-| 2 | v0.2.0 | 设计系统、应用壳层和身份界面 |
-| 3 | v0.3.0 | 上传引擎和队列体验 |
-| 4 | v0.4.0 | 图片库、筛选和批量操作 |
-| 5 | v0.5.0 | 图片详情、编辑与分享 |
-| 6 | v0.6.0 | 多存储、域名和链接策略 |
-| 7 | v0.7.0 | 用户、团队、权限和安全 |
-| 8 | v0.8.0 | 数据统计、活动记录和可观测性 |
-| 9 | v0.9.0 | 设置中心、部署与完整文档 |
-| 10 | v1.0.0 | 性能、测试、安全审计和正式发布 |
+| 1 | v0.2.0 | 设计系统、应用壳层和工程基础（已完成） |
+| 2 | v0.3.0 | 安装、认证与首次使用引导 |
+| 3 | v0.4.0 | 上传引擎、队列与图片处理 |
+| 4 | v0.5.0 | 图片库、筛选和批量操作 |
+| 5 | v0.6.0 | 图片详情、编辑、分享与版本 |
+| 6 | v0.7.0 | 相册、标签、收藏和回收站 |
+| 7 | v0.8.0 | 存储、域名、防盗链与备份 |
+| 8 | v0.9.0 | 团队、权限、API 与安全 |
+| 9 | v1.0.0-rc.1 | 数据统计、系统状态与设置中心 |
+| 10 | v1.0.0 | 质量收口、部署文档与正式发布 |
 
 ## License
 

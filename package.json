@@ -1,0 +1,21 @@
+{
+  "name": "ou-image-hosting",
+  "version": "0.2.0",
+  "private": true,
+  "packageManager": "pnpm@9.15.9",
+  "scripts": {
+    "dev": "pnpm --filter @ou-image/web dev",
+    "dev:api": "pnpm --filter @ou-image/api dev",
+    "build": "pnpm --workspace-concurrency=1 -r build",
+    "typecheck": "pnpm --workspace-concurrency=1 -r typecheck",
+    "test": "vitest run --maxWorkers=1 --minWorkers=1",
+    "lint": "pnpm --workspace-concurrency=1 -r lint",
+    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "playwright": "^1.61.1",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
+  }
+}
