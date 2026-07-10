@@ -185,10 +185,13 @@ assert_log_contains "down --remove-orphans --volumes"
 menu_install="$TEST_ROOT/install-menu"
 make_install "$menu_install"
 output="$(
-  printf '7\n' |
+  printf '7\nx0\n' |
     OUIH_INSTALL_DIR="$menu_install" INPUT_DEVICE=/dev/stdin \
-      "$SOURCE_SCRIPT"
+      "$SOURCE_SCRIPT" 2>&1
 )"
 assert_contains "$output" "$menu_install"
+assert_contains "$output" "按任意键返回上级菜单"
+menu_count="$(grep -c '1) 查看状态' <<< "$output")"
+[[ "$menu_count" -eq 2 ]] || fail "菜单操作完成后应返回上级菜单"
 
 printf 'PASS: ouih mock integration tests\n'

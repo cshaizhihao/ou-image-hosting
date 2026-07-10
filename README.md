@@ -128,7 +128,7 @@ curl -fsSL https://raw.githubusercontent.com/cshaizhihao/ou-image-hosting/main/i
 7. HTTPS 域名默认部署 Caddy，自动申请并续期证书。
 8. 顺序构建 API 与 Web，避免两个镜像同时构建。
 9. 安装全局 `ouih` 管理命令。
-10. 启动容器，依次验证 readiness、TLS 证书与 HTTPS 反向代理。
+10. 启动容器，依次验证 readiness、TLS 证书、HTTPS 反向代理与公网跳转地址，拒绝泄露内部 `:3000` 端口。
 
 安装完成后，打开安装器显示的地址，跟随页面向导创建站点和第一个管理员。
 
@@ -240,6 +240,8 @@ curl --fail http://127.0.0.1:3000/api/health/ready
 ```bash
 ouih
 ```
+
+交互菜单执行查看、启停、更新等操作后会停留在结果页面；按任意键返回上级菜单，不会立即清屏或退出。
 
 也可以直接使用子命令：
 

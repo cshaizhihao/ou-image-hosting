@@ -416,9 +416,17 @@ stop_application() {
   success "${PRODUCT_CN} 已停止。"
 }
 
+pause_for_menu() {
+  local key=""
+  printf '\n%s' "按任意键返回上级菜单..." >&2
+  IFS= read -r -n 1 key < "$INPUT_DEVICE" || true
+  printf '\n' >&2
+}
+
 interactive_menu() {
-  banner
-  cat <<'EOF'
+  while true; do
+    banner
+    cat <<'EOF'
 
   1) 查看状态
   2) 查看日志
@@ -430,21 +438,31 @@ interactive_menu() {
   8) 卸载应用
   0) 退出
 EOF
-  local choice=""
-  printf '\n请选择 [0-8]: ' >&2
-  IFS= read -r choice < "$INPUT_DEVICE" || true
-  case "$choice" in
-    1) status_application ;;
-    2) logs_application ;;
-    3) start_application ;;
-    4) stop_application ;;
-    5) update_application ;;
-    6) show_url ;;
-    7) show_dir ;;
-    8) uninstall_application ;;
-    0) success "已退出管理工具。" ;;
-    *) fatal "无效选择：${choice:-空}" ;;
-  esac
+    local choice=""
+    printf '\n请选择 [0-8]: ' >&2
+    if ! IFS= read -r choice < "$INPUT_DEVICE"; then
+      success "输入已结束，退出管理工具。"
+      return
+    fi
+    case "$choice" in
+      1) status_application ;;
+      2) logs_application ;;
+      3) start_application ;;
+      4) stop_application ;;
+      5) update_application ;;
+      6) show_url ;;
+      7) show_dir ;;
+      8) uninstall_application ;;
+      0)
+        success "已退出管理工具。"
+        return
+        ;;
+      *)
+        warning "无效选择：${choice:-空}"
+        ;;
+    esac
+    pause_for_menu
+  done
 }
 
 main() {

@@ -48,6 +48,7 @@ EOF
 cat > "$MOCK_BIN/curl" <<'EOF'
 #!/usr/bin/env bash
 headers_file=""
+write_format=""
 while (($# > 0)); do
   case "$1" in
     -D)
@@ -55,6 +56,7 @@ while (($# > 0)); do
       shift 2
       ;;
     -w)
+      write_format="$2"
       shift 2
       ;;
     *)
@@ -62,6 +64,10 @@ while (($# > 0)); do
       ;;
   esac
 done
+if [[ "$write_format" == "%{redirect_url}" ]]; then
+  printf '%s' "${MOCK_REDIRECT_URL:-}"
+  exit 0
+fi
 if [[ -n "$headers_file" ]]; then
   status="${MOCK_CF_STATUS:-200}"
   {
@@ -253,6 +259,27 @@ if grep -F 'get.docker.com' "$NATIVE_DOCKER_LOG" >/dev/null; then
   printf '%s\n' "pacman 系统不得调用不受支持的 Docker 官方脚本" >&2
   exit 1
 fi
+
+(
+  source "$ROOT/install.sh"
+  APP_ORIGIN="https://img.example.com"
+  WEB_PORT="3000"
+  validate_public_redirect_target "https://img.example.com/login"
+) > "$TEMP_ROOT/redirect-valid.out"
+
+if (
+  source "$ROOT/install.sh"
+  APP_ORIGIN="https://img.example.com"
+  WEB_PORT="3000"
+  validate_public_redirect_target "https://img.example.com:3000/login"
+) > "$TEMP_ROOT/redirect-invalid.out" 2>&1; then
+  printf '%s\n' "内部 Web 端口跳转应被安装器拒绝" >&2
+  exit 1
+fi
+grep -F '不得暴露内部 Web 端口 3000' \
+  "$TEMP_ROOT/redirect-invalid.out" >/dev/null
+grep -F 'header_up X-Forwarded-Host {host}' "$ROOT/Caddyfile" >/dev/null
+grep -F 'header_up X-Forwarded-Port 443' "$ROOT/Caddyfile" >/dev/null
 
 NO_COLOR=1 "$ROOT/install.sh" \
   --yes \

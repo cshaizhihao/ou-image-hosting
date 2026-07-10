@@ -1,5 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 
+import { createPublicUrl } from "./lib/public-url";
+
 const publicPaths = [
   "/install",
   "/login",
@@ -28,12 +30,13 @@ export function middleware(request: NextRequest) {
       ?.split(",")[0]
       ?.trim();
     const host = forwardedHost ?? request.headers.get("host");
-    const loginUrl = request.nextUrl.clone();
-    if (forwardedProtocol) loginUrl.protocol = `${forwardedProtocol}:`;
-    if (host) loginUrl.host = host;
-    loginUrl.pathname = "/login";
-    loginUrl.search = "";
-    loginUrl.hash = "";
+    const loginUrl = createPublicUrl("/login", {
+      configuredOrigin: process.env.APP_ORIGIN,
+      requestUrl: request.url,
+      forwardedProtocol,
+      forwardedHost,
+      host
+    });
 
     const response = NextResponse.redirect(loginUrl, 307);
     response.headers.set("Cache-Control", "no-store");

@@ -89,6 +89,9 @@ curl --fail http://127.0.0.1:3000/api/health/ready
 
 Caddy publishes 80/443. Web publishes only the configured loopback port for
 local readiness and external-proxy compatibility. API port 4000 remains private.
+Caddy explicitly forwards the public HTTPS scheme, host, and port 443. Web
+redirects prefer `APP_ORIGIN`, so internal container port 3000 is never exposed
+in public login redirects.
 
 Web proxies `/api/*` through a Node Route Handler. `API_PROXY_TARGET` is read at
 runtime, so changing the internal API address only requires restarting Web; it
@@ -140,6 +143,9 @@ ouih logs caddy
 ouih stop
 ouih start
 ```
+
+The interactive `ouih` menu pauses after each action and returns to the parent
+menu after any key press.
 
 Never use `docker compose down -v` unless permanent deletion of all local
 metadata, images, versions, thumbnails, and in-volume backups is intended.

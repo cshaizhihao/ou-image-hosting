@@ -579,13 +579,13 @@ export async function buildApp(options: BuildAppOptions = {}) {
   app.get("/health", async () => ({
     status: "ok",
     service: "ou-image-api",
-    version: "1.0.5"
+    version: "1.0.6"
   }));
 
   app.get("/health/live", async () => ({
     status: "ok",
     service: "ou-image-api",
-    version: "1.0.5"
+    version: "1.0.6"
   }));
 
   const probeDirectory = async (directory: string, label: string) => {

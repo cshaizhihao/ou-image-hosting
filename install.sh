@@ -792,6 +792,21 @@ build_application() {
   success "Web 镜像构建完成"
 }
 
+validate_public_redirect_target() {
+  local redirect_url="$1"
+  [[ -n "$redirect_url" ]] || return 0
+
+  local expected_authority="${APP_ORIGIN#*://}"
+  local redirect_authority="${redirect_url#*://}"
+  if [[ "$redirect_authority" == "$redirect_url" ]]; then
+    fatal "HTTPS 入口返回了无法识别的跳转地址：${redirect_url}"
+  fi
+  redirect_authority="${redirect_authority%%/*}"
+
+  [[ "$redirect_authority" == "$expected_authority" ]] ||
+    fatal "HTTPS 入口错误跳转到 ${redirect_url}。公开地址应保持为 ${APP_ORIGIN}，不得暴露内部 Web 端口 ${WEB_PORT}。"
+}
+
 start_application() {
   step 5 "启动并检查服务"
   cd "$INSTALL_DIR"
@@ -842,6 +857,18 @@ start_application() {
       compose_command logs --tail=80 caddy || true
       fatal "自动 HTTPS 尚未就绪。请确认域名 A/AAAA 记录指向本机公网 IP，云防火墙和系统防火墙已放行 TCP 80/443；随后运行 ouih logs caddy 查看证书日志。"
     fi
+
+    local public_redirect_url=""
+    public_redirect_url="$(
+      curl --resolve "${PUBLIC_HOST}:443:127.0.0.1" \
+        --connect-timeout 3 \
+        --max-time 8 \
+        -sS \
+        -o /dev/null \
+        -w '%{redirect_url}' \
+        "${APP_ORIGIN}/" 2>/dev/null || true
+    )"
+    validate_public_redirect_target "$public_redirect_url"
     success "Caddy 证书与 HTTPS 反向代理已通过检查"
 
     if [[ "$PROXY_MODE" == "cloudflare" ]]; then
