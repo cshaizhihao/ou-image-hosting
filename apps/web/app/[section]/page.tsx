@@ -8,7 +8,8 @@ export function generateStaticParams() {
     "albums",
     "tags",
     "favorites",
-    "trash"
+    "trash",
+    "storage"
   ]);
   return navigationItems
     .filter((item) => item.href !== "/" && !dedicatedSections.has(item.key))

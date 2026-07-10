@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { randomUUID } from "node:crypto";
 import { unlink } from "node:fs/promises";
 import path from "node:path";
+import { buildDeliveryUrl } from "./delivery.js";
 import { PublicError } from "./errors.js";
 import type {
   AppState,
@@ -62,7 +63,11 @@ const idArraySchema = {
   items: { type: "string", minLength: 1, maxLength: 80 }
 } as const;
 
-function publicImage(image: StoredImage) {
+function publicImage(
+  image: StoredImage,
+  state: AppState,
+  timestamp: Date
+) {
   return {
     id: image.id,
     name: image.name,
@@ -72,8 +77,13 @@ function publicImage(image: StoredImage) {
     width: image.width,
     height: image.height,
     sha256: image.sha256,
-    thumbnailUrl: `/api/files/${image.id}/thumbnail`,
-    originalUrl: `/api/files/${image.id}/original`,
+    thumbnailUrl: buildDeliveryUrl(
+      state,
+      image.id,
+      "thumbnail",
+      timestamp
+    ),
+    originalUrl: buildDeliveryUrl(state, image.id, "original", timestamp),
     favorite: image.favorite,
     albumIds: image.albumIds,
     tagIds: image.tagIds,
@@ -83,7 +93,11 @@ function publicImage(image: StoredImage) {
   };
 }
 
-function publicAlbum(album: StoredAlbum, state: AppState) {
+function publicAlbum(
+  album: StoredAlbum,
+  state: AppState,
+  timestamp: Date
+) {
   const cover = album.coverImageId
     ? state.images.find(
         (image) =>
@@ -98,7 +112,7 @@ function publicAlbum(album: StoredAlbum, state: AppState) {
     description: album.description,
     coverImageId: album.coverImageId,
     coverThumbnailUrl: cover
-      ? `/api/files/${cover.id}/thumbnail`
+      ? buildDeliveryUrl(state, cover.id, "thumbnail", timestamp)
       : undefined,
     imageCount: state.images.filter(
       (image) =>
@@ -257,9 +271,13 @@ async function removeFile(filePath: string) {
   }
 }
 
-function imageCollection(images: StoredImage[]) {
+function imageCollection(
+  images: StoredImage[],
+  state: AppState,
+  timestamp: Date
+) {
   return {
-    images: images.map(publicImage),
+    images: images.map((image) => publicImage(image, state, timestamp)),
     total: images.length
   };
 }
@@ -278,7 +296,7 @@ export function registerOrganizationRoutes(
       albums: state.albums
         .filter((album) => album.userId === user.id)
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-        .map((album) => publicAlbum(album, state))
+        .map((album) => publicAlbum(album, state, now()))
     };
   });
 
@@ -321,7 +339,7 @@ export function registerOrganizationRoutes(
         draft.albums.push(album);
       });
       return reply.status(201).send({
-        album: publicAlbum(album, store.snapshot())
+        album: publicAlbum(album, store.snapshot(), now())
       });
     }
   );
@@ -376,7 +394,7 @@ export function registerOrganizationRoutes(
         current.updatedAt = timestamp;
         return current;
       });
-      return { album: publicAlbum(album, store.snapshot()) };
+      return { album: publicAlbum(album, store.snapshot(), now()) };
     }
   );
 
@@ -422,7 +440,9 @@ export function registerOrganizationRoutes(
               !image.deletedAt &&
               image.albumIds.includes(request.params.id)
           )
-          .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+          .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+        state,
+        now()
       );
     }
   );
@@ -620,7 +640,9 @@ export function registerOrganizationRoutes(
               !image.deletedAt &&
               image.tagIds.includes(request.params.id)
           )
-          .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+          .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+        state,
+        now()
       );
     }
   );
@@ -669,36 +691,40 @@ export function registerOrganizationRoutes(
         current.updatedAt = timestamp;
         return current;
       });
-      return { image: publicImage(image) };
+      return { image: publicImage(image, store.snapshot(), now()) };
     }
   );
 
   app.get("/favorites", async (request) => {
     const { user } = authenticate(request);
+    const state = store.snapshot();
     return imageCollection(
-      store
-        .snapshot()
-        .images.filter(
+      state.images
+        .filter(
           (image) =>
             image.userId === user.id &&
             !image.deletedAt &&
             image.favorite
         )
-        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+      state,
+      now()
     );
   });
 
   app.get("/trash", async (request) => {
     const { user } = authenticate(request);
+    const state = store.snapshot();
     return imageCollection(
-      store
-        .snapshot()
-        .images.filter(
+      state.images
+        .filter(
           (image) => image.userId === user.id && Boolean(image.deletedAt)
         )
         .sort((a, b) =>
           (b.deletedAt ?? "").localeCompare(a.deletedAt ?? "")
-        )
+        ),
+      state,
+      now()
     );
   });
 

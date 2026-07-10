@@ -9,8 +9,8 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.7.0-ef8f8f" alt="Version 0.7.0" />
-  <img src="https://img.shields.io/badge/progress-6%20%2F%2010-303030" alt="Round 6 of 10" />
+  <img src="https://img.shields.io/badge/version-0.8.0-ef8f8f" alt="Version 0.8.0" />
+  <img src="https://img.shields.io/badge/progress-7%20%2F%2010-303030" alt="Round 7 of 10" />
   <img src="https://img.shields.io/badge/license-MIT-black" alt="MIT License" />
 </p>
 
@@ -26,22 +26,34 @@ OU-Image Hosting 面向个人创作者、开发者和小型团队，目标不是
 
 ## 当前版本
 
-当前版本：**v0.7.0**
+当前版本：**v0.8.0**
 
-第 6 / 10 轮已经完成：
+第 7 / 10 轮已经完成：
 
-- 相册创建、编辑、描述、删除、图片聚合与自定义封面
-- 标签颜色、编辑、删除、图片聚合与跨标签合并
-- 图片详情页直接切换收藏、相册归属与多个标签
-- 独立收藏页和响应式卡片视图，可快速移出收藏
-- 回收站批量选择、恢复、永久删除与不可逆确认
-- 永久删除同步清理所有版本文件、分享记录和相册封面引用
-- schema v4 自动迁移，旧图片自动补齐收藏、相册与标签字段
-- 多用户数据隔离、关系 ID 校验和存储路径安全删除
-- 17 个自动化测试与完整桌面、移动深色端到端浏览器验证
-- 修复详情轻量组织响应覆盖完整版本数据、回收站计数字段不一致问题
+- 独立存储与分发控制台，集中管理提供商、域名、防盗链、迁移和备份
+- 本地存储真实容量、对象数量、健康状态与随机写入读取连接测试
+- S3、Cloudflare R2 和兼容存储配置、AES-256-GCM 密钥加密与 SigV4 探测
+- 本地文件到 S3/R2 的真实迁移、逐对象校验、进度和失败记录
+- 自定义访问域名、链接模板、Referer 白名单与 HMAC 过期签名 URL
+- gzip 完整备份、SHA-256 清单校验、下载、恢复、保留数量与删除
+- schema v5 自动迁移，存储、分发、备份和迁移设置持久化
+- 当前写入源明确保持为本地存储，未伪装尚未闭环的远端读写能力
+- 21 个自动化测试与完整桌面、移动深色端到端浏览器验证
+- 真实验证签名链接、防盗链拒绝、备份下载和恢复流程
 
 ## 应用截图
+
+### 存储、分发与备份
+
+<p align="center">
+  <img src="./docs/screenshots/v0.8.0-storage-overview.png" width="49%" alt="OU-Image Hosting 存储提供商与容量控制台" />
+  <img src="./docs/screenshots/v0.8.0-delivery-security.png" width="49%" alt="OU-Image Hosting 防盗链与签名链接设置" />
+</p>
+
+<p align="center">
+  <img src="./docs/screenshots/v0.8.0-backups.png" width="66%" alt="OU-Image Hosting 完整备份与恢复" />
+  <img src="./docs/screenshots/v0.8.0-storage-mobile-dark.png" width="280" alt="OU-Image Hosting 移动端深色存储控制台" />
+</p>
 
 ### 相册、标签与图片整理
 
@@ -197,6 +209,19 @@ pnpm dev
 4. 在回收站批量恢复图片，或永久删除图片、全部版本和相关分享记录。
 5. 删除相册或标签时只解除分类关系，不删除原始图片。
 
+### 配置存储与分发
+
+站点 Owner 可以在“存储”页面完成：
+
+1. 查看本地文件数量、实际占用、文件系统容量和健康状态。
+2. 配置并测试 Amazon S3、Cloudflare R2 或 S3-compatible 服务。
+3. 将当前本地原图、缩略图和版本文件迁移到已验证的远端存储。
+4. 设置自定义域名和包含 `{id}`、`{variant}` 或 `{path}` 的链接模板。
+5. 开启 Referer 白名单、允许空 Referer 和带过期时间的签名 URL。
+6. 创建、下载、恢复和删除完整 gzip 备份，并设置保留数量。
+
+v0.8.0 的实际图片写入与读取仍以本地存储为权威源；S3/R2 已支持安全配置、真实连接测试和本地到远端迁移，但不会显示虚假的“已切换活动存储”状态。
+
 ## 认证与密码重置
 
 - 会话凭证通过 `HttpOnly`、`SameSite=Lax` Cookie 保存。
@@ -215,6 +240,7 @@ pnpm dev
 | `API_PROXY_TARGET` | `http://127.0.0.1:4000` | Next.js 同源 API 代理目标 |
 | `OU_DATA_DIR` | `./.data` | 单机持久化数据目录 |
 | `OU_STORAGE_QUOTA_BYTES` | `2147483648` | 本地图片存储配额，单位字节 |
+| `OU_SECRET_KEY` | 无 | 加密 S3/R2 凭据并生成签名 URL；使用远端密钥或签名链接时必填 |
 | `COOKIE_SECURE` | 生产为 `true` | 显式控制会话 Cookie 的 Secure 属性 |
 | `EXPOSE_DEVELOPMENT_RESET_TOKEN` | `false` | 仅开发环境显示本地重置入口 |
 
@@ -257,7 +283,7 @@ scripts/run-low-cpu.sh pnpm check
 
 - PostgreSQL 与 Drizzle ORM
 - Redis 与 BullMQ
-- Local、S3、Cloudflare R2 与 S3-compatible 存储
+- S3、Cloudflare R2 与 S3-compatible 存储的完整活动读写切换
 - Docker Compose 与反向代理部署
 
 ## 视觉方向
@@ -284,7 +310,7 @@ scripts/run-low-cpu.sh pnpm check
 | 4 | v0.5.0 | 图片库、筛选和批量操作（已完成） |
 | 5 | v0.6.0 | 图片详情、编辑、分享与版本（已完成） |
 | 6 | v0.7.0 | 相册、标签、收藏和回收站（已完成） |
-| 7 | v0.8.0 | 存储、域名、防盗链与备份 |
+| 7 | v0.8.0 | 存储、域名、防盗链与备份（已完成） |
 | 8 | v0.9.0 | 团队、权限、API 与安全 |
 | 9 | v1.0.0-rc.1 | 数据统计、系统状态与设置中心 |
 | 10 | v1.0.0 | 质量收口、部署文档与正式发布 |

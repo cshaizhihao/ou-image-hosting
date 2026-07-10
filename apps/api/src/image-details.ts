@@ -8,6 +8,11 @@ import { createReadStream } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
+import {
+  assertDeliveryAccess,
+  buildDeliveryUrl,
+  canonicalFilePath
+} from "./delivery.js";
 import { PublicError } from "./errors.js";
 import {
   createOpaqueToken,
@@ -16,6 +21,7 @@ import {
   verifyPassword
 } from "./security.js";
 import type {
+  AppState,
   StoredImage,
   StoredImageShare,
   StoredImageVersion,
@@ -83,14 +89,28 @@ const idParamsSchema = {
   }
 } as const;
 
-function imageUrl(image: StoredImage) {
+function imageUrl(
+  image: StoredImage,
+  state: AppState,
+  timestamp: Date
+) {
   return {
-    thumbnailUrl: `/api/files/${image.id}/thumbnail`,
-    originalUrl: `/api/files/${image.id}/original`
+    thumbnailUrl: buildDeliveryUrl(
+      state,
+      image.id,
+      "thumbnail",
+      timestamp
+    ),
+    originalUrl: buildDeliveryUrl(state, image.id, "original", timestamp)
   };
 }
 
-function publicVersion(imageId: string, version: StoredImageVersion) {
+function publicVersion(
+  imageId: string,
+  version: StoredImageVersion,
+  state: AppState,
+  timestamp: Date
+) {
   return {
     id: version.id,
     operation: version.operation,
@@ -102,7 +122,12 @@ function publicVersion(imageId: string, version: StoredImageVersion) {
     height: version.height,
     sha256: version.sha256,
     createdAt: version.createdAt,
-    originalUrl: `/api/files/${imageId}/versions/${version.id}`
+    originalUrl: buildDeliveryUrl(
+      state,
+      imageId,
+      `versions/${version.id}`,
+      timestamp
+    )
   };
 }
 
@@ -118,7 +143,12 @@ function publicShare(share: StoredImageShare) {
   };
 }
 
-function publicDetail(image: StoredImage, shares: StoredImageShare[]) {
+function publicDetail(
+  image: StoredImage,
+  shares: StoredImageShare[],
+  state: AppState,
+  timestamp: Date
+) {
   return {
     id: image.id,
     name: image.name,
@@ -134,11 +164,13 @@ function publicDetail(image: StoredImage, shares: StoredImageShare[]) {
     tagIds: image.tagIds,
     createdAt: image.createdAt,
     updatedAt: image.updatedAt,
-    ...imageUrl(image),
+    ...imageUrl(image, state, timestamp),
     versions: image.versions
       .slice()
       .reverse()
-      .map((version) => publicVersion(image.id, version)),
+      .map((version) =>
+        publicVersion(image.id, version, state, timestamp)
+      ),
     shares: shares
       .slice()
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
@@ -305,10 +337,11 @@ export function registerImageDetailRoutes(
     async (request) => {
       const { user } = authenticate(request);
       const image = findOwnedImage(store, request.params.id, user.id);
-      const shares = store
-        .snapshot()
-        .imageShares.filter((share) => share.imageId === image.id);
-      return { image: publicDetail(image, shares) };
+      const state = store.snapshot();
+      const shares = state.imageShares.filter(
+        (share) => share.imageId === image.id
+      );
+      return { image: publicDetail(image, shares, state, now()) };
     }
   );
 
@@ -346,12 +379,13 @@ export function registerImageDetailRoutes(
         current.updatedAt = timestamp;
         return current;
       });
+      const state = store.snapshot();
       return {
         image: publicDetail(
           image,
-          store
-            .snapshot()
-            .imageShares.filter((share) => share.imageId === image.id)
+          state.imageShares.filter((share) => share.imageId === image.id),
+          state,
+          now()
         )
       };
     }
@@ -461,14 +495,15 @@ export function registerImageDetailRoutes(
         }
         return current;
       });
+      const state = store.snapshot();
       return reply.status(201).send({
         image: publicDetail(
           updated,
-          store
-            .snapshot()
-            .imageShares.filter((share) => share.imageId === updated.id)
+          state.imageShares.filter((share) => share.imageId === updated.id),
+          state,
+          now()
         ),
-        version: publicVersion(updated.id, version)
+        version: publicVersion(updated.id, version, state, now())
       });
     }
   );
@@ -527,19 +562,23 @@ export function registerImageDetailRoutes(
         current.updatedAt = timestamp;
         return current;
       });
+      const state = store.snapshot();
       return reply.status(201).send({
         image: publicDetail(
           updated,
-          store
-            .snapshot()
-            .imageShares.filter((share) => share.imageId === updated.id)
+          state.imageShares.filter((share) => share.imageId === updated.id),
+          state,
+          now()
         ),
-        version: publicVersion(updated.id, restored)
+        version: publicVersion(updated.id, restored, state, now())
       });
     }
   );
 
-  app.get<{ Params: VersionParams }>(
+  app.get<{
+    Params: VersionParams;
+    Querystring: { expires?: string; signature?: string };
+  }>(
     "/files/:id/versions/:versionId",
     {
       schema: {
@@ -551,11 +590,23 @@ export function registerImageDetailRoutes(
             id: { type: "string", minLength: 1, maxLength: 80 },
             versionId: { type: "string", minLength: 1, maxLength: 80 }
           }
+        },
+        querystring: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            expires: { type: "string", pattern: "^[0-9]+$" },
+            signature: {
+              type: "string",
+              pattern: "^[a-fA-F0-9]{64}$"
+            }
+          }
         }
       }
     },
     async (request, reply) => {
-      const image = store.snapshot().images.find(
+      const state = store.snapshot();
+      const image = state.images.find(
         (item) => item.id === request.params.id && !item.deletedAt
       );
       const version = image?.versions.find(
@@ -564,6 +615,15 @@ export function registerImageDetailRoutes(
       if (!image || !version) {
         throw new PublicError(404, "VERSION_NOT_FOUND", "图片版本不存在");
       }
+      assertDeliveryAccess(
+        request,
+        state,
+        canonicalFilePath(
+          image.id,
+          `versions/${request.params.versionId}`
+        ),
+        now()
+      );
       return sendImage(
         reply,
         storagePath(storageRoot, version.originalKey),

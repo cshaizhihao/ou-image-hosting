@@ -11,11 +11,17 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { isIP } from "node:net";
 import path from "node:path";
 import sharp from "sharp";
+import {
+  assertDeliveryAccess,
+  buildDeliveryUrl,
+  canonicalFilePath
+} from "./delivery.js";
 import { PublicError } from "./errors.js";
 import { registerImageDetailRoutes } from "./image-details.js";
 import { registerOrganizationRoutes } from "./organization.js";
 import {
   calculateImageStorageBytes,
+  type AppState,
   type AppStore,
   type StoredImage,
   type StoredImageVersion,
@@ -64,7 +70,11 @@ type BulkBody = {
   action: "trash";
 };
 
-function publicImage(image: StoredImage) {
+function publicImage(
+  image: StoredImage,
+  state: AppState,
+  timestamp: Date
+) {
   return {
     id: image.id,
     name: image.name,
@@ -74,8 +84,13 @@ function publicImage(image: StoredImage) {
     width: image.width,
     height: image.height,
     sha256: image.sha256,
-    thumbnailUrl: `/api/files/${image.id}/thumbnail`,
-    originalUrl: `/api/files/${image.id}/original`,
+    thumbnailUrl: buildDeliveryUrl(
+      state,
+      image.id,
+      "thumbnail",
+      timestamp
+    ),
+    originalUrl: buildDeliveryUrl(state, image.id, "original", timestamp),
     favorite: image.favorite,
     albumIds: image.albumIds,
     tagIds: image.tagIds,
@@ -164,7 +179,7 @@ async function readRemoteImage(rawUrl: string) {
       signal: AbortSignal.timeout(10_000),
       headers: {
         accept: "image/avif,image/webp,image/png,image/jpeg,image/gif",
-        "user-agent": "OU-Image-Hosting/0.7.0"
+        "user-agent": "OU-Image-Hosting/0.8.0"
       }
     });
   } catch {
@@ -282,7 +297,11 @@ export async function registerUploadRoutes(
         });
       }
       return {
-        image: publicImage({ ...existing, deletedAt: undefined }),
+        image: publicImage(
+          { ...existing, deletedAt: undefined },
+          store.snapshot(),
+          now()
+        ),
         duplicate: true
       };
     }
@@ -356,7 +375,10 @@ export async function registerUploadRoutes(
     await store.update((state) => {
       state.images.push(image);
     });
-    return { image: publicImage(image), duplicate: false };
+    return {
+      image: publicImage(image, store.snapshot(), now()),
+      duplicate: false
+    };
   };
 
   app.get("/uploads/summary", async (request) => {
@@ -404,9 +426,9 @@ export async function registerUploadRoutes(
       const query = request.query.q?.trim().toLocaleLowerCase() ?? "";
       const format = request.query.format ?? "all";
       const sort = request.query.sort ?? "newest";
-      const images = store
-        .snapshot()
-        .images.filter((image) => !image.deletedAt)
+      const state = store.snapshot();
+      const images = state.images
+        .filter((image) => !image.deletedAt)
         .filter((image) => image.userId === user.id)
         .filter(
           (image) =>
@@ -424,7 +446,9 @@ export async function registerUploadRoutes(
       const safePage = Math.min(page, totalPages);
       const start = (safePage - 1) * limit;
       return {
-        images: images.slice(start, start + limit).map(publicImage),
+        images: images
+          .slice(start, start + limit)
+          .map((image) => publicImage(image, state, now())),
         page: safePage,
         limit,
         total,
@@ -536,7 +560,10 @@ export async function registerUploadRoutes(
     }
   );
 
-  app.get<{ Params: { id: string; variant: "original" | "thumbnail" } }>(
+  app.get<{
+    Params: { id: string; variant: "original" | "thumbnail" };
+    Querystring: { expires?: string; signature?: string };
+  }>(
     "/files/:id/:variant",
     {
       schema: {
@@ -547,16 +574,34 @@ export async function registerUploadRoutes(
             id: { type: "string", minLength: 1, maxLength: 80 },
             variant: { type: "string", enum: ["original", "thumbnail"] }
           }
+        },
+        querystring: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            expires: { type: "string", pattern: "^[0-9]+$" },
+            signature: {
+              type: "string",
+              pattern: "^[a-fA-F0-9]{64}$"
+            }
+          }
         }
       }
     },
     async (request, reply) => {
-      const image = store
-        .snapshot()
-        .images.find((item) => item.id === request.params.id);
+      const state = store.snapshot();
+      const image = state.images.find(
+        (item) => item.id === request.params.id && !item.deletedAt
+      );
       if (!image) {
         throw new PublicError(404, "IMAGE_NOT_FOUND", "图片不存在");
       }
+      assertDeliveryAccess(
+        request,
+        state,
+        canonicalFilePath(image.id, request.params.variant),
+        now()
+      );
       const isThumbnail = request.params.variant === "thumbnail";
       const key = isThumbnail ? image.thumbnailKey : image.originalKey;
       reply

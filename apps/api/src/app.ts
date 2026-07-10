@@ -20,6 +20,7 @@ import {
   type ThemePreference
 } from "./store.js";
 import { registerUploadRoutes } from "./uploads.js";
+import { registerInfrastructureRoutes } from "./infrastructure.js";
 
 const SESSION_COOKIE = "ou_session";
 const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
@@ -152,7 +153,10 @@ export async function buildApp(options: BuildAppOptions = {}) {
           "req.headers.cookie",
           "req.headers.authorization",
           "req.body.password",
-          "req.body.token"
+          "req.body.token",
+          "req.body.config.secretAccessKey",
+          "req.body.storage.s3.secretAccessKey",
+          "req.body.storage.r2.secretAccessKey"
         ],
         censor: "[REDACTED]"
       }
@@ -271,7 +275,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   app.get("/health", async () => ({
     status: "ok",
     service: "ou-image-api",
-    version: "0.7.0"
+    version: "0.8.0"
   }));
 
   app.get("/setup/status", async () => {
@@ -678,6 +682,13 @@ export async function buildApp(options: BuildAppOptions = {}) {
   );
 
   await registerUploadRoutes(app, {
+    store,
+    dataDirectory,
+    now,
+    authenticate: authenticatedUser
+  });
+
+  registerInfrastructureRoutes(app, {
     store,
     dataDirectory,
     now,

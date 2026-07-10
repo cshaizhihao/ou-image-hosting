@@ -1,20 +1,24 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import FormData from "form-data";
+import { createHash } from "node:crypto";
 import {
   access,
   mkdtemp,
+  readFile,
   rm,
   unlink,
   writeFile
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { gunzipSync, gzipSync } from "node:zlib";
 import sharp from "sharp";
 import { buildApp } from "./app.js";
 import { AppStore } from "./store.js";
 
 const apps: Awaited<ReturnType<typeof buildApp>>[] = [];
 const temporaryDirectories: string[] = [];
+const initialSecretKey = process.env.OU_SECRET_KEY;
 
 async function createTestApp(
   options: {
@@ -39,6 +43,12 @@ async function createTestApp(
 }
 
 afterEach(async () => {
+  vi.unstubAllGlobals();
+  if (initialSecretKey === undefined) {
+    delete process.env.OU_SECRET_KEY;
+  } else {
+    process.env.OU_SECRET_KEY = initialSecretKey;
+  }
   await Promise.all(apps.splice(0).map((app) => app.close()));
   await Promise.all(
     temporaryDirectories
@@ -61,7 +71,7 @@ describe("OU-Image API", () => {
     const status = await app.inject({ method: "GET", url: "/setup/status" });
 
     expect(health.statusCode).toBe(200);
-    expect(health.json()).toMatchObject({ status: "ok", version: "0.7.0" });
+    expect(health.json()).toMatchObject({ status: "ok", version: "0.8.0" });
     expect(status.json()).toEqual({ setupComplete: false, site: null });
   });
 
@@ -404,7 +414,7 @@ describe("OU-Image API", () => {
     expect(summary.json().count).toBe(1);
   });
 
-  it("migrates schema v3 images into organized schema v4 records", async () => {
+  it("migrates schema v4 into infrastructure schema v5", async () => {
     const dataDirectory = await mkdtemp(
       path.join(tmpdir(), "ou-image-store-migration-")
     );
@@ -413,12 +423,14 @@ describe("OU-Image API", () => {
     await writeFile(
       filePath,
       JSON.stringify({
-        schemaVersion: 3,
+        schemaVersion: 4,
         setupComplete: false,
         users: [],
         sessions: [],
         passwordResets: [],
         imageShares: [],
+        albums: [],
+        tags: [],
         images: [
           {
             id: "legacy-image",
@@ -448,6 +460,9 @@ describe("OU-Image API", () => {
                 createdAt: "2026-01-01T00:00:00.000Z"
               }
             ],
+            favorite: true,
+            albumIds: [],
+            tagIds: [],
             createdAt: "2026-01-01T00:00:00.000Z",
             updatedAt: "2026-01-01T00:00:00.000Z"
           }
@@ -458,13 +473,13 @@ describe("OU-Image API", () => {
     const store = new AppStore(filePath);
     await store.initialize();
     const state = store.snapshot();
-    expect(state.schemaVersion).toBe(4);
+    expect(state.schemaVersion).toBe(5);
     expect(state.imageShares).toEqual([]);
     expect(state.albums).toEqual([]);
     expect(state.tags).toEqual([]);
     expect(state.images[0]).toMatchObject({
       currentVersionId: "legacy-version",
-      favorite: false,
+      favorite: true,
       albumIds: [],
       tagIds: [],
       updatedAt: "2026-01-01T00:00:00.000Z",
@@ -478,6 +493,21 @@ describe("OU-Image API", () => {
         }
       ]
     });
+    expect(state.storageSettings).toEqual({ active: "local" });
+    expect(state.deliverySettings).toMatchObject({
+      linkTemplate: "{domain}/api/files/{id}/{variant}",
+      hotlinkEnabled: false,
+      allowEmptyReferer: true,
+      signedUrls: false,
+      signedUrlTtlSeconds: 3600
+    });
+    expect(state.backupSettings).toMatchObject({
+      scheduleEnabled: false,
+      intervalHours: 24,
+      retentionCount: 7
+    });
+    expect(state.backups).toEqual([]);
+    expect(state.storageMigrations).toEqual([]);
   });
 
   it("renames, transforms and restores image versions", async () => {
@@ -1178,6 +1208,19 @@ describe("OU-Image API", () => {
       payload: { ids: [imageId], action: "trash" }
     });
     expect(trashed.json()).toEqual({ updated: 1 });
+    const trashedVersionId = store
+      .snapshot()
+      .images.find((image) => image.id === imageId)!.versions[0]!.id;
+    const hiddenCurrentFile = await app.inject({
+      method: "GET",
+      url: `/files/${imageId}/original`
+    });
+    const hiddenHistoricalFile = await app.inject({
+      method: "GET",
+      url: `/files/${imageId}/versions/${trashedVersionId}`
+    });
+    expect(hiddenCurrentFile.statusCode).toBe(404);
+    expect(hiddenHistoricalFile.statusCode).toBe(404);
     const trash = await app.inject({
       method: "GET",
       url: "/trash",
@@ -1274,5 +1317,567 @@ describe("OU-Image API", () => {
     });
     expect(missingFile.statusCode).toBe(404);
     expect(emptyTrash.json()).toEqual({ images: [], total: 0 });
+  });
+
+  it("protects infrastructure settings and encrypts remote credentials", async () => {
+    delete process.env.OU_SECRET_KEY;
+    const store = new AppStore(null);
+    const app = await createTestApp({ store });
+    const setup = await app.inject({
+      method: "POST",
+      url: "/setup",
+      payload: { ...owner, registrationEnabled: true }
+    });
+    const cookie = setup.cookies.find((item) => item.name === "ou_session")!;
+    const cookies = { ou_session: cookie.value };
+
+    const missingEncryptionKey = await app.inject({
+      method: "PATCH",
+      url: "/storage/settings",
+      cookies,
+      payload: {
+        storage: {
+          s3: {
+            endpoint: "https://s3.example.com",
+            bucket: "images",
+            region: "us-east-1",
+            accessKeyId: "access-key",
+            secretAccessKey: "plain-secret-value"
+          }
+        }
+      }
+    });
+    expect(missingEncryptionKey.statusCode).toBe(400);
+    expect(missingEncryptionKey.json().error.code).toBe(
+      "SECRET_KEY_REQUIRED"
+    );
+
+    const missingSigningKey = await app.inject({
+      method: "PATCH",
+      url: "/storage/settings",
+      cookies,
+      payload: { delivery: { signedUrls: true } }
+    });
+    expect(missingSigningKey.statusCode).toBe(400);
+    expect(missingSigningKey.json().error.code).toBe(
+      "SECRET_KEY_REQUIRED"
+    );
+
+    process.env.OU_SECRET_KEY = "test-infrastructure-master-key";
+    const invalidTemplate = await app.inject({
+      method: "PATCH",
+      url: "/storage/settings",
+      cookies,
+      payload: {
+        delivery: {
+          linkTemplate: "data:text/plain,{id}/{variant}"
+        }
+      }
+    });
+    expect(invalidTemplate.statusCode).toBe(400);
+    expect(invalidTemplate.json().error.code).toBe(
+      "INVALID_LINK_TEMPLATE"
+    );
+
+    const saved = await app.inject({
+      method: "PATCH",
+      url: "/storage/settings",
+      cookies,
+      payload: {
+        storage: {
+          s3: {
+            endpoint: "https://s3.example.com",
+            bucket: "images",
+            region: "us-east-1",
+            accessKeyId: "access-key",
+            secretAccessKey: "plain-secret-value",
+            publicBaseUrl: "https://cdn.example.com",
+            pathStyle: true
+          }
+        },
+        delivery: {
+          customDomain: "https://img.example.com/",
+          linkTemplate: "{domain}/api/files/{id}/{variant}",
+          allowedReferers: ["https://app.example.com/gallery"],
+          hotlinkEnabled: true,
+          allowEmptyReferer: false,
+          signedUrls: true,
+          signedUrlTtlSeconds: 600
+        },
+        backup: {
+          scheduleEnabled: true,
+          intervalHours: 12,
+          retentionCount: 3
+        }
+      }
+    });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json()).toMatchObject({
+      storage: {
+        active: "local",
+        s3: {
+          endpoint: "https://s3.example.com",
+          bucket: "images",
+          secretConfigured: true
+        }
+      },
+      delivery: {
+        customDomain: "https://img.example.com",
+        allowedReferers: ["https://app.example.com"],
+        signedUrls: true
+      },
+      backup: {
+        scheduleEnabled: true,
+        intervalHours: 12,
+        retentionCount: 3
+      }
+    });
+    expect(JSON.stringify(saved.json())).not.toContain("plain-secret-value");
+    expect(JSON.stringify(saved.json())).not.toContain(
+      "secretAccessKeyCiphertext"
+    );
+    const encrypted = store.snapshot().storageSettings.s3
+      ?.secretAccessKeyCiphertext;
+    expect(encrypted).toMatch(/^v1\./);
+    expect(encrypted).not.toContain("plain-secret-value");
+
+    const localTest = await app.inject({
+      method: "POST",
+      url: "/storage/test",
+      cookies,
+      payload: { provider: "local" }
+    });
+    const health = await app.inject({
+      method: "GET",
+      url: "/storage/health",
+      cookies
+    });
+    expect(localTest.json()).toMatchObject({
+      provider: "local",
+      status: "ok"
+    });
+    expect(health.json()).toMatchObject({
+      active: "local",
+      providers: {
+        local: { status: "ok" },
+        s3: { status: "configured" },
+        r2: { status: "unconfigured" }
+      }
+    });
+
+    const unsupportedActive = await app.inject({
+      method: "PATCH",
+      url: "/storage/settings",
+      cookies,
+      payload: { storage: { active: "s3" } }
+    });
+    expect(unsupportedActive.statusCode).toBe(400);
+    expect(unsupportedActive.json().error.code).toBe(
+      "REMOTE_ACTIVE_UNSUPPORTED"
+    );
+
+    const member = await app.inject({
+      method: "POST",
+      url: "/auth/register",
+      payload: {
+        displayName: "普通成员",
+        email: "infra-member@example.com",
+        password: "Member-Secure-2026!"
+      }
+    });
+    const memberCookie = member.cookies.find(
+      (item) => item.name === "ou_session"
+    )!;
+    const denied = await app.inject({
+      method: "GET",
+      url: "/storage/settings",
+      cookies: { ou_session: memberCookie.value }
+    });
+    expect(denied.statusCode).toBe(403);
+    expect(denied.json().error.code).toBe("OWNER_REQUIRED");
+  });
+
+  it("tests SigV4 storage and records real local to remote migrations", async () => {
+    process.env.OU_SECRET_KEY = "migration-master-key";
+    const app = await createTestApp();
+    const setup = await app.inject({
+      method: "POST",
+      url: "/setup",
+      payload: owner
+    });
+    const cookie = setup.cookies.find((item) => item.name === "ou_session")!;
+    const cookies = { ou_session: cookie.value };
+    const png = await sharp({
+      create: {
+        width: 10,
+        height: 8,
+        channels: 3,
+        background: { r: 30, g: 130, b: 230 }
+      }
+    })
+      .png()
+      .toBuffer();
+    const form = new FormData();
+    form.append("file", png, {
+      filename: "migrate.png",
+      contentType: "image/png"
+    });
+    await app.inject({
+      method: "POST",
+      url: "/uploads",
+      headers: form.getHeaders(),
+      cookies,
+      payload: form.getBuffer()
+    });
+    await app.inject({
+      method: "PATCH",
+      url: "/storage/settings",
+      cookies,
+      payload: {
+        storage: {
+          s3: {
+            endpoint: "https://s3.example.com",
+            bucket: "images",
+            region: "us-east-1",
+            accessKeyId: "access-key",
+            secretAccessKey: "migration-secret",
+            pathStyle: true
+          }
+        }
+      }
+    });
+
+    const requests: Array<{
+      method: string;
+      url: string;
+      authorization: string;
+    }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const headers = new Headers(init?.headers);
+        requests.push({
+          method: init?.method ?? "GET",
+          url: input.toString(),
+          authorization: headers.get("authorization") ?? ""
+        });
+        return new Response(null, { status: 200 });
+      })
+    );
+
+    const tested = await app.inject({
+      method: "POST",
+      url: "/storage/test",
+      cookies,
+      payload: { provider: "s3" }
+    });
+    expect(tested.statusCode).toBe(200);
+    expect(requests[0]).toMatchObject({
+      method: "HEAD",
+      url: "https://s3.example.com/images"
+    });
+    expect(requests[0]!.authorization).toContain("AWS4-HMAC-SHA256");
+
+    const migrated = await app.inject({
+      method: "POST",
+      url: "/storage/migrations",
+      cookies,
+      payload: { source: "local", target: "s3" }
+    });
+    expect(migrated.statusCode).toBe(201);
+    expect(migrated.json().migration).toMatchObject({
+      source: "local",
+      target: "s3",
+      status: "completed",
+      total: 2,
+      completed: 2,
+      failed: 0
+    });
+    expect(requests.filter((request) => request.method === "PUT")).toHaveLength(
+      2
+    );
+
+    const unsupported = await app.inject({
+      method: "POST",
+      url: "/storage/migrations",
+      cookies,
+      payload: { source: "s3", target: "local" }
+    });
+    expect(unsupported.statusCode).toBe(400);
+    expect(unsupported.json().error.code).toBe(
+      "UNSUPPORTED_STORAGE_MIGRATION"
+    );
+    const migrations = await app.inject({
+      method: "GET",
+      url: "/storage/migrations",
+      cookies
+    });
+    expect(migrations.json().migrations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ status: "completed" }),
+        expect.objectContaining({
+          source: "s3",
+          target: "local",
+          status: "failed"
+        })
+      ])
+    );
+  });
+
+  it("applies custom delivery, hotlink and signed URL settings", async () => {
+    process.env.OU_SECRET_KEY = "delivery-master-key";
+    let timestamp = new Date("2026-07-10T12:00:00.000Z");
+    const app = await createTestApp({
+      now: () => new Date(timestamp)
+    });
+    const setup = await app.inject({
+      method: "POST",
+      url: "/setup",
+      payload: owner
+    });
+    const cookie = setup.cookies.find((item) => item.name === "ou_session")!;
+    const cookies = { ou_session: cookie.value };
+    const png = await sharp({
+      create: {
+        width: 9,
+        height: 7,
+        channels: 3,
+        background: { r: 220, g: 120, b: 50 }
+      }
+    })
+      .png()
+      .toBuffer();
+    const form = new FormData();
+    form.append("file", png, {
+      filename: "delivery.png",
+      contentType: "image/png"
+    });
+    const upload = await app.inject({
+      method: "POST",
+      url: "/uploads",
+      headers: form.getHeaders(),
+      cookies,
+      payload: form.getBuffer()
+    });
+    const imageId = upload.json().image.id as string;
+    await app.inject({
+      method: "PATCH",
+      url: "/storage/settings",
+      cookies,
+      payload: {
+        delivery: {
+          customDomain: "https://cdn.example.com",
+          linkTemplate: "{domain}/api/files/{id}/{variant}",
+          hotlinkEnabled: true,
+          allowedReferers: ["https://app.example.com"],
+          allowEmptyReferer: false,
+          signedUrls: true,
+          signedUrlTtlSeconds: 60
+        }
+      }
+    });
+
+    const library = await app.inject({
+      method: "GET",
+      url: "/uploads",
+      cookies
+    });
+    const originalUrl = library.json().images[0].originalUrl as string;
+    const parsed = new URL(originalUrl);
+    expect(parsed.origin).toBe("https://cdn.example.com");
+    expect(parsed.pathname).toBe(`/api/files/${imageId}/original`);
+    expect(parsed.searchParams.get("expires")).toBe(
+      String(Math.floor(timestamp.getTime() / 1000) + 60)
+    );
+    expect(parsed.searchParams.get("signature")).toMatch(/^[a-f0-9]{64}$/);
+    const internalUrl =
+      parsed.pathname.replace(/^\/api/, "") + parsed.search;
+
+    const direct = await app.inject({
+      method: "GET",
+      url: internalUrl
+    });
+    expect(direct.statusCode).toBe(403);
+    expect(direct.json().error.code).toBe("HOTLINK_BLOCKED");
+
+    const wrongReferer = await app.inject({
+      method: "GET",
+      url: internalUrl,
+      headers: { referer: "https://evil.example.com/page" }
+    });
+    expect(wrongReferer.statusCode).toBe(403);
+
+    const allowed = await app.inject({
+      method: "GET",
+      url: internalUrl,
+      headers: { referer: "https://app.example.com/gallery" }
+    });
+    expect(allowed.statusCode).toBe(200);
+    expect(allowed.rawPayload.equals(png)).toBe(true);
+
+    const badSignature = new URL(originalUrl);
+    badSignature.searchParams.set("signature", "0".repeat(64));
+    const rejectedSignature = await app.inject({
+      method: "GET",
+      url:
+        badSignature.pathname.replace(/^\/api/, "") +
+        badSignature.search,
+      headers: { referer: "https://app.example.com" }
+    });
+    expect(rejectedSignature.statusCode).toBe(403);
+    expect(rejectedSignature.json().error.code).toBe(
+      "INVALID_FILE_SIGNATURE"
+    );
+
+    timestamp = new Date("2026-07-10T12:01:01.000Z");
+    const expired = await app.inject({
+      method: "GET",
+      url: internalUrl,
+      headers: { referer: "https://app.example.com" }
+    });
+    expect(expired.statusCode).toBe(403);
+    expect(expired.json().error.code).toBe("INVALID_FILE_SIGNATURE");
+  });
+
+  it("creates, validates, restores and deletes safe backup archives", async () => {
+    let dataDirectory = "";
+    const store = new AppStore(null);
+    const app = await createTestApp({
+      store,
+      onDataDirectory: (directory) => {
+        dataDirectory = directory;
+      }
+    });
+    const setup = await app.inject({
+      method: "POST",
+      url: "/setup",
+      payload: owner
+    });
+    const cookie = setup.cookies.find((item) => item.name === "ou_session")!;
+    const cookies = { ou_session: cookie.value };
+    const png = await sharp({
+      create: {
+        width: 13,
+        height: 11,
+        channels: 3,
+        background: { r: 90, g: 180, b: 120 }
+      }
+    })
+      .png()
+      .toBuffer();
+    const form = new FormData();
+    form.append("file", png, {
+      filename: "backup-original.png",
+      contentType: "image/png"
+    });
+    const upload = await app.inject({
+      method: "POST",
+      url: "/uploads",
+      headers: form.getHeaders(),
+      cookies,
+      payload: form.getBuffer()
+    });
+    const imageId = upload.json().image.id as string;
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/backups",
+      cookies
+    });
+    expect(created.statusCode).toBe(201);
+    expect(created.json().backup).toMatchObject({
+      status: "completed",
+      fileCount: 2
+    });
+    const backupId = created.json().backup.id as string;
+    const downloaded = await app.inject({
+      method: "GET",
+      url: `/backups/${backupId}/download`,
+      cookies
+    });
+    expect(downloaded.statusCode).toBe(200);
+    expect(downloaded.headers["content-type"]).toContain("application/gzip");
+    const envelope = JSON.parse(
+      gunzipSync(downloaded.rawPayload).toString("utf8")
+    );
+    expect(envelope).toMatchObject({
+      format: "ou-image-backup-v1",
+      state: { schemaVersion: 5 }
+    });
+    expect(envelope.manifest.files).toHaveLength(2);
+
+    await app.inject({
+      method: "PATCH",
+      url: `/uploads/${imageId}`,
+      cookies,
+      payload: { name: "changed.png" }
+    });
+    const originalKey = store.snapshot().images[0]!.originalKey;
+    await unlink(path.join(dataDirectory, "storage", originalKey));
+
+    const restored = await app.inject({
+      method: "POST",
+      url: `/backups/${backupId}/restore`,
+      cookies
+    });
+    expect(restored.statusCode).toBe(200);
+    expect(restored.json()).toMatchObject({
+      restored: true,
+      files: 2
+    });
+    const detail = await app.inject({
+      method: "GET",
+      url: `/uploads/${imageId}`,
+      cookies
+    });
+    const restoredFile = await app.inject({
+      method: "GET",
+      url: `/files/${imageId}/original`
+    });
+    expect(detail.json().image.name).toBe("backup-original.png");
+    expect(restoredFile.statusCode).toBe(200);
+    expect(restoredFile.rawPayload.equals(png)).toBe(true);
+
+    const backup = store.snapshot().backups.find(
+      (item) => item.id === backupId
+    )!;
+    const archivePath = path.join(dataDirectory, backup.archiveKey);
+    const malicious = JSON.parse(
+      gunzipSync(await readFile(archivePath)).toString("utf8")
+    );
+    malicious.files[0].path = "../escape";
+    malicious.manifest.files[0].path = "../escape";
+    const maliciousArchive = gzipSync(Buffer.from(JSON.stringify(malicious)));
+    await writeFile(archivePath, maliciousArchive);
+    await store.update((state) => {
+      const current = state.backups.find((item) => item.id === backupId)!;
+      current.checksum = createHash("sha256")
+        .update(maliciousArchive)
+        .digest("hex");
+      current.size = maliciousArchive.byteLength;
+    });
+    const traversal = await app.inject({
+      method: "POST",
+      url: `/backups/${backupId}/restore`,
+      cookies
+    });
+    expect(traversal.statusCode).toBe(400);
+    expect(traversal.json().error.code).toBe("INVALID_BACKUP_PATH");
+    await expect(
+      access(path.join(dataDirectory, "escape"))
+    ).rejects.toMatchObject({ code: "ENOENT" });
+
+    const removed = await app.inject({
+      method: "DELETE",
+      url: `/backups/${backupId}`,
+      cookies
+    });
+    const backups = await app.inject({
+      method: "GET",
+      url: "/backups",
+      cookies
+    });
+    expect(removed.statusCode).toBe(204);
+    expect(backups.json()).toEqual({ backups: [] });
   });
 });

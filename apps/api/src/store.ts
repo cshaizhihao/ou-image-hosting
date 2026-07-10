@@ -119,8 +119,70 @@ export type StoredTag = {
   updatedAt: string;
 };
 
+export type StorageProvider = "local" | "s3" | "r2";
+
+export type RemoteStorageSettings = {
+  endpoint: string;
+  bucket: string;
+  region: string;
+  accessKeyId: string;
+  secretAccessKeyCiphertext?: string;
+  publicBaseUrl?: string;
+  pathStyle: boolean;
+};
+
+export type StorageSettings = {
+  active: StorageProvider;
+  s3?: RemoteStorageSettings;
+  r2?: RemoteStorageSettings;
+};
+
+export type DeliverySettings = {
+  customDomain?: string;
+  linkTemplate: string;
+  hotlinkEnabled: boolean;
+  allowedReferers: string[];
+  allowEmptyReferer: boolean;
+  signedUrls: boolean;
+  signedUrlTtlSeconds: number;
+};
+
+export type BackupSettings = {
+  scheduleEnabled: boolean;
+  intervalHours: number;
+  retentionCount: number;
+  lastBackupAt?: string;
+};
+
+export type StoredBackup = {
+  id: string;
+  status: "running" | "completed" | "failed";
+  archiveKey: string;
+  createdBy: string;
+  createdAt: string;
+  completedAt?: string;
+  size?: number;
+  fileCount: number;
+  checksum?: string;
+  error?: string;
+};
+
+export type StoredStorageMigration = {
+  id: string;
+  source: StorageProvider;
+  target: StorageProvider;
+  status: "running" | "completed" | "failed";
+  total: number;
+  completed: number;
+  failed: number;
+  createdBy: string;
+  createdAt: string;
+  completedAt?: string;
+  error?: string;
+};
+
 export type AppState = {
-  schemaVersion: 4;
+  schemaVersion: 5;
   setupComplete: boolean;
   site?: SiteConfig;
   users: StoredUser[];
@@ -130,6 +192,11 @@ export type AppState = {
   imageShares: StoredImageShare[];
   albums: StoredAlbum[];
   tags: StoredTag[];
+  storageSettings: StorageSettings;
+  deliverySettings: DeliverySettings;
+  backupSettings: BackupSettings;
+  backups: StoredBackup[];
+  storageMigrations: StoredStorageMigration[];
 };
 
 export function calculateImageStorageBytes(images: StoredImage[]) {
@@ -145,7 +212,7 @@ export function calculateImageStorageBytes(images: StoredImage[]) {
 }
 
 const initialState = (): AppState => ({
-  schemaVersion: 4,
+  schemaVersion: 5,
   setupComplete: false,
   users: [],
   sessions: [],
@@ -153,7 +220,25 @@ const initialState = (): AppState => ({
   images: [],
   imageShares: [],
   albums: [],
-  tags: []
+  tags: [],
+  storageSettings: {
+    active: "local"
+  },
+  deliverySettings: {
+    linkTemplate: "{domain}/api/files/{id}/{variant}",
+    hotlinkEnabled: false,
+    allowedReferers: [],
+    allowEmptyReferer: true,
+    signedUrls: false,
+    signedUrlTtlSeconds: 3600
+  },
+  backupSettings: {
+    scheduleEnabled: false,
+    intervalHours: 24,
+    retentionCount: 7
+  },
+  backups: [],
+  storageMigrations: []
 });
 
 type MigratableImage = Omit<
@@ -227,21 +312,32 @@ export class AppStore {
       this.state = {
         ...initialState(),
         ...parsed,
-        schemaVersion: 4,
+        schemaVersion: 5,
         users: parsed.users ?? [],
         sessions: parsed.sessions ?? [],
         passwordResets: parsed.passwordResets ?? [],
         images: (parsed.images ?? []).map(migrateImage),
         imageShares: parsed.imageShares ?? [],
         albums: parsed.albums ?? [],
-        tags: parsed.tags ?? []
+        tags: parsed.tags ?? [],
+        storageSettings: parsed.storageSettings ?? initialState().storageSettings,
+        deliverySettings:
+          parsed.deliverySettings ?? initialState().deliverySettings,
+        backupSettings: parsed.backupSettings ?? initialState().backupSettings,
+        backups: parsed.backups ?? [],
+        storageMigrations: parsed.storageMigrations ?? []
       };
       if (
-        parsed.schemaVersion !== 4 ||
+        parsed.schemaVersion !== 5 ||
         !parsed.images ||
         !parsed.imageShares ||
         !parsed.albums ||
         !parsed.tags ||
+        !parsed.storageSettings ||
+        !parsed.deliverySettings ||
+        !parsed.backupSettings ||
+        !parsed.backups ||
+        !parsed.storageMigrations ||
         parsed.images.some(
           (image) =>
             !image.currentVersionId ||
