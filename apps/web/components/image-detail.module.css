@@ -495,6 +495,135 @@
   padding: 14px;
 }
 
+.organization {
+  display: grid;
+}
+
+.organization > button {
+  display: flex;
+  min-height: 62px;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 13px;
+  border: 0;
+  border-bottom: 1px solid var(--border-default);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-align: left;
+}
+
+.organization > button:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.organization > button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.organization > button > span {
+  display: grid;
+}
+
+.organization > button strong {
+  color: var(--text-primary);
+  font-size: 11px;
+}
+
+.organization > button small {
+  color: var(--text-tertiary);
+  font-size: 9px;
+}
+
+.organization .favoriteActive {
+  background: color-mix(in srgb, var(--action-primary) 9%, var(--surface-panel));
+  color: var(--action-primary-hover);
+}
+
+.relationGroup {
+  display: grid;
+  gap: 9px;
+  padding: 12px 13px;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.relationGroup:last-child {
+  border-bottom: 0;
+}
+
+.relationGroup > div:first-child {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.relationGroup > div:first-child small {
+  color: var(--text-tertiary);
+  font-size: 9px;
+  font-weight: 450;
+}
+
+.relationGroup > p {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: 10px;
+}
+
+.relationGroup > p a {
+  color: var(--action-primary-hover);
+  font-weight: 650;
+}
+
+.relationChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.relationChips button {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  background: var(--surface-page);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.relationChips button:hover:not(:disabled) {
+  border-color: var(--action-primary);
+  color: var(--text-primary);
+}
+
+.relationChips button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.relationChips .relationActive {
+  border-color: color-mix(in srgb, var(--action-primary) 55%, var(--border-default));
+  background: color-mix(in srgb, var(--action-primary) 12%, var(--surface-panel));
+  color: var(--text-primary);
+}
+
+.relationDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--tag-color, var(--text-tertiary));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--tag-color, var(--text-tertiary)) 18%, transparent);
+}
+
 .shareForm label > span {
   display: flex;
   justify-content: space-between;

@@ -13,6 +13,7 @@ import path from "node:path";
 import sharp from "sharp";
 import { PublicError } from "./errors.js";
 import { registerImageDetailRoutes } from "./image-details.js";
+import { registerOrganizationRoutes } from "./organization.js";
 import {
   calculateImageStorageBytes,
   type AppStore,
@@ -75,7 +76,11 @@ function publicImage(image: StoredImage) {
     sha256: image.sha256,
     thumbnailUrl: `/api/files/${image.id}/thumbnail`,
     originalUrl: `/api/files/${image.id}/original`,
+    favorite: image.favorite,
+    albumIds: image.albumIds,
+    tagIds: image.tagIds,
     createdAt: image.createdAt,
+    updatedAt: image.updatedAt,
     deletedAt: image.deletedAt
   };
 }
@@ -159,7 +164,7 @@ async function readRemoteImage(rawUrl: string) {
       signal: AbortSignal.timeout(10_000),
       headers: {
         accept: "image/avif,image/webp,image/png,image/jpeg,image/gif",
-        "user-agent": "OU-Image-Hosting/0.6.0"
+        "user-agent": "OU-Image-Hosting/0.7.0"
       }
     });
   } catch {
@@ -264,7 +269,11 @@ export async function registerUploadRoutes(
     const sha256 = createHash("sha256").update(buffer).digest("hex");
     const existing = store
       .snapshot()
-      .images.find((image) => image.sha256 === sha256);
+      .images.find(
+        (image) =>
+          image.userId === userId &&
+          image.sha256 === sha256
+      );
     if (existing) {
       if (existing.deletedAt) {
         await store.update((state) => {
@@ -338,6 +347,9 @@ export async function registerUploadRoutes(
       thumbnailKey,
       currentVersionId: originalVersion.id,
       versions: [originalVersion],
+      favorite: false,
+      albumIds: [],
+      tagIds: [],
       createdAt: timestamp,
       updatedAt: timestamp
     };
@@ -348,8 +360,10 @@ export async function registerUploadRoutes(
   };
 
   app.get("/uploads/summary", async (request) => {
-    authenticate(request);
-    const images = store.snapshot().images;
+    const { user } = authenticate(request);
+    const images = store
+      .snapshot()
+      .images.filter((image) => image.userId === user.id);
     return {
       count: images.filter((image) => !image.deletedAt).length,
       bytes: calculateImageStorageBytes(images),
@@ -381,7 +395,7 @@ export async function registerUploadRoutes(
       }
     },
     async (request) => {
-      authenticate(request);
+      const { user } = authenticate(request);
       const page = Math.max(1, Number(request.query.page ?? 1));
       const limit = Math.min(
         100,
@@ -393,6 +407,7 @@ export async function registerUploadRoutes(
       const images = store
         .snapshot()
         .images.filter((image) => !image.deletedAt)
+        .filter((image) => image.userId === user.id)
         .filter(
           (image) =>
             !query || image.name.toLocaleLowerCase().includes(query)
@@ -440,14 +455,19 @@ export async function registerUploadRoutes(
       }
     },
     async (request) => {
-      authenticate(request);
+      const { user } = authenticate(request);
       const ids = new Set(request.body.ids);
       const timestamp = now().toISOString();
       const updated = await store.update((state) => {
         let count = 0;
         state.images.forEach((image) => {
-          if (ids.has(image.id) && !image.deletedAt) {
+          if (
+            ids.has(image.id) &&
+            image.userId === user.id &&
+            !image.deletedAt
+          ) {
             image.deletedAt = timestamp;
+            image.updatedAt = timestamp;
             count += 1;
           }
         });
@@ -553,5 +573,12 @@ export async function registerUploadRoutes(
     now,
     authenticate,
     quotaBytes
+  });
+
+  registerOrganizationRoutes(app, {
+    store,
+    dataDirectory,
+    now,
+    authenticate
   });
 }

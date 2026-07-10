@@ -9,8 +9,8 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.6.0-ef8f8f" alt="Version 0.6.0" />
-  <img src="https://img.shields.io/badge/progress-5%20%2F%2010-303030" alt="Round 5 of 10" />
+  <img src="https://img.shields.io/badge/version-0.7.0-ef8f8f" alt="Version 0.7.0" />
+  <img src="https://img.shields.io/badge/progress-6%20%2F%2010-303030" alt="Round 6 of 10" />
   <img src="https://img.shields.io/badge/license-MIT-black" alt="MIT License" />
 </p>
 
@@ -26,33 +26,50 @@ OU-Image Hosting 面向个人创作者、开发者和小型团队，目标不是
 
 ## 当前版本
 
-当前版本：**v0.6.0**
+当前版本：**v0.7.0**
 
-第 5 / 10 轮已经完成：
+第 6 / 10 轮已经完成：
 
-- 独立图片详情页，展示尺寸、格式、大小、时间、MIME 与 SHA-256
-- URL、Markdown、HTML、BBCode 四种引用格式一键复制
-- 安全重命名与路径分隔符、控制字符拦截
-- 左右旋转、水平/垂直翻转、JPEG/PNG/WebP 转换与质量控制
-- 不覆盖原图的版本链、历史版本预览和一键恢复
-- 带可选密码、有效期、撤销和访问次数统计的分享链接
-- 本地二维码生成和无需登录的公开分享查看/下载页
-- schema v3 自动迁移与按唯一物理版本文件统计存储配额
-- 图片库卡片进入详情页，公开分享路由不要求登录
-- 15 个单元/集成测试与完整编辑、分享、移动端浏览器验证
+- 相册创建、编辑、描述、删除、图片聚合与自定义封面
+- 标签颜色、编辑、删除、图片聚合与跨标签合并
+- 图片详情页直接切换收藏、相册归属与多个标签
+- 独立收藏页和响应式卡片视图，可快速移出收藏
+- 回收站批量选择、恢复、永久删除与不可逆确认
+- 永久删除同步清理所有版本文件、分享记录和相册封面引用
+- schema v4 自动迁移，旧图片自动补齐收藏、相册与标签字段
+- 多用户数据隔离、关系 ID 校验和存储路径安全删除
+- 17 个自动化测试与完整桌面、移动深色端到端浏览器验证
+- 修复详情轻量组织响应覆盖完整版本数据、回收站计数字段不一致问题
 
 ## 应用截图
+
+### 相册、标签与图片整理
+
+<p align="center">
+  <img src="./docs/screenshots/v0.7.0-albums.png" width="49%" alt="OU-Image Hosting 相册与封面管理" />
+  <img src="./docs/screenshots/v0.7.0-tags.png" width="49%" alt="OU-Image Hosting 标签与合并管理" />
+</p>
+
+<p align="center">
+  <img src="./docs/screenshots/v0.7.0-image-organization.png" width="75%" alt="OU-Image Hosting 图片收藏相册标签整理" />
+</p>
+
+### 收藏与回收站
+
+<p align="center">
+  <img src="./docs/screenshots/v0.7.0-favorites.png" width="49%" alt="OU-Image Hosting 收藏页" />
+  <img src="./docs/screenshots/v0.7.0-trash.png" width="49%" alt="OU-Image Hosting 回收站" />
+</p>
+
+<p align="center">
+  <img src="./docs/screenshots/v0.7.0-favorites-mobile-dark.png" width="280" alt="OU-Image Hosting 移动端深色收藏页" />
+</p>
 
 ### 图片详情、版本与分享
 
 <p align="center">
-  <img src="./docs/screenshots/v0.6.0-image-detail.png" width="49%" alt="OU-Image Hosting 图片详情与版本分享" />
-  <img src="./docs/screenshots/v0.6.0-share-view.png" width="49%" alt="OU-Image Hosting 公开分享查看页" />
-</p>
-
-<p align="center">
   <img src="./docs/screenshots/v0.6.0-share-password.png" width="49%" alt="OU-Image Hosting 密码保护分享页" />
-  <img src="./docs/screenshots/v0.6.0-image-detail-mobile-dark.png" width="280" alt="OU-Image Hosting 移动端深色图片详情" />
+  <img src="./docs/screenshots/v0.6.0-share-view.png" width="49%" alt="OU-Image Hosting 公开分享查看页" />
 </p>
 
 ### 图片库
@@ -170,6 +187,16 @@ pnpm dev
 4. 创建带密码和有效期的分享链接，并复制二维码。
 5. 查看访问次数或随时撤销分享。
 
+### 整理与回收
+
+打开任意图片详情后可以直接加入收藏、选择多个相册和多个标签。独立管理页面还支持：
+
+1. 创建相册、编辑名称与描述，并从相册图片中设置封面。
+2. 创建带颜色的标签、修改标签信息，并把一个标签合并到另一个标签。
+3. 在收藏页集中查看重要图片并一键移出收藏。
+4. 在回收站批量恢复图片，或永久删除图片、全部版本和相关分享记录。
+5. 删除相册或标签时只解除分类关系，不删除原始图片。
+
 ## 认证与密码重置
 
 - 会话凭证通过 `HttpOnly`、`SameSite=Lax` Cookie 保存。
@@ -256,7 +283,7 @@ scripts/run-low-cpu.sh pnpm check
 | 3 | v0.4.0 | 上传引擎、队列与图片处理（已完成） |
 | 4 | v0.5.0 | 图片库、筛选和批量操作（已完成） |
 | 5 | v0.6.0 | 图片详情、编辑、分享与版本（已完成） |
-| 6 | v0.7.0 | 相册、标签、收藏和回收站 |
+| 6 | v0.7.0 | 相册、标签、收藏和回收站（已完成） |
 | 7 | v0.8.0 | 存储、域名、防盗链与备份 |
 | 8 | v0.9.0 | 团队、权限、API 与安全 |
 | 9 | v1.0.0-rc.1 | 数据统计、系统状态与设置中心 |

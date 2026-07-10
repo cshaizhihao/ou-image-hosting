@@ -1,0 +1,672 @@
+.page {
+  width: min(1320px, 100%);
+  padding-bottom: 120px;
+}
+
+.header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 24px;
+}
+
+.header > div > span {
+  color: var(--action-primary-hover);
+  font-size: 10px;
+  font-weight: 780;
+  letter-spacing: 0.15em;
+}
+
+.header h1 {
+  margin: 5px 0 3px;
+  font-size: clamp(30px, 4vw, 44px);
+  letter-spacing: -0.045em;
+  line-height: 1.1;
+}
+
+.header p {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.notice {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 28px;
+  min-height: 42px;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 14px;
+  padding: 7px 8px 7px 12px;
+  border: 1px solid color-mix(in srgb, var(--status-success) 40%, var(--border-default));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--status-success) 8%, var(--surface-panel));
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.notice button {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+
+.resourceLayout {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
+}
+
+.resourceSidebar,
+.resourceContent {
+  display: grid;
+  min-width: 0;
+  gap: 14px;
+}
+
+.resourceSidebar {
+  position: sticky;
+  top: calc(var(--topbar-height) + 16px);
+}
+
+.createPanel,
+.resourceList,
+.editPanel,
+.collection,
+.simplePanel {
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--surface-panel);
+}
+
+.createPanel {
+  display: grid;
+  gap: 11px;
+  padding: 14px;
+}
+
+.createPanel > div:first-child,
+.collectionHead > div {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.createPanel > div:first-child > svg,
+.collectionHead svg {
+  color: var(--action-primary-hover);
+}
+
+.createPanel > div:first-child span,
+.collectionHead span {
+  display: grid;
+}
+
+.createPanel strong,
+.collectionHead strong {
+  font-size: 12px;
+}
+
+.createPanel small,
+.collectionHead small {
+  color: var(--text-tertiary);
+  font-size: 9px;
+}
+
+.createPanel label,
+.editFields label {
+  display: grid;
+  gap: 5px;
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.createPanel input,
+.createPanel textarea,
+.editFields input,
+.editFields select,
+.mergeRow select {
+  width: 100%;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  outline: 0;
+  background: var(--surface-page);
+  color: var(--text-primary);
+}
+
+.createPanel input,
+.editFields input,
+.editFields select,
+.mergeRow select {
+  height: 40px;
+  padding: 0 10px;
+}
+
+.createPanel textarea {
+  min-height: 78px;
+  padding: 9px 10px;
+  resize: vertical;
+}
+
+.createPanel input:focus,
+.createPanel textarea:focus,
+.editFields input:focus,
+.editFields select:focus,
+.mergeRow select:focus {
+  border-color: var(--action-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--action-primary) 13%, transparent);
+}
+
+.colorPicker {
+  display: grid;
+  gap: 7px;
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.colorPicker > div {
+  display: flex;
+  gap: 8px;
+}
+
+.colorPicker button {
+  width: 24px;
+  height: 24px;
+  border: 3px solid var(--surface-panel);
+  border-radius: 999px;
+  outline: 1px solid var(--border-default);
+  background: var(--tag-color);
+  cursor: pointer;
+}
+
+.colorPicker .colorActive {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
+
+.resourceList {
+  display: grid;
+  overflow: hidden;
+}
+
+.resourceList > button {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  min-height: 58px;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--border-default);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-align: left;
+}
+
+.resourceList > button:last-of-type {
+  border-bottom: 0;
+}
+
+.resourceList > button:hover {
+  background: var(--surface-hover);
+}
+
+.resourceList .resourceActive {
+  background: color-mix(in srgb, var(--action-primary) 13%, var(--surface-panel));
+  color: var(--text-primary);
+}
+
+.resourceList > button > span:last-child {
+  display: grid;
+  min-width: 0;
+}
+
+.resourceList strong {
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resourceList small {
+  color: var(--text-tertiary);
+  font-size: 9px;
+}
+
+.resourceList > p {
+  margin: 0;
+  padding: 22px 12px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  text-align: center;
+}
+
+.albumCover {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--border-default);
+  border-radius: 9px;
+  background: var(--surface-muted);
+}
+
+.albumCover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.tagDot {
+  width: 16px;
+  height: 16px;
+  margin-left: 10px;
+  border: 3px solid var(--surface-panel);
+  border-radius: 999px;
+  outline: 1px solid var(--border-default);
+  background: var(--tag-color);
+}
+
+.editPanel {
+  overflow: hidden;
+}
+
+.editHeading {
+  display: flex;
+  min-height: 66px;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 15px;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.editHeading > span {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--action-primary) 35%, var(--border-default));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--action-primary) 10%, var(--surface-panel));
+  color: var(--action-primary-hover);
+}
+
+.editHeading > div {
+  display: grid;
+}
+
+.editHeading strong {
+  font-size: 13px;
+}
+
+.editHeading small {
+  color: var(--text-tertiary);
+  font-size: 10px;
+}
+
+.editFields {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.7fr) minmax(200px, 1.3fr) auto auto;
+  align-items: end;
+  gap: 8px;
+  padding: 14px;
+}
+
+.mergeRow {
+  display: grid;
+  grid-template-columns: 22px auto minmax(160px, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 14px;
+  border-top: 1px solid var(--border-default);
+  background: var(--surface-muted);
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
+.collection {
+  overflow: hidden;
+}
+
+.collectionHead {
+  min-height: 58px;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.simplePanel {
+  min-height: 420px;
+  overflow: hidden;
+}
+
+.imageGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px;
+}
+
+.imageGrid article {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-page);
+  transition:
+    border-color var(--motion-fast),
+    transform var(--motion-fast);
+}
+
+.imageGrid article:hover {
+  border-color: var(--border-strong);
+  transform: translateY(-1px);
+}
+
+.imageGrid .imageSelected {
+  border-color: var(--action-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--action-primary) 18%, transparent);
+}
+
+.imageGrid article > a,
+.trashPreview {
+  display: block;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  background: var(--surface-muted);
+}
+
+.imageGrid img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform var(--motion-standard);
+}
+
+.imageGrid article:hover img {
+  transform: scale(1.025);
+}
+
+.imageGrid article > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+  padding: 9px;
+}
+
+.imageGrid strong {
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.imageGrid small,
+.imageGrid time {
+  color: var(--text-tertiary);
+  font-size: 8px;
+}
+
+.check,
+.favorite,
+.coverButton {
+  position: absolute;
+  z-index: 2;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--border-strong) 76%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--surface-raised) 90%, transparent);
+  color: var(--text-secondary);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 14%);
+  cursor: pointer;
+}
+
+.check {
+  top: 7px;
+  left: 7px;
+}
+
+.favorite,
+.coverButton {
+  top: 7px;
+  right: 7px;
+  color: var(--action-primary-hover);
+}
+
+.trashToolbar {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  min-height: 58px;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.trashToolbar > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.trashToolbar > button > span {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border: 1px solid var(--border-default);
+  border-radius: 5px;
+}
+
+.trashToolbar > strong {
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-weight: 550;
+}
+
+.trashToolbar > div {
+  display: flex;
+  gap: 7px;
+}
+
+.empty,
+.loading,
+.errorState {
+  display: grid;
+  min-height: 390px;
+  place-items: center;
+  align-content: center;
+  gap: 9px;
+  color: var(--text-tertiary);
+  text-align: center;
+}
+
+.empty > span {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  place-items: center;
+  border: 1px solid var(--border-default);
+  border-radius: 14px;
+  background: var(--surface-muted);
+  color: var(--action-primary-hover);
+}
+
+.empty strong,
+.errorState strong {
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.empty small,
+.errorState span {
+  color: var(--text-tertiary);
+  font-size: 10px;
+}
+
+.dialogBackdrop {
+  position: fixed;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: var(--surface-scrim);
+  inset: 0;
+}
+
+.dialog {
+  width: min(430px, 100%);
+  padding: 24px;
+  border: 1px solid var(--border-default);
+  border-radius: 16px;
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-overlay);
+}
+
+.dialog > span {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--action-danger) 12%, var(--surface-panel));
+  color: var(--action-danger);
+}
+
+.dialog h2 {
+  margin: 16px 0 5px;
+  font-size: 20px;
+}
+
+.dialog p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.dialog > div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 22px;
+}
+
+.spin {
+  animation: spin 0.85s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 1120px) {
+  .imageGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .editFields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 860px) {
+  .resourceLayout {
+    grid-template-columns: 1fr;
+  }
+
+  .resourceSidebar {
+    position: static;
+    grid-template-columns: minmax(240px, 0.8fr) minmax(0, 1.2fr);
+  }
+
+  .resourceList {
+    max-height: 370px;
+    overflow: auto;
+  }
+}
+
+@media (max-width: 680px) {
+  .page {
+    padding: 22px 13px 128px;
+  }
+
+  .header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .header h1 {
+    font-size: 31px;
+  }
+
+  .resourceSidebar {
+    grid-template-columns: 1fr;
+  }
+
+  .resourceList {
+    max-height: 270px;
+  }
+
+  .editFields,
+  .mergeRow {
+    grid-template-columns: 1fr;
+  }
+
+  .mergeRow > svg {
+    display: none;
+  }
+
+  .imageGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .trashToolbar {
+    grid-template-columns: 1fr auto;
+  }
+
+  .trashToolbar > strong {
+    text-align: right;
+  }
+
+  .trashToolbar > div {
+    grid-column: 1 / -1;
+    justify-content: stretch;
+  }
+
+  .trashToolbar > div > * {
+    flex: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .imageGrid article,
+  .imageGrid img {
+    transition: none;
+  }
+
+  .spin {
+    animation-duration: 1.8s;
+  }
+}

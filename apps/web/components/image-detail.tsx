@@ -2,6 +2,7 @@
 
 import { Badge, Button, cn } from "@ou-image/ui";
 import {
+  Album,
   ArrowLeft,
   Check,
   Clipboard,
@@ -13,6 +14,7 @@ import {
   FlipHorizontal2,
   FlipVertical2,
   History,
+  Heart,
   ImageIcon,
   Link2,
   LoaderCircle,
@@ -24,11 +26,18 @@ import {
   Save,
   Share2,
   ShieldCheck,
+  Tags,
   Trash2,
   type LucideIcon
 } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  type CSSProperties,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState
+} from "react";
 import { apiRequest } from "@/lib/api";
 import { AppShell } from "./app-shell";
 import { ShareQrCode } from "./share-qr-code";
@@ -91,6 +100,9 @@ type ImageDetail = {
   height: number;
   sha256: string;
   currentVersionId: string;
+  favorite: boolean;
+  albumIds: string[];
+  tagIds: string[];
   originalUrl: string;
   thumbnailUrl: string;
   createdAt: string;
@@ -100,6 +112,38 @@ type ImageDetail = {
 };
 
 type ImageResponse = { image: ImageDetail };
+type OrganizationImageResponse = {
+  image: Pick<
+    ImageDetail,
+    | "id"
+    | "name"
+    | "size"
+    | "mime"
+    | "format"
+    | "width"
+    | "height"
+    | "sha256"
+    | "favorite"
+    | "albumIds"
+    | "tagIds"
+    | "originalUrl"
+    | "thumbnailUrl"
+    | "createdAt"
+    | "updatedAt"
+  >;
+};
+type AlbumOption = {
+  id: string;
+  name: string;
+  description: string;
+  imageCount: number;
+};
+type TagOption = {
+  id: string;
+  name: string;
+  color: string;
+  imageCount: number;
+};
 type ShareResponse = {
   share: ImageShare;
   token: string;
@@ -149,6 +193,8 @@ function escapeHtml(value: string) {
 
 export function ImageDetailView({ imageId }: { imageId: string }) {
   const [image, setImage] = useState<ImageDetail | null>(null);
+  const [albums, setAlbums] = useState<AlbumOption[]>([]);
+  const [tags, setTags] = useState<TagOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -167,11 +213,19 @@ export function ImageDetailView({ imageId }: { imageId: string }) {
     setLoading(true);
     setError("");
     try {
-      const payload = await apiRequest<ImageResponse>(`/uploads/${imageId}`);
-      setImage(payload.image);
-      setName(payload.image.name);
-      if (["jpeg", "png", "webp"].includes(payload.image.format)) {
-        setTargetFormat(payload.image.format as "jpeg" | "png" | "webp");
+      const [imagePayload, albumPayload, tagPayload] = await Promise.all([
+        apiRequest<ImageResponse>(`/uploads/${imageId}`),
+        apiRequest<{ albums: AlbumOption[] }>("/albums"),
+        apiRequest<{ tags: TagOption[] }>("/tags")
+      ]);
+      setImage(imagePayload.image);
+      setAlbums(albumPayload.albums);
+      setTags(tagPayload.tags);
+      setName(imagePayload.image.name);
+      if (["jpeg", "png", "webp"].includes(imagePayload.image.format)) {
+        setTargetFormat(
+          imagePayload.image.format as "jpeg" | "png" | "webp"
+        );
       }
     } catch (requestError) {
       setError(errorMessage(requestError, "图片详情加载失败"));
@@ -240,6 +294,50 @@ export function ImageDetailView({ imageId }: { imageId: string }) {
     } finally {
       setBusy("");
     }
+  };
+
+  const updateOrganization = async (
+    patch: Partial<
+      Pick<ImageDetail, "favorite" | "albumIds" | "tagIds">
+    >,
+    message: string
+  ) => {
+    if (!image) return;
+    const organizationKey = Object.keys(patch)[0] ?? "organization";
+    setBusy(`organization-${organizationKey}`);
+    setNotice("");
+    try {
+      const payload = await apiRequest<OrganizationImageResponse>(
+        `/uploads/${image.id}/organization`,
+        {
+          method: "PATCH",
+          body: JSON.stringify(patch)
+        }
+      );
+      setImage((current) =>
+        current ? { ...current, ...payload.image } : current
+      );
+      setNotice(message);
+    } catch (requestError) {
+      setNotice(errorMessage(requestError, "图片整理失败"));
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const toggleRelation = (
+    kind: "albumIds" | "tagIds",
+    relationId: string
+  ) => {
+    if (!image) return;
+    const current = image[kind];
+    const next = current.includes(relationId)
+      ? current.filter((id) => id !== relationId)
+      : [...current, relationId];
+    void updateOrganization(
+      { [kind]: next },
+      kind === "albumIds" ? "相册归属已更新。" : "标签已更新。"
+    );
   };
 
   const transform = async (action: TransformAction) => {
@@ -556,6 +654,111 @@ export function ImageDetailView({ imageId }: { imageId: string }) {
               </div>
 
               <aside className={styles.sideColumn}>
+                <section className={styles.panel}>
+                  <div className={styles.panelHead}>
+                    <div>
+                      <Album size={18} />
+                      <span>
+                        <strong>整理图片</strong>
+                        <small>收藏、相册与标签</small>
+                      </span>
+                    </div>
+                  </div>
+                  <div className={styles.organization}>
+                    <button
+                      aria-pressed={image.favorite}
+                      className={image.favorite ? styles.favoriteActive : undefined}
+                      disabled={busy === "organization-favorite"}
+                      onClick={() =>
+                        void updateOrganization(
+                          { favorite: !image.favorite },
+                          image.favorite ? "已移出收藏。" : "已加入收藏。"
+                        )
+                      }
+                      type="button"
+                    >
+                      {busy === "organization-favorite" ? (
+                        <LoaderCircle className={styles.spin} size={17} />
+                      ) : (
+                        <Heart
+                          fill={image.favorite ? "currentColor" : "none"}
+                          size={17}
+                        />
+                      )}
+                      <span>
+                        <strong>{image.favorite ? "已收藏" : "加入收藏"}</strong>
+                        <small>在收藏页面快速找到这张图片</small>
+                      </span>
+                    </button>
+
+                    <div className={styles.relationGroup}>
+                      <div>
+                        <Album size={15} />
+                        <span>相册</span>
+                        <small>{image.albumIds.length} 个</small>
+                      </div>
+                      {albums.length === 0 ? (
+                        <p>
+                          还没有相册，前往 <Link href="/albums">相册页面</Link> 创建。
+                        </p>
+                      ) : (
+                        <div className={styles.relationChips}>
+                          {albums.map((album) => {
+                            const selected = image.albumIds.includes(album.id);
+                            return (
+                              <button
+                                aria-pressed={selected}
+                                className={selected ? styles.relationActive : undefined}
+                                disabled={busy === "organization-albumIds"}
+                                key={album.id}
+                                onClick={() => toggleRelation("albumIds", album.id)}
+                                type="button"
+                              >
+                                {selected && <Check size={12} />}
+                                {album.name}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className={styles.relationGroup}>
+                      <div>
+                        <Tags size={15} />
+                        <span>标签</span>
+                        <small>{image.tagIds.length} 个</small>
+                      </div>
+                      {tags.length === 0 ? (
+                        <p>
+                          还没有标签，前往 <Link href="/tags">标签页面</Link> 创建。
+                        </p>
+                      ) : (
+                        <div className={styles.relationChips}>
+                          {tags.map((tag) => {
+                            const selected = image.tagIds.includes(tag.id);
+                            return (
+                              <button
+                                aria-pressed={selected}
+                                className={selected ? styles.relationActive : undefined}
+                                disabled={busy === "organization-tagIds"}
+                                key={tag.id}
+                                onClick={() => toggleRelation("tagIds", tag.id)}
+                                style={{ "--tag-color": tag.color } as CSSProperties}
+                                type="button"
+                              >
+                                <span className={styles.relationDot} />
+                                {selected && <Check size={12} />}
+                                {tag.name}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </section>
+
                 <section className={styles.panel}>
                   <div className={styles.panelHead}>
                     <div><Share2 size={18} /><span><strong>创建分享</strong><small>可设置密码和有效期</small></span></div>

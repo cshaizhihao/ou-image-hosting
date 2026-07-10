@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
 import FormData from "form-data";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdtemp,
+  rm,
+  unlink,
+  writeFile
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import sharp from "sharp";
@@ -14,12 +20,14 @@ async function createTestApp(
   options: {
     now?: () => Date;
     store?: AppStore;
+    onDataDirectory?: (directory: string) => void;
   } = {}
 ) {
   const dataDirectory = await mkdtemp(
     path.join(tmpdir(), "ou-image-api-test-")
   );
   temporaryDirectories.push(dataDirectory);
+  options.onDataDirectory?.(dataDirectory);
   const app = await buildApp({
     store: options.store ?? new AppStore(null),
     dataDirectory,
@@ -53,7 +61,7 @@ describe("OU-Image API", () => {
     const status = await app.inject({ method: "GET", url: "/setup/status" });
 
     expect(health.statusCode).toBe(200);
-    expect(health.json()).toMatchObject({ status: "ok", version: "0.6.0" });
+    expect(health.json()).toMatchObject({ status: "ok", version: "0.7.0" });
     expect(status.json()).toEqual({ setupComplete: false, site: null });
   });
 
@@ -396,7 +404,7 @@ describe("OU-Image API", () => {
     expect(summary.json().count).toBe(1);
   });
 
-  it("migrates legacy images into versioned schema records", async () => {
+  it("migrates schema v3 images into organized schema v4 records", async () => {
     const dataDirectory = await mkdtemp(
       path.join(tmpdir(), "ou-image-store-migration-")
     );
@@ -405,11 +413,12 @@ describe("OU-Image API", () => {
     await writeFile(
       filePath,
       JSON.stringify({
-        schemaVersion: 2,
+        schemaVersion: 3,
         setupComplete: false,
         users: [],
         sessions: [],
         passwordResets: [],
+        imageShares: [],
         images: [
           {
             id: "legacy-image",
@@ -423,7 +432,24 @@ describe("OU-Image API", () => {
             sha256: "legacy-hash",
             originalKey: "originals/legacy.png",
             thumbnailKey: "thumbnails/legacy.webp",
-            createdAt: "2026-01-01T00:00:00.000Z"
+            currentVersionId: "legacy-version",
+            versions: [
+              {
+                id: "legacy-version",
+                operation: "original",
+                size: 128,
+                mime: "image/png",
+                format: "png",
+                width: 8,
+                height: 6,
+                sha256: "legacy-hash",
+                originalKey: "originals/legacy.png",
+                thumbnailKey: "thumbnails/legacy.webp",
+                createdAt: "2026-01-01T00:00:00.000Z"
+              }
+            ],
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z"
           }
         ]
       })
@@ -432,14 +458,19 @@ describe("OU-Image API", () => {
     const store = new AppStore(filePath);
     await store.initialize();
     const state = store.snapshot();
-    expect(state.schemaVersion).toBe(3);
+    expect(state.schemaVersion).toBe(4);
     expect(state.imageShares).toEqual([]);
+    expect(state.albums).toEqual([]);
+    expect(state.tags).toEqual([]);
     expect(state.images[0]).toMatchObject({
-      currentVersionId: "original-legacy-image",
+      currentVersionId: "legacy-version",
+      favorite: false,
+      albumIds: [],
+      tagIds: [],
       updatedAt: "2026-01-01T00:00:00.000Z",
       versions: [
         {
-          id: "original-legacy-image",
+          id: "legacy-version",
           operation: "original",
           format: "png",
           width: 8,
@@ -786,5 +817,462 @@ describe("OU-Image API", () => {
       accessCount: 1
     });
     expect(detail.json().image.shares[0].revokedAt).toBeTypeOf("string");
+  });
+
+  it("manages albums, tags, favorites and tag merges", async () => {
+    const app = await createTestApp();
+    const setup = await app.inject({
+      method: "POST",
+      url: "/setup",
+      payload: { ...owner, registrationEnabled: true }
+    });
+    const ownerCookie = setup.cookies.find(
+      (item) => item.name === "ou_session"
+    )!;
+    const ownerCookies = { ou_session: ownerCookie.value };
+    const png = await sharp({
+      create: {
+        width: 18,
+        height: 14,
+        channels: 3,
+        background: { r: 100, g: 80, b: 210 }
+      }
+    })
+      .png()
+      .toBuffer();
+    const form = new FormData();
+    form.append("file", png, {
+      filename: "organized.png",
+      contentType: "image/png"
+    });
+    const upload = await app.inject({
+      method: "POST",
+      url: "/uploads",
+      headers: form.getHeaders(),
+      cookies: ownerCookies,
+      payload: form.getBuffer()
+    });
+    const imageId = upload.json().image.id as string;
+
+    const invalidCover = await app.inject({
+      method: "POST",
+      url: "/albums",
+      cookies: ownerCookies,
+      payload: {
+        name: "无效封面",
+        coverImageId: "missing-image"
+      }
+    });
+    expect(invalidCover.statusCode).toBe(404);
+
+    const album = await app.inject({
+      method: "POST",
+      url: "/albums",
+      cookies: ownerCookies,
+      payload: {
+        name: "产品截图",
+        description: "准备发布的界面截图"
+      }
+    });
+    expect(album.statusCode).toBe(201);
+    const albumId = album.json().album.id as string;
+    const updatedAlbum = await app.inject({
+      method: "PATCH",
+      url: `/albums/${albumId}`,
+      cookies: ownerCookies,
+      payload: {
+        name: "产品视觉",
+        coverImageId: imageId
+      }
+    });
+    expect(updatedAlbum.json().album).toMatchObject({
+      id: albumId,
+      name: "产品视觉",
+      coverImageId: imageId,
+      coverThumbnailUrl: `/api/files/${imageId}/thumbnail`,
+      imageCount: 0
+    });
+
+    const sourceTag = await app.inject({
+      method: "POST",
+      url: "/tags",
+      cookies: ownerCookies,
+      payload: { name: "待处理", color: "#7c3aed" }
+    });
+    const targetTag = await app.inject({
+      method: "POST",
+      url: "/tags",
+      cookies: ownerCookies,
+      payload: { name: "已精选", color: "#16A34A" }
+    });
+    expect(sourceTag.statusCode).toBe(201);
+    expect(sourceTag.json().tag.color).toBe("#7C3AED");
+    const sourceTagId = sourceTag.json().tag.id as string;
+    const targetTagId = targetTag.json().tag.id as string;
+
+    const patchedTag = await app.inject({
+      method: "PATCH",
+      url: `/tags/${sourceTagId}`,
+      cookies: ownerCookies,
+      payload: { name: "待整理", color: "#F97316" }
+    });
+    expect(patchedTag.json().tag).toMatchObject({
+      name: "待整理",
+      color: "#F97316"
+    });
+
+    const invalidColor = await app.inject({
+      method: "POST",
+      url: "/tags",
+      cookies: ownerCookies,
+      payload: { name: "错误颜色", color: "purple" }
+    });
+    expect(invalidColor.statusCode).toBe(400);
+
+    const organized = await app.inject({
+      method: "PATCH",
+      url: `/uploads/${imageId}/organization`,
+      cookies: ownerCookies,
+      payload: {
+        favorite: true,
+        albumIds: [albumId],
+        tagIds: [sourceTagId]
+      }
+    });
+    expect(organized.statusCode).toBe(200);
+    expect(organized.json().image).toMatchObject({
+      favorite: true,
+      albumIds: [albumId],
+      tagIds: [sourceTagId]
+    });
+
+    const detail = await app.inject({
+      method: "GET",
+      url: `/uploads/${imageId}`,
+      cookies: ownerCookies
+    });
+    expect(detail.json().image).toMatchObject({
+      favorite: true,
+      albumIds: [albumId],
+      tagIds: [sourceTagId]
+    });
+
+    const favorites = await app.inject({
+      method: "GET",
+      url: "/favorites",
+      cookies: ownerCookies
+    });
+    const albumImages = await app.inject({
+      method: "GET",
+      url: `/albums/${albumId}/images`,
+      cookies: ownerCookies
+    });
+    const tagImages = await app.inject({
+      method: "GET",
+      url: `/tags/${sourceTagId}/images`,
+      cookies: ownerCookies
+    });
+    expect(favorites.json()).toMatchObject({
+      total: 1,
+      images: [
+        {
+          id: imageId,
+          favorite: true,
+          albumIds: [albumId],
+          tagIds: [sourceTagId]
+        }
+      ]
+    });
+    expect(albumImages.json().total).toBe(1);
+    expect(tagImages.json().total).toBe(1);
+
+    const albums = await app.inject({
+      method: "GET",
+      url: "/albums",
+      cookies: ownerCookies
+    });
+    const tags = await app.inject({
+      method: "GET",
+      url: "/tags",
+      cookies: ownerCookies
+    });
+    expect(albums.json().albums[0]).toMatchObject({
+      id: albumId,
+      imageCount: 1,
+      coverImageId: imageId
+    });
+    expect(tags.json().tags).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: sourceTagId,
+          imageCount: 1
+        }),
+        expect.objectContaining({
+          id: targetTagId,
+          imageCount: 0
+        })
+      ])
+    );
+
+    const merged = await app.inject({
+      method: "POST",
+      url: `/tags/${sourceTagId}/merge`,
+      cookies: ownerCookies,
+      payload: { targetTagId }
+    });
+    expect(merged.json()).toMatchObject({
+      mergedImages: 1,
+      tag: { id: targetTagId, imageCount: 1 }
+    });
+    const mergedDetail = await app.inject({
+      method: "GET",
+      url: `/uploads/${imageId}`,
+      cookies: ownerCookies
+    });
+    expect(mergedDetail.json().image.tagIds).toEqual([targetTagId]);
+
+    const member = await app.inject({
+      method: "POST",
+      url: "/auth/register",
+      payload: {
+        displayName: "成员",
+        email: "member@example.com",
+        password: "Member-Secure-2026!"
+      }
+    });
+    const memberCookie = member.cookies.find(
+      (item) => item.name === "ou_session"
+    )!;
+    const memberCookies = { ou_session: memberCookie.value };
+    const memberAlbum = await app.inject({
+      method: "POST",
+      url: "/albums",
+      cookies: memberCookies,
+      payload: { name: "成员相册" }
+    });
+    const memberTag = await app.inject({
+      method: "POST",
+      url: "/tags",
+      cookies: memberCookies,
+      payload: { name: "成员标签", color: "#2563EB" }
+    });
+    const crossRelation = await app.inject({
+      method: "PATCH",
+      url: `/uploads/${imageId}/organization`,
+      cookies: ownerCookies,
+      payload: {
+        albumIds: [memberAlbum.json().album.id],
+        tagIds: [memberTag.json().tag.id]
+      }
+    });
+    expect(crossRelation.statusCode).toBe(400);
+    expect(crossRelation.json().error.code).toBe("INVALID_ALBUM_IDS");
+    const crossAlbum = await app.inject({
+      method: "GET",
+      url: `/albums/${albumId}/images`,
+      cookies: memberCookies
+    });
+    expect(crossAlbum.statusCode).toBe(404);
+
+    const deletedAlbum = await app.inject({
+      method: "DELETE",
+      url: `/albums/${albumId}`,
+      cookies: ownerCookies
+    });
+    const deletedTag = await app.inject({
+      method: "DELETE",
+      url: `/tags/${targetTagId}`,
+      cookies: ownerCookies
+    });
+    expect(deletedAlbum.statusCode).toBe(204);
+    expect(deletedTag.statusCode).toBe(204);
+    const unlinked = await app.inject({
+      method: "GET",
+      url: `/uploads/${imageId}`,
+      cookies: ownerCookies
+    });
+    expect(unlinked.json().image).toMatchObject({
+      albumIds: [],
+      tagIds: []
+    });
+  });
+
+  it("restores and permanently deletes trashed image resources", async () => {
+    let dataDirectory = "";
+    const store = new AppStore(null);
+    const app = await createTestApp({
+      store,
+      onDataDirectory: (directory) => {
+        dataDirectory = directory;
+      }
+    });
+    const setup = await app.inject({
+      method: "POST",
+      url: "/setup",
+      payload: owner
+    });
+    const cookie = setup.cookies.find((item) => item.name === "ou_session")!;
+    const cookies = { ou_session: cookie.value };
+    const png = await sharp({
+      create: {
+        width: 22,
+        height: 12,
+        channels: 3,
+        background: { r: 210, g: 70, b: 90 }
+      }
+    })
+      .png()
+      .toBuffer();
+    const form = new FormData();
+    form.append("file", png, {
+      filename: "trash-me.png",
+      contentType: "image/png"
+    });
+    const upload = await app.inject({
+      method: "POST",
+      url: "/uploads",
+      headers: form.getHeaders(),
+      cookies,
+      payload: form.getBuffer()
+    });
+    const imageId = upload.json().image.id as string;
+    const transformed = await app.inject({
+      method: "POST",
+      url: `/uploads/${imageId}/transform`,
+      cookies,
+      payload: { action: "rotate-right" }
+    });
+    expect(transformed.statusCode).toBe(201);
+
+    const album = await app.inject({
+      method: "POST",
+      url: "/albums",
+      cookies,
+      payload: {
+        name: "待清理",
+        coverImageId: imageId
+      }
+    });
+    const albumId = album.json().album.id as string;
+    await app.inject({
+      method: "PATCH",
+      url: `/uploads/${imageId}/organization`,
+      cookies,
+      payload: {
+        favorite: true,
+        albumIds: [albumId]
+      }
+    });
+    const share = await app.inject({
+      method: "POST",
+      url: `/uploads/${imageId}/shares`,
+      cookies,
+      payload: {}
+    });
+    expect(share.statusCode).toBe(201);
+
+    const trashed = await app.inject({
+      method: "POST",
+      url: "/uploads/bulk",
+      cookies,
+      payload: { ids: [imageId], action: "trash" }
+    });
+    expect(trashed.json()).toEqual({ updated: 1 });
+    const trash = await app.inject({
+      method: "GET",
+      url: "/trash",
+      cookies
+    });
+    expect(trash.json()).toMatchObject({
+      total: 1,
+      images: [
+        {
+          id: imageId,
+          favorite: true,
+          albumIds: [albumId]
+        }
+      ]
+    });
+    expect(trash.json().images[0].deletedAt).toBeTypeOf("string");
+
+    const invalidDelete = await app.inject({
+      method: "POST",
+      url: "/trash/bulk",
+      cookies,
+      payload: {
+        ids: ["missing-image"],
+        action: "delete"
+      }
+    });
+    expect(invalidDelete.statusCode).toBe(400);
+    expect(invalidDelete.json().error.code).toBe("INVALID_TRASH_IDS");
+
+    const restored = await app.inject({
+      method: "POST",
+      url: "/trash/bulk",
+      cookies,
+      payload: { ids: [imageId], action: "restore" }
+    });
+    expect(restored.json()).toEqual({ restored: 1 });
+    const restoredFavorites = await app.inject({
+      method: "GET",
+      url: "/favorites",
+      cookies
+    });
+    expect(restoredFavorites.json().total).toBe(1);
+
+    await app.inject({
+      method: "POST",
+      url: "/uploads/bulk",
+      cookies,
+      payload: { ids: [imageId], action: "trash" }
+    });
+    const storedImage = store.snapshot().images.find(
+      (image) => image.id === imageId
+    )!;
+    const keys = [
+      ...new Set(
+        storedImage.versions.flatMap((version) => [
+          version.originalKey,
+          version.thumbnailKey
+        ])
+      )
+    ];
+    await unlink(path.join(dataDirectory, "storage", keys[0]!));
+
+    const permanentlyDeleted = await app.inject({
+      method: "POST",
+      url: "/trash/bulk",
+      cookies,
+      payload: { ids: [imageId], action: "delete" }
+    });
+    expect(permanentlyDeleted.statusCode).toBe(200);
+    expect(permanentlyDeleted.json()).toEqual({ deleted: 1 });
+
+    const state = store.snapshot();
+    expect(state.images.some((image) => image.id === imageId)).toBe(false);
+    expect(state.imageShares.some((item) => item.imageId === imageId)).toBe(
+      false
+    );
+    expect(
+      state.albums.find((item) => item.id === albumId)?.coverImageId
+    ).toBeUndefined();
+    for (const key of keys) {
+      await expect(
+        access(path.join(dataDirectory, "storage", key))
+      ).rejects.toMatchObject({ code: "ENOENT" });
+    }
+
+    const missingFile = await app.inject({
+      method: "GET",
+      url: `/files/${imageId}/original`
+    });
+    const emptyTrash = await app.inject({
+      method: "GET",
+      url: "/trash",
+      cookies
+    });
+    expect(missingFile.statusCode).toBe(404);
+    expect(emptyTrash.json()).toEqual({ images: [], total: 0 });
   });
 });

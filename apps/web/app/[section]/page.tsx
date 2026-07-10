@@ -3,8 +3,15 @@ import { notFound } from "next/navigation";
 import { SectionPageContent } from "@/components/section-page-content";
 
 export function generateStaticParams() {
+  const dedicatedSections = new Set([
+    "library",
+    "albums",
+    "tags",
+    "favorites",
+    "trash"
+  ]);
   return navigationItems
-    .filter((item) => item.href !== "/" && item.key !== "library")
+    .filter((item) => item.href !== "/" && !dedicatedSections.has(item.key))
     .map((item) => ({ section: item.key }));
 }
 

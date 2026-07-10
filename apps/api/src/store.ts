@@ -57,6 +57,9 @@ export type StoredImage = {
   thumbnailKey: string;
   currentVersionId: string;
   versions: StoredImageVersion[];
+  favorite: boolean;
+  albumIds: string[];
+  tagIds: string[];
   createdAt: string;
   updatedAt: string;
   deletedAt?: string;
@@ -97,8 +100,27 @@ export type StoredImageShare = {
   lastAccessedAt?: string;
 };
 
+export type StoredAlbum = {
+  id: string;
+  userId: string;
+  name: string;
+  description: string;
+  coverImageId?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type StoredTag = {
+  id: string;
+  userId: string;
+  name: string;
+  color: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type AppState = {
-  schemaVersion: 3;
+  schemaVersion: 4;
   setupComplete: boolean;
   site?: SiteConfig;
   users: StoredUser[];
@@ -106,6 +128,8 @@ export type AppState = {
   passwordResets: StoredPasswordReset[];
   images: StoredImage[];
   imageShares: StoredImageShare[];
+  albums: StoredAlbum[];
+  tags: StoredTag[];
 };
 
 export function calculateImageStorageBytes(images: StoredImage[]) {
@@ -121,21 +145,36 @@ export function calculateImageStorageBytes(images: StoredImage[]) {
 }
 
 const initialState = (): AppState => ({
-  schemaVersion: 3,
+  schemaVersion: 4,
   setupComplete: false,
   users: [],
   sessions: [],
   passwordResets: [],
   images: [],
-  imageShares: []
+  imageShares: [],
+  albums: [],
+  tags: []
 });
 
 type MigratableImage = Omit<
   StoredImage,
-  "currentVersionId" | "versions" | "updatedAt"
+  | "currentVersionId"
+  | "versions"
+  | "updatedAt"
+  | "favorite"
+  | "albumIds"
+  | "tagIds"
 > &
   Partial<
-    Pick<StoredImage, "currentVersionId" | "versions" | "updatedAt">
+    Pick<
+      StoredImage,
+      | "currentVersionId"
+      | "versions"
+      | "updatedAt"
+      | "favorite"
+      | "albumIds"
+      | "tagIds"
+    >
   >;
 
 function migrateImage(image: MigratableImage): StoredImage {
@@ -167,6 +206,9 @@ function migrateImage(image: MigratableImage): StoredImage {
     ...image,
     currentVersionId,
     versions,
+    favorite: image.favorite ?? false,
+    albumIds: image.albumIds ?? [],
+    tagIds: image.tagIds ?? [],
     updatedAt: image.updatedAt ?? image.createdAt
   };
 }
@@ -185,20 +227,29 @@ export class AppStore {
       this.state = {
         ...initialState(),
         ...parsed,
-        schemaVersion: 3,
+        schemaVersion: 4,
         users: parsed.users ?? [],
         sessions: parsed.sessions ?? [],
         passwordResets: parsed.passwordResets ?? [],
         images: (parsed.images ?? []).map(migrateImage),
-        imageShares: parsed.imageShares ?? []
+        imageShares: parsed.imageShares ?? [],
+        albums: parsed.albums ?? [],
+        tags: parsed.tags ?? []
       };
       if (
-        parsed.schemaVersion !== 3 ||
+        parsed.schemaVersion !== 4 ||
         !parsed.images ||
         !parsed.imageShares ||
+        !parsed.albums ||
+        !parsed.tags ||
         parsed.images.some(
           (image) =>
-            !image.currentVersionId || !image.versions || !image.updatedAt
+            !image.currentVersionId ||
+            !image.versions ||
+            !image.updatedAt ||
+            !("favorite" in image) ||
+            !image.albumIds ||
+            !image.tagIds
         )
       ) {
         await this.persist(this.state);
