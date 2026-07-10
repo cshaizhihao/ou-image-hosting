@@ -2,6 +2,25 @@
 
 本项目遵循 Semantic Versioning。
 
+## [1.0.4] - 2026-07-11
+
+### Added
+
+- 安装器新增系统包管理器识别，支持 apt、dnf、yum、pacman、zypper、apk 与 Homebrew。
+- 缺少 Git、curl、OpenSSL、coreutils 或 CA 证书时，安装器会列出缺失项并自动安装。
+- Linux 缺少 Docker Engine 或 Docker Compose v2 时，apt/dnf/yum 使用 Docker 官方安装程序，pacman/zypper/apk 使用发行版原生软件包，并尝试启动 Docker 服务。
+- 新增 `--no-install-deps`，供自行维护系统依赖的用户禁止自动安装。
+
+### Changed
+
+- 环境检查从“发现缺失立即退出”改为“检测、确认、安装、复检”完整流程。
+- `--yes` 无人值守模式会自动补齐依赖；交互模式默认询问确认。
+- Arch Linux 的依赖安装执行完整系统升级，避免 `pacman -Sy` 导致部分升级。
+
+### Tests
+
+- 安装器测试新增 apt 基础依赖自举、命令行禁用自动安装、Arch 安全升级、Docker 官方脚本 TLS 下载、Compose 修复、服务启动与原生 Docker 软件包模拟场景。
+
 ## [1.0.3] - 2026-07-11
 
 ### Fixed

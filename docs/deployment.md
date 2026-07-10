@@ -25,11 +25,18 @@ deployment.
 
 ## Requirements
 
-- Docker Engine 24 or newer
-- Docker Compose v2
+- Linux with root or sudo access
+- apt, dnf, yum, pacman, zypper, or apk
+- curl for launching the installer
 - A hostname whose DNS points to the server
 - Inbound TCP ports 80/443 for the built-in Caddy profile
 - Sufficient disk space for the data volume and an additional backup copy
+
+The one-line installer automatically installs missing Git, curl, OpenSSL,
+coreutils, CA certificates, Docker Engine, and Docker Compose v2. Docker uses
+the official installer on apt/dnf/yum systems and distribution packages on
+pacman/zypper/apk systems. Pass `--no-install-deps` to require all dependencies
+to be preinstalled.
 
 ## Configure production
 

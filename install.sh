@@ -20,6 +20,7 @@ AUTO_START="true"
 ASSUME_YES="false"
 DRY_RUN="false"
 OUIH_COMMAND_PATH=""
+AUTO_INSTALL_DEPS="true"
 
 if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
   RESET=$'\033[0m'
@@ -80,6 +81,7 @@ OU-Image Hosting 交互式安装程序
   --port <端口>         Web 端口，默认 3000
   --quota-gb <整数>     本地存储配额，默认 2 GB
   --proxy <模式>        caddy、cloudflare（小黄云）、external 或 none
+  --no-install-deps     不自动安装缺少的系统依赖
   --no-start            构建完成后不自动启动
   --yes                 使用默认值，不进入交互问答
   --dry-run             只校验参数并显示安装计划
@@ -119,9 +121,6 @@ on_error() {
   local line="$1"
   printf '\n%s\n' "${RED}安装在第 ${line} 行中断，请检查上方错误信息。${RESET}" >&2
 }
-
-trap 'on_error "$LINENO"' ERR
-trap 'printf "\n%s\n" "${YELLOW}安装已取消，没有删除现有数据。${RESET}"; exit 130' INT TERM
 
 ask() {
   local prompt="$1"
@@ -165,6 +164,177 @@ require_command() {
     success "$command_name 已就绪"
   else
     fatal "缺少 ${command_name}。${install_hint}"
+  fi
+}
+
+run_as_root() {
+  if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
+    "$@"
+  elif command_exists sudo; then
+    sudo "$@"
+  else
+    fatal "自动安装依赖需要管理员权限，请使用 root 或安装 sudo。"
+  fi
+}
+
+detect_package_manager() {
+  local manager
+  for manager in apt-get dnf yum pacman zypper apk brew; do
+    if command_exists "$manager"; then
+      printf '%s' "$manager"
+      return 0
+    fi
+  done
+  return 1
+}
+
+install_base_packages() {
+  local manager=""
+  manager="$(detect_package_manager)" ||
+    fatal "未识别到受支持的包管理器，请手动安装 Git、curl、OpenSSL 和 coreutils。"
+
+  info "使用 ${manager} 自动安装基础依赖"
+  case "$manager" in
+    apt-get)
+      run_as_root apt-get update
+      run_as_root env DEBIAN_FRONTEND=noninteractive \
+        apt-get install -y git curl openssl coreutils ca-certificates
+      ;;
+    dnf)
+      run_as_root dnf install -y git curl openssl coreutils ca-certificates
+      ;;
+    yum)
+      run_as_root yum install -y git curl openssl coreutils ca-certificates
+      ;;
+    pacman)
+      run_as_root pacman -Syu --noconfirm --needed \
+        git curl openssl coreutils ca-certificates
+      ;;
+    zypper)
+      run_as_root zypper --non-interactive install -y \
+        git curl openssl coreutils ca-certificates
+      ;;
+    apk)
+      run_as_root apk add --no-cache git curl openssl coreutils ca-certificates
+      ;;
+    brew)
+      brew install git curl openssl@3 coreutils ca-certificates
+      ;;
+  esac
+}
+
+bootstrap_base_dependencies() {
+  local -a missing=()
+  local command_name
+  for command_name in git curl openssl install; do
+    if ! command_exists "$command_name"; then
+      missing+=("$command_name")
+    fi
+  done
+
+  if ((${#missing[@]} > 0)); then
+    warning "检测到缺少基础依赖：${missing[*]}"
+    [[ "$AUTO_INSTALL_DEPS" == "true" ]] ||
+      fatal "已禁用自动安装依赖，请手动安装后重试。"
+    if [[ "$ASSUME_YES" != "true" ]] &&
+       ! confirm "是否自动安装这些依赖？" "y"; then
+      fatal "缺少必要依赖，安装无法继续。"
+    fi
+    install_base_packages
+  fi
+
+  require_command git "自动安装失败，请检查包管理器输出。"
+  require_command curl "自动安装失败，请检查包管理器输出。"
+  require_command openssl "自动安装失败，请检查包管理器输出。"
+  require_command install "自动安装失败，请检查 coreutils。"
+}
+
+install_docker_engine() {
+  [[ "$(uname -s)" == "Linux" ]] ||
+    fatal "macOS 请安装并启动 Docker Desktop；自动安装 Docker Engine 仅支持 Linux。"
+
+  local manager=""
+  manager="$(detect_package_manager)" ||
+    fatal "未识别到受支持的包管理器，请手动安装 Docker Engine 与 Compose v2。"
+
+  case "$manager" in
+    apt-get|dnf|yum)
+      local installer=""
+      installer="$(mktemp)"
+      info "正在下载 Docker 官方安装程序"
+      curl -fsSL --proto '=https' --tlsv1.2 \
+        https://get.docker.com -o "$installer"
+      if ! run_as_root sh "$installer"; then
+        rm -f "$installer"
+        fatal "Docker 官方安装程序执行失败。"
+      fi
+      rm -f "$installer"
+      ;;
+    pacman)
+      info "使用 pacman 安装 Docker Engine 与 Compose v2"
+      run_as_root pacman -Syu --noconfirm --needed docker docker-compose
+      ;;
+    zypper)
+      info "使用 zypper 安装 Docker Engine 与 Compose v2"
+      run_as_root zypper --non-interactive install -y docker docker-compose
+      ;;
+    apk)
+      info "使用 apk 安装 Docker Engine 与 Compose v2"
+      run_as_root apk add --no-cache docker docker-cli-compose
+      ;;
+    brew)
+      fatal "macOS 请安装并启动 Docker Desktop；Homebrew 不提供完整 Docker Engine 服务。"
+      ;;
+  esac
+
+  if command_exists systemctl; then
+    run_as_root systemctl enable --now docker || true
+  elif command_exists service; then
+    run_as_root service docker start || true
+  fi
+}
+
+bootstrap_docker() {
+  local needs_install="false"
+  if ! command_exists docker; then
+    warning "未检测到 Docker Engine"
+    needs_install="true"
+  elif ! docker compose version >/dev/null 2>&1; then
+    warning "未检测到 Docker Compose v2 插件"
+    needs_install="true"
+  fi
+
+  if [[ "$needs_install" == "true" ]]; then
+    [[ "$AUTO_INSTALL_DEPS" == "true" ]] ||
+      fatal "已禁用自动安装依赖，请手动安装 Docker Engine 与 Compose v2。"
+    if [[ "$ASSUME_YES" != "true" ]] &&
+       ! confirm "是否使用 Docker 官方脚本自动安装或修复 Docker？" "y"; then
+      fatal "缺少 Docker Engine 或 Compose v2，安装无法继续。"
+    fi
+    install_docker_engine
+  fi
+
+  require_command docker "Docker 自动安装失败。"
+  docker compose version >/dev/null 2>&1 ||
+    fatal "Docker Compose v2 自动安装失败。"
+  success "Docker Compose v2 已就绪"
+
+  if ! docker info >/dev/null 2>&1; then
+    if command_exists systemctl; then
+      run_as_root systemctl enable --now docker || true
+    elif command_exists service; then
+      run_as_root service docker start || true
+    fi
+  fi
+
+  if docker info >/dev/null 2>&1; then
+    success "Docker 服务正在运行"
+  elif [[ "${EUID:-$(id -u)}" -ne 0 ]] &&
+       command_exists sudo &&
+       sudo docker info >/dev/null 2>&1; then
+    fatal "Docker 已安装，但当前用户尚无权限。请执行 sudo usermod -aG docker \"$USER\"，重新登录后再运行安装器。"
+  else
+    fatal "Docker 已安装但服务未正常运行，请检查 systemctl status docker。"
   fi
 }
 
@@ -303,6 +473,10 @@ parse_arguments() {
         PROXY_MODE="$2"
         shift 2
         ;;
+      --no-install-deps)
+        AUTO_INSTALL_DEPS="false"
+        shift
+        ;;
       --no-start)
         AUTO_START="false"
         shift
@@ -399,28 +573,14 @@ show_plan() {
   esac
   printf '  %-14s %s GB\n' "存储配额" "$QUOTA_GB"
   printf '  %-14s %s\n' "完成后启动" "$AUTO_START"
+  printf '  %-14s %s\n' "自动安装依赖" "$AUTO_INSTALL_DEPS"
   printf '%s\n\n' "${DIM}──────────────────────────────────────────────────${RESET}"
 }
 
 check_environment() {
   step 1 "检查运行环境"
-  require_command git "请先安装 Git。"
-  require_command curl "请先安装 curl。"
-  require_command openssl "请先安装 OpenSSL。"
-  require_command install "请安装包含 install 命令的 coreutils。"
-  require_command docker "请先安装 Docker Engine 或 Docker Desktop。"
-
-  if docker compose version >/dev/null 2>&1; then
-    success "Docker Compose v2 已就绪"
-  else
-    fatal "未检测到 Docker Compose v2（docker compose）。"
-  fi
-
-  if docker info >/dev/null 2>&1; then
-    success "Docker 服务正在运行"
-  else
-    fatal "无法连接 Docker 服务，请启动 Docker 或检查当前用户权限。"
-  fi
+  bootstrap_base_dependencies
+  bootstrap_docker
 
   if [[ "$PROXY_MODE" == "caddy" || "$PROXY_MODE" == "cloudflare" ]]; then
     if docker ps --format '{{.Names}}' 2>/dev/null | grep -Eq '^ou-image-hosting-caddy-[0-9]+$'; then
@@ -748,6 +908,8 @@ finish() {
 }
 
 main() {
+  trap 'on_error "$LINENO"' ERR
+  trap 'printf "\n%s\n" "${YELLOW}安装已取消，没有删除现有数据。${RESET}"; exit 130' INT TERM
   parse_arguments "$@"
   print_banner
   collect_settings
@@ -772,4 +934,6 @@ main() {
   finish
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi

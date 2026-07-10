@@ -78,7 +78,7 @@ OU-Image Hosting 不只是一个生成图片外链的上传框。
     </td>
     <td width="50%">
       <strong>◉ 部署后仍然好维护</strong><br />
-      Docker 双容器、健康检查、系统状态、原子备份恢复、资源限制、优雅关闭和完整运维文档。
+      Docker Compose 三服务、健康检查、系统状态、原子备份恢复、资源限制、优雅关闭和完整运维文档。
     </td>
   </tr>
 </table>
@@ -87,11 +87,15 @@ OU-Image Hosting 不只是一个生成图片外链的上传框。
 
 ### 环境要求
 
-- Linux 或 macOS
-- Docker Engine 24+ / Docker Desktop
-- Docker Compose v2
-- Git、curl、OpenSSL
+- Linux 服务器，具有 root 或 sudo 权限
+- 使用 apt、dnf、yum、pacman、zypper 或 apk 之一
+- 能用 curl 下载一键安装脚本
 - 公网 HTTPS 部署需要域名解析到服务器，并放行 TCP 80/443
+
+Git、OpenSSL、coreutils、CA 证书、Docker Engine 与 Docker Compose v2
+无需预先安装。安装器会检测缺失项，显示将执行的操作并自动补齐：
+apt/dnf/yum 系统使用 Docker 官方安装程序，pacman/zypper/apk 系统使用
+发行版原生 Docker 软件包。macOS 仍需安装并启动 Docker Desktop。
 
 ### 交互式安装
 
@@ -115,15 +119,16 @@ curl -fsSL https://raw.githubusercontent.com/cshaizhihao/ou-image-hosting/main/i
 
 它会依次完成：
 
-1. 检查 Git、curl、OpenSSL、Docker 与 Compose。
-2. 询问安装目录、访问地址、HTTPS 接入方式、监听端口和存储配额。
-3. 克隆项目；重复执行时安全更新已有安装。
-4. 生成权限为 `600` 的生产配置和 256-bit 随机密钥。
-5. 升级时保留原加密密钥，并备份现有 `.env.production`。
-6. HTTPS 域名默认部署 Caddy，自动申请并续期证书。
-7. 顺序构建 API 与 Web，避免两个镜像同时构建。
-8. 安装全局 `ouih` 管理命令。
-9. 启动容器，依次验证 readiness、TLS 证书与 HTTPS 反向代理。
+1. 识别操作系统和包管理器，自动补齐 Git、curl、OpenSSL、coreutils。
+2. 缺少 Docker Engine 或 Compose v2 时，按发行版选择官方脚本或原生软件包安装并启动服务。
+3. 询问安装目录、访问地址、HTTPS 接入方式、监听端口和存储配额。
+4. 克隆项目；重复执行时安全更新已有安装。
+5. 生成权限为 `600` 的生产配置和 256-bit 随机密钥。
+6. 升级时保留原加密密钥，并备份现有 `.env.production`。
+7. HTTPS 域名默认部署 Caddy，自动申请并续期证书。
+8. 顺序构建 API 与 Web，避免两个镜像同时构建。
+9. 安装全局 `ouih` 管理命令。
+10. 启动容器，依次验证 readiness、TLS 证书与 HTTPS 反向代理。
 
 安装完成后，打开安装器显示的地址，跟随页面向导创建站点和第一个管理员。
 
@@ -164,6 +169,13 @@ curl -fsSL https://raw.githubusercontent.com/cshaizhihao/ou-image-hosting/main/i
 ```bash
 curl -fsSL https://raw.githubusercontent.com/cshaizhihao/ou-image-hosting/main/install.sh \
   | bash -s -- --help
+```
+
+如果服务器由你自行维护、不希望安装器修改系统软件：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cshaizhihao/ou-image-hosting/main/install.sh \
+  | bash -s -- --no-install-deps
 ```
 
 <details>

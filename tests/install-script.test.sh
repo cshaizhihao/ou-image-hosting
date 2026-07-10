@@ -96,6 +96,161 @@ export MOCK_DOCKER_LOG="$DOCKER_LOG"
 export OUIH_BIN_DIR="$TEMP_ROOT/global-bin"
 export OUIH_CONFIG_DIR="$TEMP_ROOT/global-config"
 
+BOOTSTRAP_LOG="$TEMP_ROOT/bootstrap.log"
+(
+  source "$ROOT/install.sh"
+  ASSUME_YES="true"
+  AUTO_INSTALL_DEPS="true"
+  git_installed="false"
+
+  command_exists() {
+    case "$1" in
+      git) [[ "$git_installed" == "true" ]] ;;
+      curl|openssl|install|apt-get) return 0 ;;
+      *) return 1 ;;
+    esac
+  }
+
+  run_as_root() {
+    printf 'root %s\n' "$*" >> "$BOOTSTRAP_LOG"
+    if [[ "$*" == *"apt-get install"* ]]; then
+      git_installed="true"
+    fi
+  }
+
+  bootstrap_base_dependencies
+  [[ "$git_installed" == "true" ]]
+) > "$TEMP_ROOT/bootstrap-base.out"
+grep -F 'root apt-get update' "$BOOTSTRAP_LOG" >/dev/null
+grep -F 'apt-get install -y git curl openssl coreutils ca-certificates' \
+  "$BOOTSTRAP_LOG" >/dev/null
+
+(
+  source "$ROOT/install.sh"
+  AUTO_INSTALL_DEPS="true"
+  parse_arguments --no-install-deps
+  [[ "$AUTO_INSTALL_DEPS" == "false" ]]
+) > "$TEMP_ROOT/parse-no-install-deps.out"
+
+if (
+  source "$ROOT/install.sh"
+  ASSUME_YES="true"
+  parse_arguments --no-install-deps
+  command_exists() {
+    [[ "$1" != "git" ]]
+  }
+  bootstrap_base_dependencies
+) > "$TEMP_ROOT/bootstrap-disabled.out" 2>&1; then
+  printf '%s\n' "--no-install-deps 应在缺少依赖时拒绝继续" >&2
+  exit 1
+fi
+grep -F '已禁用自动安装依赖' "$TEMP_ROOT/bootstrap-disabled.out" >/dev/null
+
+PACMAN_LOG="$TEMP_ROOT/pacman.log"
+(
+  source "$ROOT/install.sh"
+  command_exists() {
+    [[ "$1" == "pacman" ]]
+  }
+  run_as_root() {
+    printf '%s\n' "$*" >> "$PACMAN_LOG"
+  }
+  install_base_packages
+) > "$TEMP_ROOT/bootstrap-pacman.out"
+grep -F 'pacman -Syu --noconfirm --needed git curl openssl coreutils ca-certificates' \
+  "$PACMAN_LOG" >/dev/null
+if grep -F 'pacman -Sy ' "$PACMAN_LOG" >/dev/null; then
+  printf '%s\n' "pacman 不得执行不安全的部分升级" >&2
+  exit 1
+fi
+
+DOCKER_BOOTSTRAP_LOG="$TEMP_ROOT/docker-bootstrap.log"
+(
+  source "$ROOT/install.sh"
+  ASSUME_YES="true"
+  AUTO_INSTALL_DEPS="true"
+  docker_installed="true"
+  compose_installed="false"
+  docker_running="false"
+
+  command_exists() {
+    case "$1" in
+      docker) [[ "$docker_installed" == "true" ]] ;;
+      apt-get|systemctl) return 0 ;;
+      service|sudo) return 1 ;;
+      *) command -v "$1" >/dev/null 2>&1 ;;
+    esac
+  }
+
+  curl() {
+    local output=""
+    printf 'curl %s\n' "$*" >> "$DOCKER_BOOTSTRAP_LOG"
+    while (($# > 0)); do
+      if [[ "$1" == "-o" ]]; then
+        output="$2"
+        shift 2
+      else
+        shift
+      fi
+    done
+    printf '%s\n' '#!/bin/sh' > "$output"
+  }
+
+  run_as_root() {
+    printf 'root %s\n' "$*" >> "$DOCKER_BOOTSTRAP_LOG"
+    if [[ "${1:-}" == "sh" ]]; then
+      docker_installed="true"
+      compose_installed="true"
+    elif [[ "$*" == "systemctl enable --now docker" ]]; then
+      docker_running="true"
+    fi
+  }
+
+  docker() {
+    [[ "$docker_installed" == "true" ]] || return 127
+    if [[ "${1:-}" == "compose" && "${2:-}" == "version" ]]; then
+      [[ "$compose_installed" == "true" ]]
+      return
+    fi
+    if [[ "${1:-}" == "info" ]]; then
+      [[ "$docker_running" == "true" ]]
+      return
+    fi
+    return 0
+  }
+
+  bootstrap_docker
+  [[ "$docker_installed" == "true" &&
+     "$compose_installed" == "true" &&
+     "$docker_running" == "true" ]]
+) > "$TEMP_ROOT/bootstrap-docker.out"
+grep -F 'Docker 服务正在运行' "$TEMP_ROOT/bootstrap-docker.out" >/dev/null
+grep -F "curl -fsSL --proto =https --tlsv1.2 https://get.docker.com -o " \
+  "$DOCKER_BOOTSTRAP_LOG" >/dev/null
+grep -F 'root systemctl enable --now docker' "$DOCKER_BOOTSTRAP_LOG" >/dev/null
+
+NATIVE_DOCKER_LOG="$TEMP_ROOT/native-docker.log"
+(
+  source "$ROOT/install.sh"
+  command_exists() {
+    case "$1" in
+      pacman) return 0 ;;
+      systemctl|service) return 1 ;;
+      *) return 1 ;;
+    esac
+  }
+  run_as_root() {
+    printf '%s\n' "$*" >> "$NATIVE_DOCKER_LOG"
+  }
+  install_docker_engine
+) > "$TEMP_ROOT/native-docker.out"
+grep -F 'pacman -Syu --noconfirm --needed docker docker-compose' \
+  "$NATIVE_DOCKER_LOG" >/dev/null
+if grep -F 'get.docker.com' "$NATIVE_DOCKER_LOG" >/dev/null; then
+  printf '%s\n' "pacman 系统不得调用不受支持的 Docker 官方脚本" >&2
+  exit 1
+fi
+
 NO_COLOR=1 "$ROOT/install.sh" \
   --yes \
   --dir "$TARGET" \
