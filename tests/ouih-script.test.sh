@@ -144,6 +144,7 @@ OUIH_INSTALL_DIR="$install_one" "$SOURCE_SCRIPT" start >/dev/null
 OUIH_INSTALL_DIR="$install_one" "$SOURCE_SCRIPT" stop >/dev/null
 assert_log_contains "docker compose --env-file .env.production -f docker-compose.yml --profile https ps"
 assert_log_contains "docker compose --env-file .env.production -f docker-compose.yml --profile https logs -f api"
+assert_log_contains "docker compose --env-file .env.production -f docker-compose.yml --profile https up -d"
 assert_log_contains "docker compose --env-file .env.production -f docker-compose.yml --profile https stop"
 
 install_cancel="$TEST_ROOT/install-cancel"

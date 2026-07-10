@@ -2,6 +2,19 @@
 
 本项目遵循 Semantic Versioning。
 
+## [1.0.3] - 2026-07-11
+
+### Fixed
+
+- Cloudflare 小黄云验证现在同时要求 HTTP `2xx` 与 `CF-Ray` / Cloudflare 响应标识，不再把 403、525、526 等错误页误判为安装成功。
+- 重复运行安装器会读取现有 `.env.production`，保留未显式覆盖的域名、反代模式、端口、配额、数据库、Redis、CDN、自定义变量和加密密钥。
+- 现有配置改为就地更新指定键并保留未知键，不再通过重写完整文件清空部署扩展参数。
+- `--no-start` 和安装完成页统一使用 `ouih start/status/logs/stop`，确保 Caddy 与 Cloudflare 模式始终带上 `https` profile。
+
+### Tests
+
+- 安装器集成测试新增重复无人值守升级配置保留、未知变量保留、Cloudflare 200 成功、403/525/526 拒绝、缺失 CF 标识拒绝和 HTTPS 延迟启动场景。
+
 ## [1.0.2] - 2026-07-11
 
 ### Added

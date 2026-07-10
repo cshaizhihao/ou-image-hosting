@@ -1,6 +1,6 @@
 {
   "name": "ou-image-hosting",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "private": true,
   "packageManager": "pnpm@9.15.9",
   "scripts": {

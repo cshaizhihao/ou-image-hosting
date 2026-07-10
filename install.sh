@@ -178,6 +178,41 @@ normalize_install_dir() {
     fatal "安装目录必须是绝对路径，或使用 ~/ 开头。"
 }
 
+read_env_value() {
+  local file="$1"
+  local key="$2"
+  sed -n "s/^${key}=//p" "$file" | head -n 1
+}
+
+load_existing_configuration() {
+  local env_file="$INSTALL_DIR/.env.production"
+  [[ -f "$env_file" ]] || return 0
+
+  local origin_was_explicit="$APP_ORIGIN"
+  local value=""
+
+  if [[ -z "$APP_ORIGIN" ]]; then
+    APP_ORIGIN="$(read_env_value "$env_file" APP_ORIGIN)"
+  fi
+  if [[ -z "$PROXY_MODE" && -z "$origin_was_explicit" ]]; then
+    PROXY_MODE="$(read_env_value "$env_file" OU_PROXY_MODE)"
+  fi
+  if [[ -z "$BIND_HOST" ]]; then
+    BIND_HOST="$(read_env_value "$env_file" WEB_BIND_HOST)"
+  fi
+  if [[ -z "$WEB_PORT" ]]; then
+    WEB_PORT="$(read_env_value "$env_file" WEB_BIND_PORT)"
+  fi
+  if [[ -z "$QUOTA_GB" ]]; then
+    value="$(read_env_value "$env_file" OU_STORAGE_QUOTA_BYTES)"
+    if [[ "$value" =~ ^[0-9]+$ ]] && ((value >= 1073741824)); then
+      QUOTA_GB=$((value / 1024 / 1024 / 1024))
+    fi
+  fi
+
+  success "检测到现有生产配置，未显式指定的设置将保持不变"
+}
+
 validate_settings() {
   normalize_install_dir
 
@@ -297,6 +332,8 @@ collect_settings() {
   fi
 
   INSTALL_DIR="${INSTALL_DIR:-$(ask "安装到哪个目录？" "$DEFAULT_INSTALL_DIR")}"
+  normalize_install_dir
+  load_existing_configuration
   WEB_PORT="${WEB_PORT:-$(ask "Web 使用哪个端口？" "$DEFAULT_PORT")}"
   BIND_HOST="${BIND_HOST:-$(ask "绑定到哪个地址？" "$DEFAULT_BIND_HOST")}"
   QUOTA_GB="${QUOTA_GB:-$(ask "本地图片空间上限（GB）？" "$DEFAULT_QUOTA_GB")}"
@@ -433,6 +470,32 @@ prepare_source() {
   fi
 }
 
+update_env_value() {
+  local file="$1"
+  local key="$2"
+  local value="$3"
+  local temp_file=""
+  temp_file="$(mktemp)"
+  awk -v target="${key}=" -v replacement="${key}=${value}" '
+    BEGIN { replaced = 0 }
+    index($0, target) == 1 {
+      if (!replaced) {
+        print replacement
+        replaced = 1
+      }
+      next
+    }
+    { print }
+    END {
+      if (!replaced) {
+        print replacement
+      }
+    }
+  ' "$file" > "$temp_file"
+  chmod 600 "$temp_file"
+  mv "$temp_file" "$file"
+}
+
 write_configuration() {
   step 3 "生成安全配置"
 
@@ -456,7 +519,18 @@ write_configuration() {
   fi
 
   umask 077
-  cat > "$env_file" <<EOF
+  if [[ -f "$env_file" ]]; then
+    update_env_value "$env_file" APP_ORIGIN "$APP_ORIGIN"
+    update_env_value "$env_file" WEB_BIND_HOST "$BIND_HOST"
+    update_env_value "$env_file" WEB_BIND_PORT "$WEB_PORT"
+    update_env_value "$env_file" OU_STORAGE_QUOTA_BYTES "$QUOTA_BYTES"
+    update_env_value "$env_file" OU_SECRET_KEY "$secret"
+    update_env_value "$env_file" COOKIE_SECURE "$COOKIE_SECURE"
+    update_env_value "$env_file" OU_PROXY_MODE "$PROXY_MODE"
+    update_env_value "$env_file" OU_PUBLIC_HOST "$PUBLIC_HOST"
+    update_env_value "$env_file" EXPOSE_DEVELOPMENT_RESET_TOKEN "false"
+  else
+    cat > "$env_file" <<EOF
 NODE_ENV=production
 APP_ORIGIN=${APP_ORIGIN}
 WEB_BIND_HOST=${BIND_HOST}
@@ -478,6 +552,7 @@ REDIS_URL=
 CDN_BASE_URL=
 OU_IMAGE_TAG=local
 EOF
+  fi
   chmod 600 "$env_file"
   success "生产配置已写入 .env.production（权限 600）"
 }
@@ -563,7 +638,7 @@ start_application() {
 
   if [[ "$AUTO_START" != "true" ]]; then
     warning "已按你的选择跳过启动"
-    printf '%s\n' "稍后运行：cd \"$INSTALL_DIR\" && docker compose --env-file .env.production up -d"
+    printf '%s\n' "稍后运行：${OUIH_COMMAND_PATH:-ouih} start"
     return
   fi
 
@@ -612,23 +687,29 @@ start_application() {
     if [[ "$PROXY_MODE" == "cloudflare" ]]; then
       info "验证 Cloudflare 小黄云边缘入口"
       local cloudflare_ready="false"
-      local response_headers=""
+      local response_headers_file=""
+      local response_status=""
+      response_headers_file="$(mktemp)"
       for _ in $(seq 1 30); do
-        response_headers="$(
+        : > "$response_headers_file"
+        response_status="$(
           curl \
             --connect-timeout 3 \
             --max-time 8 \
-            -fsS \
-            -D - \
+            -sS \
+            -D "$response_headers_file" \
             -o /dev/null \
+            -w '%{http_code}' \
             "${APP_ORIGIN}/api/health/ready" 2>/dev/null || true
         )"
-        if grep -Eqi '^(cf-ray|server:[[:space:]]*cloudflare)' <<< "$response_headers"; then
+        if [[ "$response_status" =~ ^2[0-9]{2}$ ]] &&
+           grep -Eqi '^(cf-ray|server:[[:space:]]*cloudflare)' "$response_headers_file"; then
           cloudflare_ready="true"
           break
         fi
         sleep 2
       done
+      rm -f "$response_headers_file"
       [[ "$cloudflare_ready" == "true" ]] ||
         fatal "Cloudflare 边缘入口尚未就绪。请确认 DNS 已开启小黄云、SSL/TLS 为 Full (strict)；首次签发期间关闭 Always Use HTTPS/重定向规则，并关闭会阻断 /api/health/ready 的 Access 或 WAF 规则。"
       success "Cloudflare 小黄云与 Full (strict) HTTPS 链路已通过检查"
@@ -647,12 +728,12 @@ finish() {
   if [[ "$AUTO_START" == "true" ]]; then
     printf '\n  %s %s\n' "${GRAY}访问地址${RESET}" "${PINK}${APP_ORIGIN}${RESET}"
   else
-    printf '\n  %s %s\n' "${GRAY}启动命令${RESET}" "cd \"$INSTALL_DIR\" && docker compose --env-file .env.production up -d"
+    printf '\n  %s %s\n' "${GRAY}启动命令${RESET}" "${OUIH_COMMAND_PATH:-ouih} start"
   fi
   printf '  %s %s\n' "${GRAY}安装目录${RESET}" "$INSTALL_DIR"
-  printf '  %s %s\n' "${GRAY}查看状态${RESET}" "cd \"$INSTALL_DIR\" && docker compose ps"
-  printf '  %s %s\n' "${GRAY}查看日志${RESET}" "cd \"$INSTALL_DIR\" && docker compose logs -f"
-  printf '  %s %s\n' "${GRAY}停止服务${RESET}" "cd \"$INSTALL_DIR\" && docker compose stop"
+  printf '  %s %s\n' "${GRAY}查看状态${RESET}" "${OUIH_COMMAND_PATH:-ouih} status"
+  printf '  %s %s\n' "${GRAY}查看日志${RESET}" "${OUIH_COMMAND_PATH:-ouih} logs -f"
+  printf '  %s %s\n' "${GRAY}停止服务${RESET}" "${OUIH_COMMAND_PATH:-ouih} stop"
   printf '  %s %s\n\n' "${GRAY}管理命令${RESET}" "${OUIH_COMMAND_PATH:-ouih}"
   if [[ "$PROXY_MODE" == "caddy" ]]; then
     success "HTTPS 证书由 Caddy 自动申请并续期"
