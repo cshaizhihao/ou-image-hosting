@@ -48,6 +48,17 @@ type UploadRouteOptions = {
 };
 
 type UrlUploadBody = { url: string };
+type UploadQuery = {
+  q?: string;
+  format?: "all" | StoredImage["format"];
+  page?: string;
+  limit?: string;
+  sort?: "newest" | "oldest" | "name" | "size";
+};
+type BulkBody = {
+  ids: string[];
+  action: "trash";
+};
 
 function publicImage(image: StoredImage) {
   return {
@@ -61,7 +72,8 @@ function publicImage(image: StoredImage) {
     sha256: image.sha256,
     thumbnailUrl: `/api/files/${image.id}/thumbnail`,
     originalUrl: `/api/files/${image.id}/original`,
-    createdAt: image.createdAt
+    createdAt: image.createdAt,
+    deletedAt: image.deletedAt
   };
 }
 
@@ -144,7 +156,7 @@ async function readRemoteImage(rawUrl: string) {
       signal: AbortSignal.timeout(10_000),
       headers: {
         accept: "image/avif,image/webp,image/png,image/jpeg,image/gif",
-        "user-agent": "OU-Image-Hosting/0.4.0"
+        "user-agent": "OU-Image-Hosting/0.5.0"
       }
     });
   } catch {
@@ -251,7 +263,16 @@ export async function registerUploadRoutes(
       .snapshot()
       .images.find((image) => image.sha256 === sha256);
     if (existing) {
-      return { image: publicImage(existing), duplicate: true };
+      if (existing.deletedAt) {
+        await store.update((state) => {
+          const current = state.images.find((image) => image.id === existing.id);
+          if (current) delete current.deletedAt;
+        });
+      }
+      return {
+        image: publicImage({ ...existing, deletedAt: undefined }),
+        duplicate: true
+      };
     }
 
     const usedBytes = store
@@ -312,23 +333,111 @@ export async function registerUploadRoutes(
     authenticate(request);
     const images = store.snapshot().images;
     return {
-      count: images.length,
+      count: images.filter((image) => !image.deletedAt).length,
       bytes: images.reduce((total, image) => total + image.size, 0),
       quotaBytes
     };
   });
 
-  app.get("/uploads", async (request) => {
-    authenticate(request);
-    return {
-      images: store
+  app.get<{ Querystring: UploadQuery }>(
+    "/uploads",
+    {
+      schema: {
+        querystring: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            q: { type: "string", maxLength: 120 },
+            format: {
+              type: "string",
+              enum: ["all", "jpeg", "png", "webp", "gif", "avif"]
+            },
+            page: { type: "string", pattern: "^[0-9]+$" },
+            limit: { type: "string", pattern: "^[0-9]+$" },
+            sort: {
+              type: "string",
+              enum: ["newest", "oldest", "name", "size"]
+            }
+          }
+        }
+      }
+    },
+    async (request) => {
+      authenticate(request);
+      const page = Math.max(1, Number(request.query.page ?? 1));
+      const limit = Math.min(
+        100,
+        Math.max(1, Number(request.query.limit ?? 24))
+      );
+      const query = request.query.q?.trim().toLocaleLowerCase() ?? "";
+      const format = request.query.format ?? "all";
+      const sort = request.query.sort ?? "newest";
+      const images = store
         .snapshot()
-        .images.slice()
-        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-        .slice(0, 100)
-        .map(publicImage)
-    };
-  });
+        .images.filter((image) => !image.deletedAt)
+        .filter(
+          (image) =>
+            !query || image.name.toLocaleLowerCase().includes(query)
+        )
+        .filter((image) => format === "all" || image.format === format)
+        .sort((a, b) => {
+          if (sort === "oldest") return a.createdAt.localeCompare(b.createdAt);
+          if (sort === "name") return a.name.localeCompare(b.name, "zh-CN");
+          if (sort === "size") return b.size - a.size;
+          return b.createdAt.localeCompare(a.createdAt);
+        });
+      const total = images.length;
+      const totalPages = Math.max(1, Math.ceil(total / limit));
+      const safePage = Math.min(page, totalPages);
+      const start = (safePage - 1) * limit;
+      return {
+        images: images.slice(start, start + limit).map(publicImage),
+        page: safePage,
+        limit,
+        total,
+        totalPages
+      };
+    }
+  );
+
+  app.post<{ Body: BulkBody }>(
+    "/uploads/bulk",
+    {
+      schema: {
+        body: {
+          type: "object",
+          additionalProperties: false,
+          required: ["ids", "action"],
+          properties: {
+            ids: {
+              type: "array",
+              minItems: 1,
+              maxItems: 100,
+              uniqueItems: true,
+              items: { type: "string", minLength: 1, maxLength: 80 }
+            },
+            action: { type: "string", enum: ["trash"] }
+          }
+        }
+      }
+    },
+    async (request) => {
+      authenticate(request);
+      const ids = new Set(request.body.ids);
+      const timestamp = now().toISOString();
+      const updated = await store.update((state) => {
+        let count = 0;
+        state.images.forEach((image) => {
+          if (ids.has(image.id) && !image.deletedAt) {
+            image.deletedAt = timestamp;
+            count += 1;
+          }
+        });
+        return count;
+      });
+      return { updated };
+    }
+  );
 
   app.post(
     "/uploads",

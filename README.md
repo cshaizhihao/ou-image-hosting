@@ -9,8 +9,8 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.4.0-ef8f8f" alt="Version 0.4.0" />
-  <img src="https://img.shields.io/badge/progress-3%20%2F%2010-303030" alt="Round 3 of 10" />
+  <img src="https://img.shields.io/badge/version-0.5.0-ef8f8f" alt="Version 0.5.0" />
+  <img src="https://img.shields.io/badge/progress-4%20%2F%2010-303030" alt="Round 4 of 10" />
   <img src="https://img.shields.io/badge/license-MIT-black" alt="MIT License" />
 </p>
 
@@ -26,22 +26,33 @@ OU-Image Hosting 面向个人创作者、开发者和小型团队，目标不是
 
 ## 当前版本
 
-当前版本：**v0.4.0**
+当前版本：**v0.5.0**
 
-第 3 / 10 轮已经完成：
+第 4 / 10 轮已经完成：
 
-- 本地选择、拖拽、剪贴板粘贴和图片 URL 四种上传入口
-- 串行上传队列、逐文件/总进度、暂停、恢复、取消和失败重试
-- JPG、PNG、WebP、GIF、AVIF 内容验证与单文件 20 MB 限制
-- Sharp 元数据读取、自动旋转与 640px WebP 缩略图
-- SHA-256 内容去重与重复文件即时反馈
-- 原图/缩略图文件服务、绝对链接复制和缓存策略
-- 默认 2 GB 存储配额、实时使用汇总和侧栏容量进度
-- URL 上传私网地址拦截、10 秒超时和下载大小限制
-- schema v2 数据迁移与原子 JSON 持久化
-- 10 个单元/集成测试与真实浏览器上传验证
+- 独立图片库路由与真实本地图片数据接入
+- 自适应网格和高密度列表两种浏览视图
+- 图片名称搜索、格式筛选和最新、最早、名称、大小排序
+- 服务端分页、缩略图懒加载、骨架屏、空状态和错误恢复
+- 单张选择、本页全选、确认对话框和批量移入回收站
+- 回收站状态持久化，重复上传已删除图片时自动恢复
+- 视图、格式、排序偏好和页面滚动位置恢复
+- 桌面浅色、列表选中态与移动端深色真实浏览器截图
+- 11 个单元/集成测试与完整图库浏览器交互验证
+- 修复专用图库路由与动态占位路由的预生成冲突
 
 ## 应用截图
+
+### 图片库
+
+<p align="center">
+  <img src="./docs/screenshots/v0.5.0-library-grid.png" width="49%" alt="OU-Image Hosting 图片库网格视图" />
+  <img src="./docs/screenshots/v0.5.0-library-list-selected.png" width="49%" alt="OU-Image Hosting 图片库列表选中态" />
+</p>
+
+<p align="center">
+  <img src="./docs/screenshots/v0.5.0-library-mobile-dark.png" width="280" alt="OU-Image Hosting 移动端深色图片库" />
+</p>
 
 ### 上传工作台
 
@@ -128,6 +139,15 @@ pnpm dev
 
 原图保存在 `.data/storage/originals`，缩略图保存在 `.data/storage/thumbnails`。相同内容只保存一次。
 
+### 管理图片库
+
+进入“图片库”后可以：
+
+1. 在网格和列表视图之间切换。
+2. 按名称搜索，按格式筛选，并按时间、名称或大小排序。
+3. 选择单张图片或当前页全部图片后批量移入回收站。
+4. 直接打开原图；视图、筛选、排序和滚动位置会自动恢复。
+
 ## 认证与密码重置
 
 - 会话凭证通过 `HttpOnly`、`SameSite=Lax` Cookie 保存。
@@ -188,7 +208,6 @@ scripts/run-low-cpu.sh pnpm check
 
 - PostgreSQL 与 Drizzle ORM
 - Redis 与 BullMQ
-- Sharp 图片处理
 - Local、S3、Cloudflare R2 与 S3-compatible 存储
 - Docker Compose 与反向代理部署
 
@@ -213,7 +232,7 @@ scripts/run-low-cpu.sh pnpm check
 | 1 | v0.2.0 | 设计系统、应用壳层和工程基础（已完成） |
 | 2 | v0.3.0 | 安装、认证与首次使用引导（已完成） |
 | 3 | v0.4.0 | 上传引擎、队列与图片处理（已完成） |
-| 4 | v0.5.0 | 图片库、筛选和批量操作 |
+| 4 | v0.5.0 | 图片库、筛选和批量操作（已完成） |
 | 5 | v0.6.0 | 图片详情、编辑、分享与版本 |
 | 6 | v0.7.0 | 相册、标签、收藏和回收站 |
 | 7 | v0.8.0 | 存储、域名、防盗链与备份 |

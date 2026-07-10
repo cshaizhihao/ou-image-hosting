@@ -47,7 +47,7 @@ describe("OU-Image API", () => {
     const status = await app.inject({ method: "GET", url: "/setup/status" });
 
     expect(health.statusCode).toBe(200);
-    expect(health.json()).toMatchObject({ status: "ok", version: "0.4.0" });
+    expect(health.json()).toMatchObject({ status: "ok", version: "0.5.0" });
     expect(status.json()).toEqual({ setupComplete: false, site: null });
   });
 
@@ -301,5 +301,92 @@ describe("OU-Image API", () => {
     expect(anonymous.statusCode).toBe(401);
     expect(privateUrl.statusCode).toBe(400);
     expect(privateUrl.json().error.code).toBe("BLOCKED_URL");
+  });
+
+  it("filters, sorts, paginates and bulk-trashes library images", async () => {
+    const app = await createTestApp();
+    const setup = await app.inject({
+      method: "POST",
+      url: "/setup",
+      payload: owner
+    });
+    const cookie = setup.cookies.find((item) => item.name === "ou_session")!;
+    const cookieMap = { ou_session: cookie.value };
+
+    const uploadImage = async (
+      filename: string,
+      format: "png" | "jpeg",
+      width: number
+    ) => {
+      const buffer = await sharp({
+        create: {
+          width,
+          height: 10,
+          channels: 3,
+          background: { r: width, g: 80, b: 120 }
+        }
+      })
+        [format]()
+        .toBuffer();
+      const form = new FormData();
+      form.append("file", buffer, {
+        filename,
+        contentType: format === "jpeg" ? "image/jpeg" : "image/png"
+      });
+      return app.inject({
+        method: "POST",
+        url: "/uploads",
+        headers: form.getHeaders(),
+        cookies: cookieMap,
+        payload: form.getBuffer()
+      });
+    };
+
+    const alpha = await uploadImage("alpha.png", "png", 11);
+    const beta = await uploadImage("beta.jpg", "jpeg", 24);
+    expect(alpha.statusCode).toBe(201);
+    expect(beta.statusCode).toBe(201);
+
+    const pngOnly = await app.inject({
+      method: "GET",
+      url: "/uploads?q=alpha&format=png&page=1&limit=1&sort=name",
+      cookies: cookieMap
+    });
+    expect(pngOnly.json()).toMatchObject({
+      total: 1,
+      totalPages: 1,
+      images: [{ name: "alpha.png", format: "png" }]
+    });
+
+    const bySize = await app.inject({
+      method: "GET",
+      url: "/uploads?sort=size",
+      cookies: cookieMap
+    });
+    expect(bySize.json().images[0].name).toBe("beta.jpg");
+
+    const trashed = await app.inject({
+      method: "POST",
+      url: "/uploads/bulk",
+      cookies: cookieMap,
+      payload: { ids: [alpha.json().image.id], action: "trash" }
+    });
+    expect(trashed.json()).toEqual({ updated: 1 });
+
+    const remaining = await app.inject({
+      method: "GET",
+      url: "/uploads",
+      cookies: cookieMap
+    });
+    const summary = await app.inject({
+      method: "GET",
+      url: "/uploads/summary",
+      cookies: cookieMap
+    });
+    expect(remaining.json()).toMatchObject({
+      total: 1,
+      images: [{ name: "beta.jpg" }]
+    });
+    expect(summary.json().count).toBe(1);
   });
 });

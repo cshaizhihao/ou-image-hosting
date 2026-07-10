@@ -56,6 +56,7 @@ export type StoredImage = {
   originalKey: string;
   thumbnailKey: string;
   createdAt: string;
+  deletedAt?: string;
 };
 
 export type AppState = {

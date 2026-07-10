@@ -4,7 +4,7 @@ import { SectionPageContent } from "@/components/section-page-content";
 
 export function generateStaticParams() {
   return navigationItems
-    .filter((item) => item.href !== "/")
+    .filter((item) => item.href !== "/" && item.key !== "library")
     .map((item) => ({ section: item.key }));
 }
 
