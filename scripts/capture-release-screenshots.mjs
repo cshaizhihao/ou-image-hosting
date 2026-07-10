@@ -105,54 +105,9 @@ try {
   });
   await waitForVisuals(page);
   await page.screenshot({
-    path: path.join(outputDirectory, "v1.0.0-upload.png")
+    path: path.join(outputDirectory, "ou-image-hosting-main.png")
   });
 
-  await page.keyboard.press("Control+k");
-  await page.getByRole("textbox", { name: "搜索页面" }).waitFor();
-  await page.getByRole("textbox", { name: "搜索页面" }).fill("图片");
-  await waitForVisuals(page);
-  await page.screenshot({
-    path: path.join(outputDirectory, "v1.0.0-command-palette.png")
-  });
-  await page.keyboard.press("Escape");
-
-  await page.goto("/settings");
-  await page
-    .getByRole("heading", { name: "设置中心", exact: true })
-    .waitFor();
-  await waitForVisuals(page);
-  await page.screenshot({
-    path: path.join(outputDirectory, "v1.0.0-settings.png")
-  });
-
-  const storageState = await desktop.storageState();
-  const mobile = await browser.newContext({
-    baseURL,
-    colorScheme: "dark",
-    locale: "zh-CN",
-    serviceWorkers: "block",
-    storageState,
-    viewport: { width: 390, height: 844 }
-  });
-  await mobile.addInitScript(() => {
-    window.localStorage.setItem("ou-theme", "dark");
-  });
-  const mobilePage = await mobile.newPage();
-  trackErrors(mobilePage, "mobile");
-  await mobilePage.goto("/");
-  await mobilePage
-    .getByRole("heading", {
-      name: "把图片放进来，剩下的交给队列。",
-      exact: true
-    })
-    .waitFor();
-  await waitForVisuals(mobilePage);
-  await mobilePage.screenshot({
-    path: path.join(outputDirectory, "v1.0.0-upload-mobile-dark.png")
-  });
-
-  await mobile.close();
   await desktop.close();
 
   if (runtimeErrors.length > 0) {
@@ -162,12 +117,7 @@ try {
   console.log(
     JSON.stringify(
       {
-        screenshots: [
-          "v1.0.0-upload.png",
-          "v1.0.0-command-palette.png",
-          "v1.0.0-settings.png",
-          "v1.0.0-upload-mobile-dark.png"
-        ]
+        screenshots: ["ou-image-hosting-main.png"]
       },
       null,
       2
