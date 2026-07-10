@@ -17,6 +17,7 @@ import {
   Heart,
   ImageUp,
   KeyRound,
+  LogOut,
   Menu,
   Moon,
   Search,
@@ -31,7 +32,9 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { apiRequest, type SessionUser } from "@/lib/api";
 
 const iconMap: Record<string, LucideIcon> = {
   overview: Activity,
@@ -146,11 +149,13 @@ export function AppShell({
   children: ReactNode;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [commandOpen, setCommandOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
 
   useEffect(() => {
     const saved = window.localStorage.getItem("ou-theme");
@@ -166,6 +171,12 @@ export function AppShell({
     setTheme(nextTheme);
     document.documentElement.dataset.theme = nextTheme;
   }, []);
+
+  useEffect(() => {
+    apiRequest<{ user: SessionUser }>("/auth/session")
+      .then(({ user }) => setSessionUser(user))
+      .catch(() => router.replace("/login"));
+  }, [router]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -347,7 +358,11 @@ export function AppShell({
                   className="user-trigger"
                   type="button"
                 >
-                  <span>OU</span>
+                  <span>
+                    {(sessionUser?.displayName ?? "OU")
+                      .slice(0, 2)
+                      .toUpperCase()}
+                  </span>
                   <ChevronDown aria-hidden="true" size={15} />
                 </button>
               </DropdownMenu.Trigger>
@@ -358,8 +373,8 @@ export function AppShell({
                   sideOffset={8}
                 >
                   <div className="dropdown-profile">
-                    <strong>OU User</strong>
-                    <span>本地预览</span>
+                    <strong>{sessionUser?.displayName ?? "正在读取账号"}</strong>
+                    <span>{sessionUser?.email ?? "安全会话"}</span>
                   </div>
                   <DropdownMenu.Separator className="dropdown-separator" />
                   <DropdownMenu.Item asChild>
@@ -367,6 +382,20 @@ export function AppShell({
                       <Settings aria-hidden="true" size={16} />
                       个人设置
                     </Link>
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Separator className="dropdown-separator" />
+                  <DropdownMenu.Item
+                    className="dropdown-item dropdown-item--danger"
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      apiRequest("/auth/logout", { method: "POST" }).finally(() => {
+                        router.replace("/login");
+                        router.refresh();
+                      });
+                    }}
+                  >
+                    <LogOut aria-hidden="true" size={16} />
+                    退出登录
                   </DropdownMenu.Item>
                   <DropdownMenu.Item asChild>
                     <Link className="dropdown-item" href="/audit">

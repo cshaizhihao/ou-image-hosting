@@ -1,6 +1,6 @@
 {
   "name": "@ou-image/api",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -11,6 +11,8 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "@fastify/cookie": "^11.0.2",
+    "@fastify/rate-limit": "^10.2.1",
     "fastify": "^5.3.0"
   },
   "devDependencies": {
