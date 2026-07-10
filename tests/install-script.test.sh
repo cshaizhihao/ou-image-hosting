@@ -96,6 +96,9 @@ export MOCK_DOCKER_LOG="$DOCKER_LOG"
 export OUIH_BIN_DIR="$TEMP_ROOT/global-bin"
 export OUIH_CONFIG_DIR="$TEMP_ROOT/global-config"
 
+NO_COLOR=1 bash -s -- --help < "$ROOT/install.sh" > "$TEMP_ROOT/stdin-help.out"
+grep -F 'OU-Image Hosting 交互式安装程序' "$TEMP_ROOT/stdin-help.out" >/dev/null
+
 BOOTSTRAP_LOG="$TEMP_ROOT/bootstrap.log"
 (
   source "$ROOT/install.sh"

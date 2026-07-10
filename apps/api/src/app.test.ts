@@ -141,11 +141,11 @@ describe("OU-Image API", () => {
     expect(health.statusCode).toBe(200);
     expect(health.json()).toMatchObject({
       status: "ok",
-      version: "1.0.4"
+      version: "1.0.5"
     });
     expect(live.json()).toMatchObject({
       status: "ok",
-      version: "1.0.4"
+      version: "1.0.5"
     });
     expect(ready.statusCode).toBe(200);
     expect(ready.json()).toMatchObject({
