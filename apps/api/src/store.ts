@@ -55,28 +55,121 @@ export type StoredImage = {
   sha256: string;
   originalKey: string;
   thumbnailKey: string;
+  currentVersionId: string;
+  versions: StoredImageVersion[];
   createdAt: string;
+  updatedAt: string;
   deletedAt?: string;
 };
 
+export type StoredImageVersion = {
+  id: string;
+  operation:
+    | "original"
+    | "rotate-left"
+    | "rotate-right"
+    | "flip-horizontal"
+    | "flip-vertical"
+    | "convert-format"
+    | "restore";
+  sourceVersionId?: string;
+  size: number;
+  mime: string;
+  format: StoredImage["format"];
+  width: number;
+  height: number;
+  sha256: string;
+  originalKey: string;
+  thumbnailKey: string;
+  createdAt: string;
+};
+
+export type StoredImageShare = {
+  id: string;
+  imageId: string;
+  userId: string;
+  tokenHash: string;
+  passwordHash?: string;
+  createdAt: string;
+  expiresAt?: string;
+  revokedAt?: string;
+  accessCount: number;
+  lastAccessedAt?: string;
+};
+
 export type AppState = {
-  schemaVersion: 2;
+  schemaVersion: 3;
   setupComplete: boolean;
   site?: SiteConfig;
   users: StoredUser[];
   sessions: StoredSession[];
   passwordResets: StoredPasswordReset[];
   images: StoredImage[];
+  imageShares: StoredImageShare[];
 };
 
+export function calculateImageStorageBytes(images: StoredImage[]) {
+  const files = new Map<string, number>();
+  for (const image of images) {
+    for (const version of image.versions) {
+      if (!files.has(version.originalKey)) {
+        files.set(version.originalKey, version.size);
+      }
+    }
+  }
+  return [...files.values()].reduce((total, size) => total + size, 0);
+}
+
 const initialState = (): AppState => ({
-  schemaVersion: 2,
+  schemaVersion: 3,
   setupComplete: false,
   users: [],
   sessions: [],
   passwordResets: [],
-  images: []
+  images: [],
+  imageShares: []
 });
+
+type MigratableImage = Omit<
+  StoredImage,
+  "currentVersionId" | "versions" | "updatedAt"
+> &
+  Partial<
+    Pick<StoredImage, "currentVersionId" | "versions" | "updatedAt">
+  >;
+
+function migrateImage(image: MigratableImage): StoredImage {
+  const originalVersionId = `original-${image.id}`;
+  const versions =
+    image.versions && image.versions.length > 0
+      ? image.versions
+      : [
+          {
+            id: originalVersionId,
+            operation: "original" as const,
+            size: image.size,
+            mime: image.mime,
+            format: image.format,
+            width: image.width,
+            height: image.height,
+            sha256: image.sha256,
+            originalKey: image.originalKey,
+            thumbnailKey: image.thumbnailKey,
+            createdAt: image.createdAt
+          }
+        ];
+  const currentVersionId =
+    image.currentVersionId &&
+    versions.some((version) => version.id === image.currentVersionId)
+      ? image.currentVersionId
+      : versions.at(-1)!.id;
+  return {
+    ...image,
+    currentVersionId,
+    versions,
+    updatedAt: image.updatedAt ?? image.createdAt
+  };
+}
 
 export class AppStore {
   private state: AppState = initialState();
@@ -92,13 +185,22 @@ export class AppStore {
       this.state = {
         ...initialState(),
         ...parsed,
-        schemaVersion: 2,
+        schemaVersion: 3,
         users: parsed.users ?? [],
         sessions: parsed.sessions ?? [],
         passwordResets: parsed.passwordResets ?? [],
-        images: parsed.images ?? []
+        images: (parsed.images ?? []).map(migrateImage),
+        imageShares: parsed.imageShares ?? []
       };
-      if (parsed.schemaVersion !== 2 || !parsed.images) {
+      if (
+        parsed.schemaVersion !== 3 ||
+        !parsed.images ||
+        !parsed.imageShares ||
+        parsed.images.some(
+          (image) =>
+            !image.currentVersionId || !image.versions || !image.updatedAt
+        )
+      ) {
         await this.persist(this.state);
       }
     } catch (error) {

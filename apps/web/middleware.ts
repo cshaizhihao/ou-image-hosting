@@ -5,7 +5,8 @@ const publicPaths = [
   "/login",
   "/register",
   "/forgot-password",
-  "/reset-password"
+  "/reset-password",
+  "/share"
 ];
 
 export function middleware(request: NextRequest) {

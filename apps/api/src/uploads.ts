@@ -12,9 +12,12 @@ import { isIP } from "node:net";
 import path from "node:path";
 import sharp from "sharp";
 import { PublicError } from "./errors.js";
+import { registerImageDetailRoutes } from "./image-details.js";
 import {
+  calculateImageStorageBytes,
   type AppStore,
   type StoredImage,
+  type StoredImageVersion,
   type StoredUser
 } from "./store.js";
 
@@ -156,7 +159,7 @@ async function readRemoteImage(rawUrl: string) {
       signal: AbortSignal.timeout(10_000),
       headers: {
         accept: "image/avif,image/webp,image/png,image/jpeg,image/gif",
-        "user-agent": "OU-Image-Hosting/0.5.0"
+        "user-agent": "OU-Image-Hosting/0.6.0"
       }
     });
   } catch {
@@ -275,9 +278,7 @@ export async function registerUploadRoutes(
       };
     }
 
-    const usedBytes = store
-      .snapshot()
-      .images.reduce((total, image) => total + image.size, 0);
+    const usedBytes = calculateImageStorageBytes(store.snapshot().images);
     if (usedBytes + buffer.byteLength > quotaBytes) {
       throw new PublicError(413, "QUOTA_EXCEEDED", "存储空间不足");
     }
@@ -309,6 +310,20 @@ export async function registerUploadRoutes(
       writeFile(thumbnailPath, thumbnail, { mode: 0o600 })
     ]);
 
+    const timestamp = now().toISOString();
+    const originalVersion: StoredImageVersion = {
+      id: randomUUID(),
+      operation: "original",
+      size: buffer.byteLength,
+      mime: mimeByFormat[typedFormat],
+      format: typedFormat,
+      width,
+      height,
+      sha256,
+      originalKey,
+      thumbnailKey,
+      createdAt: timestamp
+    };
     const image: StoredImage = {
       id,
       userId,
@@ -321,7 +336,10 @@ export async function registerUploadRoutes(
       sha256,
       originalKey,
       thumbnailKey,
-      createdAt: now().toISOString()
+      currentVersionId: originalVersion.id,
+      versions: [originalVersion],
+      createdAt: timestamp,
+      updatedAt: timestamp
     };
     await store.update((state) => {
       state.images.push(image);
@@ -334,7 +352,7 @@ export async function registerUploadRoutes(
     const images = store.snapshot().images;
     return {
       count: images.filter((image) => !image.deletedAt).length,
-      bytes: images.reduce((total, image) => total + image.size, 0),
+      bytes: calculateImageStorageBytes(images),
       quotaBytes
     };
   });
@@ -523,14 +541,17 @@ export async function registerUploadRoutes(
       const key = isThumbnail ? image.thumbnailKey : image.originalKey;
       reply
         .type(isThumbnail ? "image/webp" : image.mime)
-        .header(
-          "cache-control",
-          isThumbnail
-            ? "public, max-age=86400"
-            : "public, max-age=31536000, immutable"
-        )
+        .header("cache-control", "public, max-age=60, must-revalidate")
         .header("content-disposition", "inline");
       return reply.send(createReadStream(path.join(storageRoot, key)));
     }
   );
+
+  registerImageDetailRoutes(app, {
+    store,
+    dataDirectory,
+    now,
+    authenticate,
+    quotaBytes
+  });
 }

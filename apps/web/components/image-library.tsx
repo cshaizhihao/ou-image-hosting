@@ -434,13 +434,13 @@ export function ImageLibrary() {
                   >
                     {isSelected && <Check size={14} />}
                   </button>
-                  <button
+                  <Link
+                    aria-label={`查看 ${image.name} 详情`}
                     className="library-item__preview"
-                    onClick={() => toggleSelection(image.id)}
-                    type="button"
+                    href={`/library/${image.id}`}
                   >
                     <img alt={image.name} loading="lazy" src={image.thumbnailUrl} />
-                  </button>
+                  </Link>
                   <div className="library-item__info">
                     <strong title={image.name}>{image.name}</strong>
                     <span>

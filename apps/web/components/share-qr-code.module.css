@@ -1,0 +1,41 @@
+.frame {
+  display: grid;
+  width: 176px;
+  gap: 10px;
+  justify-items: center;
+  padding: 12px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: #fff;
+}
+
+.image {
+  width: 152px;
+  height: 152px;
+  image-rendering: pixelated;
+}
+
+.placeholder {
+  display: grid;
+  width: 152px;
+  height: 152px;
+  place-items: center;
+  border-radius: var(--radius-md);
+  background:
+    linear-gradient(90deg, transparent 0 48%, rgb(0 0 0 / 5%) 48% 52%, transparent 52%),
+    linear-gradient(transparent 0 48%, rgb(0 0 0 / 5%) 48% 52%, transparent 52%);
+  background-size: 20px 20px;
+  color: #5f5f5b;
+  font-size: 12px;
+}
+
+.caption {
+  max-width: 152px;
+  overflow: hidden;
+  color: #5f5f5b;
+  font-size: 10px;
+  line-height: 1.35;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -9,8 +9,8 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.5.0-ef8f8f" alt="Version 0.5.0" />
-  <img src="https://img.shields.io/badge/progress-4%20%2F%2010-303030" alt="Round 4 of 10" />
+  <img src="https://img.shields.io/badge/version-0.6.0-ef8f8f" alt="Version 0.6.0" />
+  <img src="https://img.shields.io/badge/progress-5%20%2F%2010-303030" alt="Round 5 of 10" />
   <img src="https://img.shields.io/badge/license-MIT-black" alt="MIT License" />
 </p>
 
@@ -26,22 +26,34 @@ OU-Image Hosting 面向个人创作者、开发者和小型团队，目标不是
 
 ## 当前版本
 
-当前版本：**v0.5.0**
+当前版本：**v0.6.0**
 
-第 4 / 10 轮已经完成：
+第 5 / 10 轮已经完成：
 
-- 独立图片库路由与真实本地图片数据接入
-- 自适应网格和高密度列表两种浏览视图
-- 图片名称搜索、格式筛选和最新、最早、名称、大小排序
-- 服务端分页、缩略图懒加载、骨架屏、空状态和错误恢复
-- 单张选择、本页全选、确认对话框和批量移入回收站
-- 回收站状态持久化，重复上传已删除图片时自动恢复
-- 视图、格式、排序偏好和页面滚动位置恢复
-- 桌面浅色、列表选中态与移动端深色真实浏览器截图
-- 11 个单元/集成测试与完整图库浏览器交互验证
-- 修复专用图库路由与动态占位路由的预生成冲突
+- 独立图片详情页，展示尺寸、格式、大小、时间、MIME 与 SHA-256
+- URL、Markdown、HTML、BBCode 四种引用格式一键复制
+- 安全重命名与路径分隔符、控制字符拦截
+- 左右旋转、水平/垂直翻转、JPEG/PNG/WebP 转换与质量控制
+- 不覆盖原图的版本链、历史版本预览和一键恢复
+- 带可选密码、有效期、撤销和访问次数统计的分享链接
+- 本地二维码生成和无需登录的公开分享查看/下载页
+- schema v3 自动迁移与按唯一物理版本文件统计存储配额
+- 图片库卡片进入详情页，公开分享路由不要求登录
+- 15 个单元/集成测试与完整编辑、分享、移动端浏览器验证
 
 ## 应用截图
+
+### 图片详情、版本与分享
+
+<p align="center">
+  <img src="./docs/screenshots/v0.6.0-image-detail.png" width="49%" alt="OU-Image Hosting 图片详情与版本分享" />
+  <img src="./docs/screenshots/v0.6.0-share-view.png" width="49%" alt="OU-Image Hosting 公开分享查看页" />
+</p>
+
+<p align="center">
+  <img src="./docs/screenshots/v0.6.0-share-password.png" width="49%" alt="OU-Image Hosting 密码保护分享页" />
+  <img src="./docs/screenshots/v0.6.0-image-detail-mobile-dark.png" width="280" alt="OU-Image Hosting 移动端深色图片详情" />
+</p>
 
 ### 图片库
 
@@ -148,6 +160,16 @@ pnpm dev
 3. 选择单张图片或当前页全部图片后批量移入回收站。
 4. 直接打开原图；视图、筛选、排序和滚动位置会自动恢复。
 
+### 编辑与分享
+
+打开任意图片详情后可以：
+
+1. 复制 URL、Markdown、HTML 或 BBCode。
+2. 重命名、旋转、翻转或转换为 JPEG、PNG、WebP。
+3. 从版本历史恢复任意版本，当前版本不会被删除。
+4. 创建带密码和有效期的分享链接，并复制二维码。
+5. 查看访问次数或随时撤销分享。
+
 ## 认证与密码重置
 
 - 会话凭证通过 `HttpOnly`、`SameSite=Lax` Cookie 保存。
@@ -199,7 +221,7 @@ scripts/run-low-cpu.sh pnpm check
 - Web：Next.js 15、React 19、TypeScript、Tailwind CSS 4
 - UI：Radix UI primitives、Lucide Icons、自有 Design Token
 - API：Fastify 5、Multipart、Cookie、Rate Limit、Node.js Crypto
-- Image：Sharp 元数据、自动旋转与 WebP 缩略图
+- Image：Sharp 元数据、旋转/翻转、格式转换、版本原图与 WebP 缩略图
 - Persistence：原子 JSON 元数据与本地原图/缩略图目录
 - Testing：Vitest、Playwright
 - Workspace：pnpm Monorepo
@@ -233,7 +255,7 @@ scripts/run-low-cpu.sh pnpm check
 | 2 | v0.3.0 | 安装、认证与首次使用引导（已完成） |
 | 3 | v0.4.0 | 上传引擎、队列与图片处理（已完成） |
 | 4 | v0.5.0 | 图片库、筛选和批量操作（已完成） |
-| 5 | v0.6.0 | 图片详情、编辑、分享与版本 |
+| 5 | v0.6.0 | 图片详情、编辑、分享与版本（已完成） |
 | 6 | v0.7.0 | 相册、标签、收藏和回收站 |
 | 7 | v0.8.0 | 存储、域名、防盗链与备份 |
 | 8 | v0.9.0 | 团队、权限、API 与安全 |

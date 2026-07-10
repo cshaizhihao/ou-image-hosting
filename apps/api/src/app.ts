@@ -271,7 +271,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   app.get("/health", async () => ({
     status: "ok",
     service: "ou-image-api",
-    version: "0.5.0"
+    version: "0.6.0"
   }));
 
   app.get("/setup/status", async () => {
