@@ -1,0 +1,635 @@
+.panel,
+.kpiCard {
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--surface-panel);
+}
+
+.panel {
+  padding: 16px;
+}
+
+.headerTools,
+.legend,
+.panelHead,
+.rangeControl {
+  display: flex;
+  align-items: center;
+}
+
+.headerTools {
+  gap: 8px;
+}
+
+.rangeControl {
+  padding: 3px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-panel);
+}
+
+.rangeControl button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.rangeControl .rangeActive {
+  background: var(--surface-selected);
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.kpiGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.kpiCard {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 2px 10px;
+  padding: 14px;
+}
+
+.kpiCard > span {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  grid-row: 1 / 4;
+  place-items: center;
+  border-radius: var(--radius-md);
+  background: var(--surface-muted);
+  color: var(--action-primary-hover);
+}
+
+.kpiCard small,
+.kpiCard p {
+  color: var(--text-secondary);
+  font-size: 9px;
+}
+
+.kpiCard strong {
+  font-size: clamp(17px, 2vw, 23px);
+  line-height: 1.2;
+}
+
+.kpiCard p {
+  margin: 0;
+}
+
+.analyticsGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(260px, 0.8fr);
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.panelHead {
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.panelHead > div:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.panelHead > div:first-child > span {
+  color: var(--action-primary-hover);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.panelHead h2 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.panelHead p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 9px;
+}
+
+.legend {
+  gap: 10px;
+  color: var(--text-secondary);
+  font-size: 9px;
+}
+
+.legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.legend i {
+  width: 16px;
+  height: 3px;
+  border-radius: 999px;
+}
+
+.legendPink {
+  background: var(--action-primary-hover);
+}
+
+.legendInk {
+  background: var(--text-primary);
+}
+
+.chart {
+  display: block;
+  width: 100%;
+  min-height: 250px;
+  overflow: visible;
+}
+
+.trackingNotice {
+  margin-bottom: 10px;
+  padding: 9px 10px;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--status-info) 8%, var(--surface-panel));
+  color: var(--status-info);
+  font-size: 9px;
+}
+
+.chartGrid {
+  stroke: var(--border-default);
+  stroke-width: 1;
+}
+
+.chartUploads,
+.chartViews {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.chartUploads {
+  stroke: var(--text-primary);
+}
+
+.chartViews {
+  stroke: var(--action-primary-hover);
+}
+
+.chartLabel {
+  fill: var(--text-tertiary);
+  font-size: 9px;
+}
+
+.formatList {
+  display: grid;
+  gap: 13px;
+}
+
+.formatList > div > div:first-child {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 5px;
+}
+
+.formatList strong {
+  font-size: 10px;
+}
+
+.formatList span {
+  color: var(--text-secondary);
+  font-size: 9px;
+}
+
+.formatTrack {
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-muted);
+}
+
+.formatTrack span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--action-primary);
+}
+
+.topImages {
+  display: grid;
+}
+
+.topImages article {
+  display: grid;
+  grid-template-columns: 34px 44px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 62px;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.topImages article:last-child {
+  border-bottom: 0;
+}
+
+.rank {
+  color: var(--text-tertiary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9px;
+}
+
+.topThumb {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  background: var(--surface-muted);
+  color: var(--text-tertiary);
+}
+
+.topThumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.topImages article > div:nth-child(3) {
+  display: grid;
+}
+
+.topImages strong {
+  overflow: hidden;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topImages article > div span,
+.topImages small {
+  color: var(--text-secondary);
+  font-size: 9px;
+}
+
+.inlineEmpty {
+  display: grid;
+  min-height: 150px;
+  place-items: center;
+  color: var(--text-tertiary);
+  font-size: 10px;
+}
+
+.maintenanceBanner,
+.restrictedPanel {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--status-warning) 32%, var(--border-default));
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--status-warning) 8%, var(--surface-panel));
+  color: var(--status-warning);
+}
+
+.maintenanceBanner > div,
+.restrictedPanel > div {
+  display: grid;
+}
+
+.maintenanceBanner strong,
+.restrictedPanel strong {
+  color: var(--text-primary);
+  font-size: 11px;
+}
+
+.maintenanceBanner span,
+.restrictedPanel span {
+  color: var(--text-secondary);
+  font-size: 9px;
+}
+
+.healthHero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 14px;
+  padding: 18px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(circle at 0 50%, color-mix(in srgb, var(--action-primary) 14%, transparent), transparent 38%),
+    var(--surface-panel);
+}
+
+.healthHero > div {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.healthHero > div > div {
+  display: grid;
+}
+
+.healthHero small,
+.healthHero > span {
+  color: var(--text-secondary);
+  font-size: 9px;
+}
+
+.healthHero strong {
+  font-size: 20px;
+}
+
+.healthPulse {
+  width: 16px;
+  height: 16px;
+  border: 4px solid color-mix(in srgb, currentColor 18%, transparent);
+  border-radius: 50%;
+}
+
+.healthGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.healthCard {
+  display: grid;
+  gap: 7px;
+  min-height: 142px;
+  padding: 14px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--surface-panel);
+}
+
+.healthCard > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.healthCard strong {
+  font-size: 12px;
+}
+
+.healthCard p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 9px;
+}
+
+.healthCard small {
+  align-self: end;
+  color: var(--text-tertiary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 8px;
+}
+
+.serviceDot,
+.timelineNode {
+  display: block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.health_operational,
+.health_reachable {
+  color: var(--status-success);
+}
+
+.health_degraded {
+  color: var(--status-warning);
+}
+
+.health_down {
+  color: var(--action-danger);
+}
+
+.health_not-configured,
+.health_configured-not-in-use,
+.health_unknown {
+  color: var(--text-tertiary);
+}
+
+.jobList,
+.systemTimeline {
+  display: grid;
+}
+
+.jobList article {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.jobList article:last-child {
+  border-bottom: 0;
+}
+
+.jobIcon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border-radius: var(--radius-md);
+  background: var(--surface-muted);
+  color: var(--action-primary-hover);
+}
+
+.jobList article > div {
+  display: grid;
+  gap: 4px;
+}
+
+.jobList article > div > div {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.jobList strong {
+  font-size: 10px;
+}
+
+.jobList small {
+  color: var(--text-tertiary);
+  font-size: 8px;
+}
+
+.jobList p {
+  margin: 0;
+  color: var(--action-danger);
+  font-size: 9px;
+}
+
+.jobProgress {
+  width: min(320px, 100%);
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-muted);
+}
+
+.jobProgress span {
+  display: block;
+  height: 100%;
+  background: var(--action-primary);
+}
+
+.restrictedPanel {
+  color: var(--text-secondary);
+  border-color: var(--border-default);
+  background: var(--surface-panel);
+}
+
+.systemTimeline article {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.systemTimeline article:last-child {
+  border-bottom: 0;
+}
+
+.systemTimeline article > div {
+  display: grid;
+}
+
+.systemTimeline strong {
+  font-size: 10px;
+}
+
+.systemTimeline article > div span,
+.systemTimeline time {
+  color: var(--text-secondary);
+  font-size: 8px;
+}
+
+.systemTimeline time {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.spin {
+  animation: operations-spin 900ms linear infinite;
+}
+
+@keyframes operations-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 1024px) {
+  .kpiGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .analyticsGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .healthGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .headerTools {
+    width: 100%;
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .rangeControl {
+    justify-content: stretch;
+  }
+
+  .rangeControl button {
+    flex: 1;
+  }
+
+  .kpiGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .panelHead {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .chart {
+    min-height: 210px;
+  }
+
+  .topImages article {
+    grid-template-columns: 28px 40px minmax(0, 1fr);
+  }
+
+  .topImages small {
+    display: none;
+  }
+
+  .healthHero {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .healthGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .jobList article {
+    grid-template-columns: 38px minmax(0, 1fr);
+  }
+
+  .jobList article > button {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .systemTimeline article {
+    grid-template-columns: 12px minmax(0, 1fr);
+  }
+
+  .systemTimeline time {
+    grid-column: 2;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rangeControl button,
+  .formatTrack span {
+    transition: none;
+  }
+
+  .spin {
+    animation: none;
+  }
+}

@@ -260,6 +260,18 @@ function assertShareActive(share: StoredImageShare, timestamp: Date) {
   }
 }
 
+function workspaceDate(timestamp: Date, timezone: string) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(timestamp);
+  const value = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((part) => part.type === type)?.value ?? "";
+  return `${value("year")}-${value("month")}-${value("day")}`;
+}
+
 function sendImage(
   reply: FastifyReply,
   filePath: string,
@@ -276,7 +288,11 @@ function sendImage(
   return reply.send(createReadStream(filePath));
 }
 
-async function createThumbnail(buffer: Buffer) {
+async function createThumbnail(
+  buffer: Buffer,
+  width: number,
+  quality: number
+) {
   return sharp(buffer, {
     animated: false,
     failOn: "error",
@@ -284,12 +300,12 @@ async function createThumbnail(buffer: Buffer) {
   })
     .rotate()
     .resize({
-      width: 640,
-      height: 640,
+      width,
+      height: width,
       fit: "inside",
       withoutEnlargement: true
     })
-    .webp({ quality: 82, effort: 3 })
+    .webp({ quality, effort: 3 })
     .toBuffer();
 }
 
@@ -479,10 +495,27 @@ export function registerImageDetailRoutes(
         request.params.id,
         principal.workspaceId
       );
+      const settings =
+        store
+          .snapshot()
+          .workspaceSettings.find(
+            (item) => item.workspaceId === principal.workspaceId
+          ) ?? {
+          processingQuality: 85,
+          thumbnailWidth: 480
+        };
       const input = await readFile(storagePath(storageRoot, image.originalKey));
       let transformed;
       try {
-        transformed = await transformBuffer(input, request.body, image.format);
+        transformed = await transformBuffer(
+          input,
+          {
+            ...request.body,
+            quality:
+              request.body.quality ?? settings.processingQuality
+          },
+          image.format
+        );
       } catch (error) {
         if (error instanceof PublicError) throw error;
         throw new PublicError(400, "TRANSFORM_FAILED", "无法完成图片编辑");
@@ -508,7 +541,11 @@ export function registerImageDetailRoutes(
       const thumbnailKey = `thumbnails/${image.id}-${versionId}.webp`;
       const originalPath = storagePath(storageRoot, originalKey);
       const thumbnailPath = storagePath(storageRoot, thumbnailKey);
-      const thumbnail = await createThumbnail(transformed.buffer);
+      const thumbnail = await createThumbnail(
+        transformed.buffer,
+        settings.thumbnailWidth,
+        settings.processingQuality
+      );
       await mkdir(path.dirname(originalPath), { recursive: true });
       await Promise.all([
         writeFile(originalPath, transformed.buffer, { mode: 0o600 }),
@@ -872,6 +909,60 @@ export function registerImageDetailRoutes(
         assertShareActive(current, timestamp);
         current.accessCount += 1;
         current.lastAccessedAt = timestamp.toISOString();
+        const settings = state.workspaceSettings.find(
+          (item) => item.workspaceId === current.workspaceId
+        );
+        const date = workspaceDate(
+          timestamp,
+          settings?.timezone ?? "Asia/Shanghai"
+        );
+        let daily = state.analyticsDaily.find(
+          (item) =>
+            item.workspaceId === current.workspaceId && item.date === date
+        );
+        if (!daily) {
+          daily = {
+            workspaceId: current.workspaceId,
+            date,
+            uploads: 0,
+            uploadedLogicalBytes: 0,
+            shareViews: 0,
+            imageShareViews: {}
+          };
+          state.analyticsDaily.push(daily);
+        }
+        daily.shareViews += 1;
+        daily.imageShareViews[current.imageId] =
+          (daily.imageShareViews[current.imageId] ?? 0) + 1;
+        if (
+          !state.analyticsCoverage.some(
+            (item) => item.workspaceId === current.workspaceId
+          )
+        ) {
+          state.analyticsCoverage.push({
+            workspaceId: current.workspaceId,
+            uploads: {
+              trackingStartedAt: timestamp.toISOString(),
+              status: "partial"
+            },
+            shareViews: {
+              trackingStartedAt: timestamp.toISOString(),
+              status: "complete"
+            }
+          });
+        }
+        const retainedDates = new Set(
+          state.analyticsDaily
+            .filter((item) => item.workspaceId === current.workspaceId)
+            .map((item) => item.date)
+            .sort((a, b) => b.localeCompare(a))
+            .slice(0, 400)
+        );
+        state.analyticsDaily = state.analyticsDaily.filter(
+          (item) =>
+            item.workspaceId !== current.workspaceId ||
+            retainedDates.has(item.date)
+        );
       });
       return sendImage(
         reply,

@@ -10,10 +10,12 @@ export function generateStaticParams() {
     "favorites",
     "trash",
     "storage",
+    "analytics",
     "team",
     "tokens",
     "audit",
-    "settings"
+    "settings",
+    "system"
   ]);
   return navigationItems
     .filter((item) => item.href !== "/" && !dedicatedSections.has(item.key))

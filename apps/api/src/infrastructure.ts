@@ -1169,7 +1169,7 @@ export function registerInfrastructureRoutes(
       const stateJson = JSON.stringify(envelope.state);
       if (
         envelope.format !== "ou-image-backup-v1" ||
-        ![5, 6].includes(envelope.state.schemaVersion) ||
+        ![5, 6, 7].includes(envelope.state.schemaVersion) ||
         sha256(stateJson) !== envelope.manifest.stateSha256 ||
         envelope.files.length !== envelope.manifest.files.length
       ) {

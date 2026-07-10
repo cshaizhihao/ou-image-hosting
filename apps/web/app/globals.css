@@ -570,6 +570,36 @@ kbd {
   padding-top: var(--topbar-height);
 }
 
+.offline-banner {
+  position: fixed;
+  z-index: 24;
+  top: var(--topbar-height);
+  right: 0;
+  left: var(--sidebar-width);
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 8px 18px;
+  border-bottom: 1px solid color-mix(in srgb, var(--status-warning) 35%, var(--border-default));
+  background: color-mix(in srgb, var(--status-warning) 11%, var(--surface-panel));
+  color: var(--status-warning);
+  font-size: 12px;
+}
+
+.offline-banner strong {
+  color: var(--text-primary);
+}
+
+.offline-banner span {
+  color: var(--text-secondary);
+}
+
+.app-shell--offline .app-content {
+  padding-top: calc(var(--topbar-height) + 38px);
+}
+
 .workspace-page {
   width: min(1180px, 100%);
   margin: 0 auto;
@@ -1508,6 +1538,23 @@ kbd {
     margin-left: 0;
     padding-top: var(--topbar-height);
     padding-bottom: 68px;
+  }
+
+  .offline-banner {
+    left: 0;
+    justify-content: flex-start;
+    overflow: hidden;
+    padding-inline: 14px;
+  }
+
+  .offline-banner span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .app-shell--offline .app-content {
+    padding-top: calc(var(--topbar-height) + 38px);
   }
 
   .workspace-page {

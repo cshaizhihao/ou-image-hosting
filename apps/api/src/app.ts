@@ -26,6 +26,7 @@ import { PublicError } from "./errors.js";
 import {
   AppStore,
   defaultNotificationPreferences,
+  defaultWorkspaceSettings,
   type AppState,
   type StoredApiToken,
   type StoredUser,
@@ -34,6 +35,7 @@ import {
 import { registerUploadRoutes } from "./uploads.js";
 import { registerInfrastructureRoutes } from "./infrastructure.js";
 import { registerWorkspaceSecurityRoutes } from "./workspace-security.js";
+import { registerOperationsRoutes } from "./operations.js";
 
 const SESSION_COOKIE = "ou_session";
 const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
@@ -173,6 +175,20 @@ function addPersonalWorkspace(
     ownerUserId: user.id,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt
+  });
+  state.workspaceSettings.push(
+    defaultWorkspaceSettings(workspaceId, user.updatedAt)
+  );
+  state.analyticsCoverage.push({
+    workspaceId,
+    uploads: {
+      trackingStartedAt: user.createdAt,
+      status: "complete"
+    },
+    shareViews: {
+      trackingStartedAt: user.createdAt,
+      status: "complete"
+    }
   });
   state.workspaceMembers.push({
     id: randomUUID(),
@@ -522,7 +538,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   app.get("/health", async () => ({
     status: "ok",
     service: "ou-image-api",
-    version: "0.9.0"
+    version: "1.0.0-rc.1"
   }));
 
   app.get("/setup/status", async () => {
@@ -611,6 +627,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
         state.setupComplete = true;
         state.site = {
           siteName,
+          siteDescription: "",
           registrationEnabled: request.body.registrationEnabled ?? false,
           defaultStorage: "local",
           theme: request.body.theme ?? "system"
@@ -1022,6 +1039,13 @@ export async function buildApp(options: BuildAppOptions = {}) {
     now,
     authenticate: authenticatedUser,
     createSession
+  });
+  registerOperationsRoutes(app, {
+    store,
+    dataDirectory,
+    appOrigin,
+    now,
+    authenticate: authenticatedUser
   });
 
   registerInfrastructureRoutes(app, {

@@ -4,7 +4,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import {
-  filterNavigationItems,
+  canAccessNavigationItem,
   navigationItems,
   type NavigationItem,
   type WorkspaceRole as SharedWorkspaceRole
@@ -26,12 +26,14 @@ import {
   Menu,
   Moon,
   Search,
+  ServerCog,
   Settings,
   Sun,
   Tags,
   Trash2,
   Upload,
   Users,
+  WifiOff,
   X,
   type LucideIcon
 } from "lucide-react";
@@ -73,8 +75,29 @@ const iconMap: Record<string, LucideIcon> = {
   team: Users,
   tokens: KeyRound,
   audit: Activity,
+  system: ServerCog,
   settings: Settings
 };
+
+const applicationNavigationItems: NavigationItem[] = [
+  ...navigationItems,
+  {
+    key: "system",
+    label: "系统状态",
+    href: "/system",
+    group: "system",
+    access: "site-owner"
+  }
+];
+
+function filterApplicationNavigation(access: {
+  workspaceRole: SharedWorkspaceRole;
+  siteRole: SessionUser["role"];
+}) {
+  return applicationNavigationItems.filter((item) =>
+    canAccessNavigationItem(item, access)
+  );
+}
 
 const mobileKeys = ["overview", "library", "upload", "albums", "settings"];
 
@@ -283,6 +306,7 @@ export function AppShell({
   const [notificationBusy, setNotificationBusy] = useState(false);
   const [notificationError, setNotificationError] = useState("");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [online, setOnline] = useState(true);
   const [query, setQuery] = useState("");
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([]);
@@ -350,6 +374,17 @@ export function AppShell({
   }, []);
 
   useEffect(() => {
+    const updateConnection = () => setOnline(window.navigator.onLine);
+    updateConnection();
+    window.addEventListener("online", updateConnection);
+    window.addEventListener("offline", updateConnection);
+    return () => {
+      window.removeEventListener("online", updateConnection);
+      window.removeEventListener("offline", updateConnection);
+    };
+  }, []);
+
+  useEffect(() => {
     apiRequest<{
       user: SessionUser;
       workspaces?: WorkspaceSummary[];
@@ -394,11 +429,11 @@ export function AppShell({
   const visibleItems = useMemo(
     () => {
       if (!sessionUser || !currentWorkspace) {
-        return navigationItems.filter(
+        return applicationNavigationItems.filter(
           (item) => (item.access ?? "all") === "all"
         );
       }
-      return filterNavigationItems({
+      return filterApplicationNavigation({
         workspaceRole: currentWorkspace.role as SharedWorkspaceRole,
         siteRole: sessionUser.role
       });
@@ -420,7 +455,7 @@ export function AppShell({
   const changeWorkspace = (workspace: WorkspaceSummary) => {
     if (workspace.id === currentWorkspace?.id) return;
     const nextItems = sessionUser
-      ? filterNavigationItems({
+      ? filterApplicationNavigation({
           workspaceRole: workspace.role as SharedWorkspaceRole,
           siteRole: sessionUser.role
         })
@@ -444,7 +479,7 @@ export function AppShell({
 
   return (
     <Tooltip.Provider delayDuration={350}>
-      <div className="app-shell">
+      <div className={cn("app-shell", !online && "app-shell--offline")}>
         <aside className="sidebar">
           <div className="sidebar__brand">
             <Brand />
@@ -736,6 +771,14 @@ export function AppShell({
             </DropdownMenu.Root>
           </div>
         </header>
+
+        {!online && (
+          <div aria-live="polite" className="offline-banner" role="status">
+            <WifiOff aria-hidden="true" size={16} />
+            <strong>当前处于离线状态</strong>
+            <span>浏览器恢复联网后，请重新提交尚未完成的操作。</span>
+          </div>
+        )}
 
         <div className="app-content">
           {currentWorkspace ? (

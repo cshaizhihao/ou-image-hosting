@@ -6,7 +6,10 @@ import {
   BellRing,
   Fingerprint,
   FolderCog,
+  Globe2,
+  ImageDown,
   KeyRound,
+  Languages,
   Laptop,
   LoaderCircle,
   LockKeyhole,
@@ -15,6 +18,7 @@ import {
   RefreshCw,
   Save,
   ShieldCheck,
+  SlidersHorizontal,
   Smartphone,
   Trash2,
   UserRound,
@@ -44,6 +48,14 @@ import {
 } from "@/lib/admin-api";
 import { ApiError, applyTheme } from "@/lib/api";
 import {
+  getSiteSettings,
+  getWorkspaceConfiguration,
+  updateSiteSettings,
+  updateWorkspaceConfiguration,
+  type SiteSettingsData,
+  type WorkspaceConfiguration
+} from "@/lib/operations-api";
+import {
   AccessDenied,
   ConfirmActionDialog,
   LoadingPanel,
@@ -62,7 +74,8 @@ type SettingsSection =
   | "security"
   | "notifications"
   | "sessions"
-  | "workspace";
+  | "workspace"
+  | "configuration";
 
 const settingsSections: Array<{
   id: SettingsSection;
@@ -73,8 +86,12 @@ const settingsSections: Array<{
   { id: "security", label: "安全与 2FA", icon: ShieldCheck },
   { id: "notifications", label: "通知", icon: BellRing },
   { id: "sessions", label: "活跃会话", icon: MonitorSmartphone },
-  { id: "workspace", label: "工作区", icon: Users }
+  { id: "workspace", label: "工作区", icon: Users },
+  { id: "configuration", label: "站点与处理", icon: SlidersHorizontal }
 ];
+
+const supportedFormats = ["jpeg", "png", "webp", "gif", "avif"];
+const bytesPerMb = 1024 * 1024;
 
 const notificationCategories: Array<{
   key: "security" | "collaboration" | "system";
@@ -114,6 +131,11 @@ export function SettingsConsole() {
     useState<NotificationPreferences | null>(null);
   const [sessions, setSessions] = useState<ActiveSession[]>([]);
   const [workspace, setWorkspace] = useState<WorkspaceSettings | null>(null);
+  const [siteSettings, setSiteSettings] =
+    useState<SiteSettingsData | null>(null);
+  const [workspaceConfiguration, setWorkspaceConfiguration] =
+    useState<WorkspaceConfiguration | null>(null);
+  const [configurationError, setConfigurationError] = useState("");
   const [loading, setLoading] = useState(true);
   const [denied, setDenied] = useState(false);
   const [busy, setBusy] = useState("");
@@ -154,6 +176,31 @@ export function SettingsConsole() {
       setTheme(payload.profile.theme);
       setWorkspaceName(payload.workspace.name);
       setWorkspaceDescription(payload.workspace.description ?? "");
+      const [workspaceConfigurationResult, siteSettingsResult] =
+        await Promise.allSettled([
+          getWorkspaceConfiguration(),
+          payload.profile.siteRole === "owner"
+            ? getSiteSettings()
+            : Promise.resolve(null)
+        ]);
+      if (workspaceConfigurationResult.status === "fulfilled") {
+        setWorkspaceConfiguration(workspaceConfigurationResult.value);
+        setConfigurationError("");
+      } else {
+        setConfigurationError(
+          requestMessage(
+            workspaceConfigurationResult.reason,
+            "工作区运行设置加载失败"
+          )
+        );
+      }
+      if (siteSettingsResult.status === "fulfilled") {
+        setSiteSettings(siteSettingsResult.value);
+      } else {
+        setConfigurationError(
+          requestMessage(siteSettingsResult.reason, "站点设置加载失败")
+        );
+      }
       setDenied(false);
     } catch (requestError) {
       if (requestError instanceof ApiError && requestError.status === 403) {
@@ -174,6 +221,8 @@ export function SettingsConsole() {
     () => sessions.filter((session) => !session.current),
     [sessions]
   );
+  const canManageWorkspaceConfiguration =
+    workspace?.role === "owner" || workspace?.role === "admin";
 
   const saveNotifications = async () => {
     if (!notificationPreferences) return;
@@ -361,6 +410,45 @@ export function SettingsConsole() {
     }
   };
 
+  const saveSiteConfiguration = async () => {
+    if (!siteSettings || profile?.siteRole !== "owner") return;
+    setBusy("site-configuration");
+    setError("");
+    try {
+      setSiteSettings(await updateSiteSettings(siteSettings));
+      setNotice("站点公开设置已保存。");
+    } catch (requestError) {
+      setError(requestMessage(requestError, "站点设置保存失败"));
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const saveWorkspaceConfiguration = async () => {
+    if (
+      !workspaceConfiguration ||
+      (workspace?.role !== "owner" && workspace?.role !== "admin")
+    ) {
+      return;
+    }
+    const {
+      effectiveUploadMaxBytes: _effectiveUploadMaxBytes,
+      ...editableSettings
+    } = workspaceConfiguration;
+    setBusy("workspace-configuration");
+    setError("");
+    try {
+      setWorkspaceConfiguration(
+        await updateWorkspaceConfiguration(editableSettings)
+      );
+      setNotice("上传、处理与界面默认设置已保存。");
+    } catch (requestError) {
+      setError(requestMessage(requestError, "工作区运行设置保存失败"));
+    } finally {
+      setBusy("");
+    }
+  };
+
   const closeTwoFactor = (open: boolean) => {
     setTwoFactorOpen(open);
     if (!open) {
@@ -393,6 +481,14 @@ export function SettingsConsole() {
       {error && (
         <ManagementNotice onClose={() => setError("")} tone="error">
           {error}
+        </ManagementNotice>
+      )}
+      {configurationError && (
+        <ManagementNotice
+          onClose={() => setConfigurationError("")}
+          tone="error"
+        >
+          {configurationError}
         </ManagementNotice>
       )}
 
@@ -914,6 +1010,405 @@ export function SettingsConsole() {
                     <Button asChild size="compact" variant="secondary">
                       <Link href="/storage">打开存储设置</Link>
                     </Button>
+                  </section>
+                )}
+              </>
+            )}
+
+            {section === "configuration" && (
+              <>
+                {profile?.siteRole === "owner" && siteSettings && (
+                  <section className={styles.settingsCard}>
+                    <div className={styles.settingsCardHead}>
+                      <div>
+                        <strong>站点公开信息</strong>
+                        <span>仅站点 Owner 可读取和修改实例级设置。</span>
+                      </div>
+                      <Globe2 aria-hidden="true" size={19} />
+                    </div>
+                    <div className={styles.formGrid}>
+                      <label className={styles.field}>
+                        <span><strong>站点名称</strong></span>
+                        <input
+                          className={styles.input}
+                          onChange={(event) =>
+                            setSiteSettings((current) =>
+                              current
+                                ? { ...current, siteName: event.target.value }
+                                : current
+                            )
+                          }
+                          value={siteSettings.siteName}
+                        />
+                      </label>
+                      <label className={cn(styles.field, styles.spanFull)}>
+                        <span>
+                          <strong>站点描述</strong>
+                          <small>用于登录页、分享页和站点元信息。</small>
+                        </span>
+                        <textarea
+                          className={styles.textarea}
+                          onChange={(event) =>
+                            setSiteSettings((current) =>
+                              current
+                                ? {
+                                    ...current,
+                                    siteDescription: event.target.value
+                                  }
+                                : current
+                            )
+                          }
+                          value={siteSettings.siteDescription}
+                        />
+                      </label>
+                    </div>
+                    <div className={styles.preferenceRow}>
+                      <div>
+                        <strong>开放注册</strong>
+                        <span>允许新用户从公开入口创建账号。</span>
+                      </div>
+                      <button
+                        aria-label={
+                          siteSettings.registrationEnabled
+                            ? "关闭开放注册"
+                            : "开启开放注册"
+                        }
+                        aria-pressed={siteSettings.registrationEnabled}
+                        className={cn(
+                          styles.preferenceSwitch,
+                          siteSettings.registrationEnabled &&
+                            styles.preferenceSwitchActive
+                        )}
+                        onClick={() =>
+                          setSiteSettings((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  registrationEnabled:
+                                    !current.registrationEnabled
+                                }
+                              : current
+                          )
+                        }
+                        type="button"
+                      >
+                        <span />
+                      </button>
+                    </div>
+                    <div className={styles.cardActions}>
+                      <Button
+                        disabled={
+                          busy === "site-configuration" ||
+                          !siteSettings.siteName.trim()
+                        }
+                        onClick={() => void saveSiteConfiguration()}
+                      >
+                        {busy === "site-configuration" ? (
+                          <LoaderCircle className={styles.spin} size={16} />
+                        ) : (
+                          <Save aria-hidden="true" size={16} />
+                        )}
+                        保存站点设置
+                      </Button>
+                    </div>
+                  </section>
+                )}
+
+                {workspaceConfiguration ? (
+                  <>
+                    <section className={styles.settingsCard}>
+                      <div className={styles.settingsCardHead}>
+                        <div>
+                          <strong>上传规则</strong>
+                          <span>配置工作区上限，并明确显示服务端真实生效值。</span>
+                        </div>
+                        <ImageDown aria-hidden="true" size={19} />
+                      </div>
+                      <div className={styles.formGrid}>
+                        <label className={styles.field}>
+                          <span>
+                            <strong>配置上限（MB）</strong>
+                            <small>前端以 MB 编辑，提交时转换为 bytes。</small>
+                          </span>
+                          <input
+                            className={styles.input}
+                            disabled={!canManageWorkspaceConfiguration}
+                            min={1}
+                            onChange={(event) =>
+                              setWorkspaceConfiguration((current) =>
+                                current
+                                  ? {
+                                      ...current,
+                                      uploadMaxBytes:
+                                        Math.max(
+                                          1,
+                                          Number(event.target.value) || 1
+                                        ) * bytesPerMb
+                                    }
+                                  : current
+                              )
+                            }
+                            step={1}
+                            type="number"
+                            value={
+                              workspaceConfiguration.uploadMaxBytes / bytesPerMb
+                            }
+                          />
+                        </label>
+                        <label className={styles.field}>
+                          <span>
+                            <strong>实际生效上限（MB）</strong>
+                            <small>可能受反向代理或实例策略限制。</small>
+                          </span>
+                          <input
+                            className={styles.input}
+                            disabled
+                            value={(
+                              workspaceConfiguration.effectiveUploadMaxBytes /
+                              bytesPerMb
+                            ).toFixed(0)}
+                          />
+                        </label>
+                        <div className={cn(styles.field, styles.spanFull)}>
+                          <span>
+                            <strong>允许格式</strong>
+                            <small>至少保留一种格式。</small>
+                          </span>
+                          <div className={styles.themeChoices}>
+                            {supportedFormats.map((format) => {
+                              const selected =
+                                workspaceConfiguration.allowedFormats.includes(
+                                  format
+                                );
+                              return (
+                                <button
+                                  aria-pressed={selected}
+                                  className={cn(
+                                    selected && styles.themeChoiceActive
+                                  )}
+                                  disabled={
+                                    !canManageWorkspaceConfiguration ||
+                                    (selected &&
+                                      workspaceConfiguration.allowedFormats
+                                        .length === 1)
+                                  }
+                                  key={format}
+                                  onClick={() =>
+                                    setWorkspaceConfiguration((current) =>
+                                      current
+                                        ? {
+                                            ...current,
+                                            allowedFormats: selected
+                                              ? current.allowedFormats.filter(
+                                                  (item) => item !== format
+                                                )
+                                              : [
+                                                  ...current.allowedFormats,
+                                                  format
+                                                ]
+                                          }
+                                        : current
+                                    )
+                                  }
+                                  type="button"
+                                >
+                                  {format.toUpperCase()}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    </section>
+
+                    <section className={styles.settingsCard}>
+                      <div className={styles.settingsCardHead}>
+                        <div>
+                          <strong>图片处理</strong>
+                          <span>只展示后端当前真实支持的质量和缩略图宽度。</span>
+                        </div>
+                        <SlidersHorizontal aria-hidden="true" size={19} />
+                      </div>
+                      <div className={styles.formGrid}>
+                        <label className={styles.field}>
+                          <span><strong>处理质量</strong></span>
+                          <input
+                            className={styles.input}
+                            disabled={!canManageWorkspaceConfiguration}
+                            max={100}
+                            min={1}
+                            onChange={(event) =>
+                              setWorkspaceConfiguration((current) =>
+                                current
+                                  ? {
+                                      ...current,
+                                      processingQuality: Number(
+                                        event.target.value
+                                      )
+                                    }
+                                  : current
+                              )
+                            }
+                            type="number"
+                            value={workspaceConfiguration.processingQuality}
+                          />
+                        </label>
+                        <label className={styles.field}>
+                          <span><strong>缩略图宽度（px）</strong></span>
+                          <input
+                            className={styles.input}
+                            disabled={!canManageWorkspaceConfiguration}
+                            max={4096}
+                            min={64}
+                            onChange={(event) =>
+                              setWorkspaceConfiguration((current) =>
+                                current
+                                  ? {
+                                      ...current,
+                                      thumbnailWidth: Number(event.target.value)
+                                    }
+                                  : current
+                              )
+                            }
+                            type="number"
+                            value={workspaceConfiguration.thumbnailWidth}
+                          />
+                        </label>
+                      </div>
+                    </section>
+
+                    <section className={styles.settingsCard}>
+                      <div className={styles.settingsCardHead}>
+                        <div>
+                          <strong>本地化与外观</strong>
+                          <span>设置统计日期边界、默认语言与新会话主题。</span>
+                        </div>
+                        <Languages aria-hidden="true" size={19} />
+                      </div>
+                      <div className={styles.formGrid}>
+                        <label className={styles.field}>
+                          <span><strong>语言</strong></span>
+                          <select
+                            className={styles.select}
+                            disabled={!canManageWorkspaceConfiguration}
+                            onChange={(event) =>
+                              setWorkspaceConfiguration((current) =>
+                                current
+                                  ? {
+                                      ...current,
+                                      locale: event.target.value as
+                                        | "zh-CN"
+                                        | "en-US"
+                                    }
+                                  : current
+                              )
+                            }
+                            value={workspaceConfiguration.locale}
+                          >
+                            <option value="zh-CN">简体中文</option>
+                            <option value="en-US">English</option>
+                          </select>
+                        </label>
+                        <label className={styles.field}>
+                          <span>
+                            <strong>时区</strong>
+                            <small>IANA 时区，例如 Asia/Shanghai。</small>
+                          </span>
+                          <input
+                            className={styles.input}
+                            disabled={!canManageWorkspaceConfiguration}
+                            onChange={(event) =>
+                              setWorkspaceConfiguration((current) =>
+                                current
+                                  ? {
+                                      ...current,
+                                      timezone: event.target.value
+                                    }
+                                  : current
+                              )
+                            }
+                            value={workspaceConfiguration.timezone}
+                          />
+                        </label>
+                        <div className={cn(styles.field, styles.spanFull)}>
+                          <span><strong>默认外观</strong></span>
+                          <div className={styles.themeChoices}>
+                            {(["light", "dark", "system"] as const).map(
+                              (appearance) => (
+                                <button
+                                  aria-pressed={
+                                    workspaceConfiguration.defaultAppearance ===
+                                    appearance
+                                  }
+                                  className={cn(
+                                    workspaceConfiguration.defaultAppearance ===
+                                      appearance &&
+                                      styles.themeChoiceActive
+                                  )}
+                                  disabled={!canManageWorkspaceConfiguration}
+                                  key={appearance}
+                                  onClick={() =>
+                                    setWorkspaceConfiguration((current) =>
+                                      current
+                                        ? {
+                                            ...current,
+                                            defaultAppearance: appearance
+                                          }
+                                        : current
+                                    )
+                                  }
+                                  type="button"
+                                >
+                                  <Palette aria-hidden="true" size={16} />
+                                  {appearance === "light"
+                                    ? "浅色"
+                                    : appearance === "dark"
+                                      ? "深色"
+                                      : "跟随系统"}
+                                </button>
+                              )
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      {canManageWorkspaceConfiguration ? (
+                        <div className={styles.cardActions}>
+                          <Button
+                            disabled={
+                              busy === "workspace-configuration" ||
+                              !workspaceConfiguration.timezone.trim()
+                            }
+                            onClick={() =>
+                              void saveWorkspaceConfiguration()
+                            }
+                          >
+                            {busy === "workspace-configuration" ? (
+                              <LoaderCircle
+                                className={styles.spin}
+                                size={16}
+                              />
+                            ) : (
+                              <Save aria-hidden="true" size={16} />
+                            )}
+                            保存工作区运行设置
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className={styles.storageEntry}>
+                          <span>
+                            <LockKeyhole aria-hidden="true" size={20} />
+                          </span>
+                          <div>
+                            <strong>当前为只读</strong>
+                            <p>仅工作区 Admin 或 Owner 可以保存这些设置。</p>
+                          </div>
+                        </div>
+                      )}
+                    </section>
+                  </>
+                ) : (
+                  <section className={styles.settingsCard}>
+                    <LoadingPanel label="工作区运行设置不可用" />
                   </section>
                 )}
               </>

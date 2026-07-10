@@ -25,6 +25,7 @@ import { registerImageDetailRoutes } from "./image-details.js";
 import { registerOrganizationRoutes } from "./organization.js";
 import {
   calculateImageStorageBytes,
+  defaultWorkspaceSettings,
   type AppState,
   type AppStore,
   type StoredImage,
@@ -34,7 +35,7 @@ import {
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
 const MAX_REMOTE_SIZE = 20 * 1024 * 1024;
 const MAX_PIXELS = 80_000_000;
-const allowedFormats = new Set(["jpeg", "png", "webp", "gif", "avif"]);
+const supportedFormats = new Set(["jpeg", "png", "webp", "gif", "avif"]);
 const extensionByFormat = {
   jpeg: "jpg",
   png: "png",
@@ -56,6 +57,18 @@ type UploadRouteOptions = {
   now: () => Date;
   authenticate: (request: FastifyRequest) => Principal;
 };
+
+function workspaceDate(timestamp: Date, timezone: string) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(timestamp);
+  const value = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((part) => part.type === type)?.value ?? "";
+  return `${value("year")}-${value("month")}-${value("day")}`;
+}
 
 type UrlUploadBody = { url: string };
 type UploadQuery = {
@@ -173,7 +186,7 @@ async function assertRemoteUrl(rawUrl: string) {
   return url;
 }
 
-async function readRemoteImage(rawUrl: string) {
+async function readRemoteImage(rawUrl: string, maximumBytes: number) {
   const url = await assertRemoteUrl(rawUrl);
   let response: Response;
   try {
@@ -182,7 +195,7 @@ async function readRemoteImage(rawUrl: string) {
       signal: AbortSignal.timeout(10_000),
       headers: {
         accept: "image/avif,image/webp,image/png,image/jpeg,image/gif",
-        "user-agent": "OU-Image-Hosting/0.9.0"
+        "user-agent": "OU-Image-Hosting/1.0.0-rc.1"
       }
     });
   } catch {
@@ -192,8 +205,8 @@ async function readRemoteImage(rawUrl: string) {
     throw new PublicError(400, "REMOTE_FETCH_FAILED", "远程图片响应不可用");
   }
   const declaredLength = Number(response.headers.get("content-length") ?? 0);
-  if (declaredLength > MAX_REMOTE_SIZE) {
-    throw new PublicError(413, "FILE_TOO_LARGE", "图片不能超过 20 MB");
+  if (declaredLength > maximumBytes) {
+    throw new PublicError(413, "FILE_TOO_LARGE", "图片超过工作区上传上限");
   }
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -202,9 +215,9 @@ async function readRemoteImage(rawUrl: string) {
     const { done, value } = await reader.read();
     if (done) break;
     total += value.byteLength;
-    if (total > MAX_REMOTE_SIZE) {
+    if (total > maximumBytes) {
       await reader.cancel();
-      throw new PublicError(413, "FILE_TOO_LARGE", "图片不能超过 20 MB");
+      throw new PublicError(413, "FILE_TOO_LARGE", "图片超过工作区上传上限");
     }
     chunks.push(value);
   }
@@ -250,11 +263,17 @@ export async function registerUploadRoutes(
     mime: string;
     principal: Principal;
   }) => {
+    const state = store.snapshot();
+    const settings =
+      state.workspaceSettings.find(
+        (item) => item.workspaceId === principal.workspaceId
+      ) ?? defaultWorkspaceSettings(principal.workspaceId);
+    const effectiveMaximum = Math.min(MAX_FILE_SIZE, settings.uploadMaxBytes);
     if (buffer.byteLength === 0) {
       throw new PublicError(400, "EMPTY_FILE", "图片文件不能为空");
     }
-    if (buffer.byteLength > MAX_FILE_SIZE) {
-      throw new PublicError(413, "FILE_TOO_LARGE", "图片不能超过 20 MB");
+    if (buffer.byteLength > effectiveMaximum) {
+      throw new PublicError(413, "FILE_TOO_LARGE", "图片超过工作区上传上限");
     }
 
     let metadata: sharp.Metadata;
@@ -273,7 +292,7 @@ export async function registerUploadRoutes(
     const height = metadata.height;
     if (
       !format ||
-      !allowedFormats.has(format) ||
+      !supportedFormats.has(format) ||
       !width ||
       !height
     ) {
@@ -281,6 +300,15 @@ export async function registerUploadRoutes(
         415,
         "UNSUPPORTED_IMAGE",
         "仅支持 JPG、PNG、WebP、GIF 和 AVIF"
+      );
+    }
+
+    const typedFormat = format as StoredImage["format"];
+    if (!settings.allowedFormats.includes(typedFormat)) {
+      throw new PublicError(
+        415,
+        "FORMAT_NOT_ALLOWED",
+        "该图片格式未被当前工作区允许"
       );
     }
 
@@ -315,7 +343,6 @@ export async function registerUploadRoutes(
       throw new PublicError(413, "QUOTA_EXCEEDED", "存储空间不足");
     }
 
-    const typedFormat = format as StoredImage["format"];
     const id = randomUUID();
     const originalKey = `originals/${sha256}.${extensionByFormat[typedFormat]}`;
     const thumbnailKey = `thumbnails/${id}.webp`;
@@ -329,12 +356,12 @@ export async function registerUploadRoutes(
     })
       .rotate()
       .resize({
-        width: 640,
-        height: 640,
+        width: settings.thumbnailWidth,
+        height: settings.thumbnailWidth,
         fit: "inside",
         withoutEnlargement: true
       })
-      .webp({ quality: 82, effort: 3 })
+      .webp({ quality: settings.processingQuality, effort: 3 })
       .toBuffer();
 
     await Promise.all([
@@ -342,7 +369,8 @@ export async function registerUploadRoutes(
       writeFile(thumbnailPath, thumbnail, { mode: 0o600 })
     ]);
 
-    const timestamp = now().toISOString();
+    const createdAt = now();
+    const timestamp = createdAt.toISOString();
     const originalVersion: StoredImageVersion = {
       id: randomUUID(),
       operation: "original",
@@ -380,6 +408,36 @@ export async function registerUploadRoutes(
     };
     await store.update((state) => {
       state.images.push(image);
+      const date = workspaceDate(createdAt, settings.timezone);
+      let daily = state.analyticsDaily.find(
+        (item) =>
+          item.workspaceId === principal.workspaceId && item.date === date
+      );
+      if (!daily) {
+        daily = {
+          workspaceId: principal.workspaceId,
+          date,
+          uploads: 0,
+          uploadedLogicalBytes: 0,
+          shareViews: 0,
+          imageShareViews: {}
+        };
+        state.analyticsDaily.push(daily);
+      }
+      daily.uploads += 1;
+      daily.uploadedLogicalBytes += image.size;
+      const retainedDates = new Set(
+        state.analyticsDaily
+          .filter((item) => item.workspaceId === principal.workspaceId)
+          .map((item) => item.date)
+          .sort((a, b) => b.localeCompare(a))
+          .slice(0, 400)
+      );
+      state.analyticsDaily = state.analyticsDaily.filter(
+        (item) =>
+          item.workspaceId !== principal.workspaceId ||
+          retainedDates.has(item.date)
+      );
     });
     return {
       image: publicImage(
@@ -573,7 +631,16 @@ export async function registerUploadRoutes(
     async (request, reply) => {
       const principal = authenticate(request);
       requireCapability(principal, "write", ["images:write"]);
-      const remote = await readRemoteImage(request.body.url);
+      const settings =
+        store
+          .snapshot()
+          .workspaceSettings.find(
+            (item) => item.workspaceId === principal.workspaceId
+          ) ?? defaultWorkspaceSettings(principal.workspaceId);
+      const remote = await readRemoteImage(
+        request.body.url,
+        Math.min(MAX_REMOTE_SIZE, settings.uploadMaxBytes)
+      );
       const result = await ingest({
         ...remote,
         principal

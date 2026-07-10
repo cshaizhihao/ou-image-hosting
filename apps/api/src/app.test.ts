@@ -4,6 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 import {
   access,
   mkdtemp,
+  readdir,
   readFile,
   rm,
   unlink,
@@ -123,7 +124,10 @@ describe("OU-Image API", () => {
     const status = await app.inject({ method: "GET", url: "/setup/status" });
 
     expect(health.statusCode).toBe(200);
-    expect(health.json()).toMatchObject({ status: "ok", version: "0.9.0" });
+    expect(health.json()).toMatchObject({
+      status: "ok",
+      version: "1.0.0-rc.1"
+    });
     expect(status.json()).toEqual({ setupComplete: false, site: null });
   });
 
@@ -466,7 +470,7 @@ describe("OU-Image API", () => {
     expect(summary.json().count).toBe(1);
   });
 
-  it("migrates schema v4 into workspace schema v6", async () => {
+  it("migrates schema v4 into workspace schema v7", async () => {
     const dataDirectory = await mkdtemp(
       path.join(tmpdir(), "ou-image-store-migration-")
     );
@@ -525,7 +529,7 @@ describe("OU-Image API", () => {
     const store = new AppStore(filePath);
     await store.initialize();
     const state = store.snapshot();
-    expect(state.schemaVersion).toBe(6);
+    expect(state.schemaVersion).toBe(7);
     expect(state.imageShares).toEqual([]);
     expect(state.albums).toEqual([]);
     expect(state.tags).toEqual([]);
@@ -1865,7 +1869,7 @@ describe("OU-Image API", () => {
     );
     expect(envelope).toMatchObject({
       format: "ou-image-backup-v1",
-      state: { schemaVersion: 6 }
+      state: { schemaVersion: 7 }
     });
     expect(envelope.manifest.files).toHaveLength(2);
 
@@ -2393,6 +2397,941 @@ describe("OU-Image API", () => {
     expect(serialized).not.toContain(acceptedInvite.json().token);
     expect(serialized).not.toContain(alphaToken.json().value);
     expect(serialized).not.toContain(owner.password);
+  });
+
+  it("persists workspace and site settings and enforces upload processing controls", async () => {
+    const store = new AppStore(null);
+    const app = await createTestApp({ store });
+    const setup = await app.inject({
+      method: "POST",
+      url: "/setup",
+      payload: owner
+    });
+    const cookie = setup.cookies.find(
+      (item) => item.name === "ou_session"
+    )!.value;
+    const workspaceId = `personal-${store.snapshot().users[0]!.id}`;
+    const updated = await app.inject({
+      method: "PATCH",
+      url: "/workspace/settings",
+      cookies: { ou_session: cookie },
+      payload: {
+        uploadMaxBytes: 1024 * 1024,
+        allowedFormats: ["jpeg"],
+        processingQuality: 35,
+        thumbnailWidth: 64,
+        timezone: "UTC",
+        locale: "en-US",
+        defaultAppearance: "dark"
+      }
+    });
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json().settings).toEqual({
+      uploadMaxBytes: 1024 * 1024,
+      allowedFormats: ["jpeg"],
+      processingQuality: 35,
+      thumbnailWidth: 64,
+      timezone: "UTC",
+      locale: "en-US",
+      defaultAppearance: "dark",
+      effectiveUploadMaxBytes: 1024 * 1024
+    });
+
+    const tooLarge = new FormData();
+    tooLarge.append("file", Buffer.alloc(1024 * 1024 + 1), {
+      filename: "too-large.png",
+      contentType: "image/png"
+    });
+    const rejectedSize = await app.inject({
+      method: "POST",
+      url: "/uploads",
+      headers: tooLarge.getHeaders(),
+      cookies: { ou_session: cookie },
+      payload: tooLarge.getBuffer()
+    });
+    expect(rejectedSize.statusCode).toBe(413);
+    expect(rejectedSize.json().error.code).toBe("FILE_TOO_LARGE");
+
+    const png = await sharp({
+      create: {
+        width: 32,
+        height: 32,
+        channels: 3,
+        background: "#225588"
+      }
+    })
+      .png()
+      .toBuffer();
+    const pngForm = new FormData();
+    pngForm.append("file", png, {
+      filename: "blocked.png",
+      contentType: "image/png"
+    });
+    const rejectedFormat = await app.inject({
+      method: "POST",
+      url: "/uploads",
+      headers: pngForm.getHeaders(),
+      cookies: { ou_session: cookie },
+      payload: pngForm.getBuffer()
+    });
+    expect(rejectedFormat.statusCode).toBe(415);
+    expect(rejectedFormat.json().error.code).toBe("FORMAT_NOT_ALLOWED");
+
+    const jpeg = await sharp({
+      create: {
+        width: 200,
+        height: 100,
+        channels: 3,
+        background: "#884422"
+      }
+    })
+      .jpeg()
+      .toBuffer();
+    const jpegForm = new FormData();
+    jpegForm.append("file", jpeg, {
+      filename: "allowed.jpg",
+      contentType: "image/jpeg"
+    });
+    const accepted = await app.inject({
+      method: "POST",
+      url: "/uploads",
+      headers: jpegForm.getHeaders(),
+      cookies: { ou_session: cookie },
+      payload: jpegForm.getBuffer()
+    });
+    expect(accepted.statusCode).toBe(201);
+    const thumbnail = await app.inject({
+      method: "GET",
+      url: `/files/${accepted.json().image.id}/thumbnail`
+    });
+    expect((await sharp(thumbnail.rawPayload).metadata()).width).toBe(64);
+
+    const viewerId = randomUUID();
+    await store.update((state) => {
+      state.users.push({
+        id: viewerId,
+        email: "settings-viewer@example.com",
+        displayName: "Settings Viewer",
+        passwordHash: "unused",
+        role: "member",
+        theme: "system",
+        onboardingCompleted: true,
+        failedLoginCount: 0,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+      state.workspaceMembers.push({
+        id: randomUUID(),
+        workspaceId,
+        userId: viewerId,
+        role: "viewer",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+      state.sessions.push({
+        id: randomUUID(),
+        userId: viewerId,
+        tokenHash: hashOpaqueToken("settings-viewer-session"),
+        createdAt: new Date().toISOString(),
+        lastSeenAt: new Date().toISOString(),
+        expiresAt: "2030-01-01T00:00:00.000Z"
+      });
+    });
+    const viewerRead = await app.inject({
+      method: "GET",
+      url: "/workspace/settings",
+      headers: { "x-workspace-id": workspaceId },
+      cookies: { ou_session: "settings-viewer-session" }
+    });
+    const viewerWrite = await app.inject({
+      method: "PATCH",
+      url: "/workspace/settings",
+      headers: { "x-workspace-id": workspaceId },
+      cookies: { ou_session: "settings-viewer-session" },
+      payload: { locale: "zh-CN" }
+    });
+    expect(viewerRead.statusCode).toBe(200);
+    expect(viewerWrite.statusCode).toBe(403);
+
+    const site = await app.inject({
+      method: "PATCH",
+      url: "/site/settings",
+      cookies: { ou_session: cookie },
+      payload: {
+        siteName: "OU Gallery",
+        siteDescription: "A private image service",
+        registrationEnabled: true
+      }
+    });
+    expect(site.json().settings).toEqual({
+      siteName: "OU Gallery",
+      siteDescription: "A private image service",
+      registrationEnabled: true
+    });
+    const viewerSite = await app.inject({
+      method: "GET",
+      url: "/site/settings",
+      headers: { "x-workspace-id": workspaceId },
+      cookies: { ou_session: "settings-viewer-session" }
+    });
+    expect(viewerSite.statusCode).toBe(403);
+  });
+
+  it("returns workspace-isolated analytics from real uploads and daily share aggregates", async () => {
+    const timestamp = new Date("2026-07-11T12:00:00.000Z");
+    const store = new AppStore(null);
+    const app = await createTestApp({ store, now: () => timestamp });
+    const setup = await app.inject({
+      method: "POST",
+      url: "/setup",
+      payload: owner
+    });
+    const cookie = setup.cookies.find(
+      (item) => item.name === "ou_session"
+    )!.value;
+    const workspaceId = `personal-${store.snapshot().users[0]!.id}`;
+    const png = await sharp({
+      create: {
+        width: 20,
+        height: 10,
+        channels: 3,
+        background: "#116699"
+      }
+    })
+      .png()
+      .toBuffer();
+    const form = new FormData();
+    form.append("file", png, {
+      filename: "analytics.png",
+      contentType: "image/png"
+    });
+    const upload = await app.inject({
+      method: "POST",
+      url: "/uploads",
+      headers: form.getHeaders(),
+      cookies: { ou_session: cookie },
+      payload: form.getBuffer()
+    });
+    const imageId = upload.json().image.id as string;
+    const duplicateForm = new FormData();
+    duplicateForm.append("file", png, {
+      filename: "analytics-copy.png",
+      contentType: "image/png"
+    });
+    const duplicate = await app.inject({
+      method: "POST",
+      url: "/uploads",
+      headers: duplicateForm.getHeaders(),
+      cookies: { ou_session: cookie },
+      payload: duplicateForm.getBuffer()
+    });
+    expect(duplicate.statusCode).toBe(200);
+    expect(duplicate.json().duplicate).toBe(true);
+    const share = await app.inject({
+      method: "POST",
+      url: `/uploads/${imageId}/shares`,
+      cookies: { ou_session: cookie },
+      payload: {}
+    });
+    const shareId = share.json().share.id as string;
+    const shareToken = share.json().token as string;
+    await store.update((state) => {
+      state.imageShares.find((item) => item.id === shareId)!.accessCount = 3;
+      state.analyticsDaily.push({
+        workspaceId: "foreign-workspace",
+        date: "2026-07-11",
+        uploads: 99,
+        uploadedLogicalBytes: 99,
+        shareViews: 99,
+        imageShareViews: { foreign: 99 }
+      });
+    });
+    for (let index = 0; index < 2; index += 1) {
+      const accessed = await app.inject({
+        method: "POST",
+        url: `/shares/${shareToken}/access`,
+        payload: {}
+      });
+      expect(accessed.statusCode).toBe(200);
+    }
+    const analytics = await app.inject({
+      method: "GET",
+      url: "/analytics?range=7d",
+      cookies: { ou_session: cookie }
+    });
+    expect(analytics.statusCode).toBe(200);
+    expect(analytics.json().series).toHaveLength(7);
+    expect(analytics.json().summary).toMatchObject({
+      imageCount: 1,
+      uploadCount: 1,
+      shareViews: 2,
+      unattributedShareViews: 3
+    });
+    expect(
+      analytics.json().summary.deduplicatedOriginalBytes
+    ).toBeGreaterThan(0);
+    expect(analytics.json().series.at(-1)).toMatchObject({
+      date: "2026-07-11",
+      uploads: 1,
+      shareViews: 2
+    });
+    expect(analytics.json().formatDistribution).toEqual([
+      {
+        format: "png",
+        count: 1,
+        activeCurrentVersionBytes: png.byteLength
+      }
+    ]);
+    expect(analytics.json().topImages[0]).toMatchObject({
+      id: imageId,
+      shareViews: 2
+    });
+    expect(analytics.json().dataCoverage.shareViews).toMatchObject({
+      status: "partial",
+      unattributedCount: 3
+    });
+    expect(analytics.json().dataCoverage.uploads).toMatchObject({
+      status: "complete"
+    });
+    expect(
+      analytics.json().dataCoverage.shareViews.trackingStartedAt
+    ).toBeTruthy();
+    expect(
+      store.snapshot().analyticsDaily.filter(
+        (item) => item.workspaceId === workspaceId
+      )
+    ).toHaveLength(1);
+    expect(
+      store.snapshot().analyticsDaily.find(
+        (item) => item.workspaceId === workspaceId
+      )
+    ).toMatchObject({
+      uploads: 1,
+      uploadedLogicalBytes: png.byteLength
+    });
+
+    const converted = await app.inject({
+      method: "POST",
+      url: `/uploads/${imageId}/transform`,
+      cookies: { ou_session: cookie },
+      payload: {
+        action: "convert-format",
+        format: "webp",
+        quality: 70
+      }
+    });
+    expect(converted.statusCode).toBe(201);
+    const trashed = await app.inject({
+      method: "POST",
+      url: "/uploads/bulk",
+      cookies: { ou_session: cookie },
+      payload: { ids: [imageId], action: "trash" }
+    });
+    expect(trashed.json()).toEqual({ updated: 1 });
+    const immutable = await app.inject({
+      method: "GET",
+      url: "/analytics?range=7d",
+      cookies: { ou_session: cookie }
+    });
+    expect(immutable.json().summary).toMatchObject({
+      imageCount: 0,
+      uploadCount: 1
+    });
+    expect(immutable.json().series.at(-1)).toMatchObject({
+      uploads: 1,
+      uploadedLogicalBytes: png.byteLength
+    });
+    const restored = await app.inject({
+      method: "POST",
+      url: "/trash/bulk",
+      cookies: { ou_session: cookie },
+      payload: { ids: [imageId], action: "restore" }
+    });
+    expect(restored.json()).toEqual({ restored: 1 });
+    const afterRestore = await app.inject({
+      method: "GET",
+      url: "/analytics?range=7d",
+      cookies: { ou_session: cookie }
+    });
+    expect(afterRestore.json().summary).toMatchObject({
+      imageCount: 1,
+      uploadCount: 1
+    });
+    expect(afterRestore.json().series.at(-1)).toMatchObject({
+      uploads: 1,
+      uploadedLogicalBytes: png.byteLength
+    });
+
+    const analyticsToken = await app.inject({
+      method: "POST",
+      url: "/api-tokens",
+      cookies: { ou_session: cookie },
+      payload: { name: "analytics-only", scopes: ["analytics:read"] }
+    });
+    const tokenRead = await rawInject(app, {
+      method: "GET",
+      url: "/analytics?range=7d",
+      headers: {
+        authorization: `Bearer ${analyticsToken.json().value}`
+      }
+    });
+    expect(tokenRead.statusCode).toBe(200);
+    const imagesToken = await app.inject({
+      method: "POST",
+      url: "/api-tokens",
+      cookies: { ou_session: cookie },
+      payload: { name: "images-only-analytics", scopes: ["images:read"] }
+    });
+    const denied = await rawInject(app, {
+      method: "GET",
+      url: "/analytics?range=7d",
+      headers: { authorization: `Bearer ${imagesToken.json().value}` }
+    });
+    expect(denied.statusCode).toBe(403);
+    expect(denied.json().error.code).toBe("TOKEN_SCOPE_DENIED");
+  });
+
+  it("keeps system status reads pure and performs owner-only bounded checks", async () => {
+    let timestamp = new Date("2026-07-11T12:00:00.000Z");
+    let dataDirectory = "";
+    const store = new AppStore(null);
+    const app = await createTestApp({
+      store,
+      now: () => timestamp,
+      onDataDirectory: (value) => {
+        dataDirectory = value;
+      }
+    });
+    const setup = await app.inject({
+      method: "POST",
+      url: "/setup",
+      payload: owner
+    });
+    const cookie = setup.cookies.find(
+      (item) => item.name === "ou_session"
+    )!.value;
+    const beforeInitialRead = store.snapshot();
+    const initial = await app.inject({
+      method: "GET",
+      url: "/system/status",
+      cookies: { ou_session: cookie }
+    });
+    expect(initial.json()).toMatchObject({
+      checkedAt: null,
+      overall: "unknown"
+    });
+    expect(initial.json().services).toHaveLength(7);
+    expect(store.snapshot()).toEqual(beforeInitialRead);
+
+    const checked = await app.inject({
+      method: "POST",
+      url: "/system/status/check",
+      cookies: { ou_session: cookie }
+    });
+    expect(checked.statusCode).toBe(200);
+    expect(checked.json()).toMatchObject({
+      checkedAt: timestamp.toISOString(),
+      overall: "operational"
+    });
+    expect(
+      checked.json().services.find(
+        (service: { id: string }) => service.id === "metadata-store"
+      )
+    ).toMatchObject({
+      status: "operational",
+      mode: "single-process-json",
+      inUse: true,
+      checked: true,
+      detail: expect.stringContaining("持久化写入可用")
+    });
+    expect(
+      (await readdir(dataDirectory)).filter((name) =>
+        name.startsWith(".metadata-probe-")
+      )
+    ).toEqual([]);
+    for (const id of ["postgresql", "redis", "cdn"]) {
+      expect(
+        checked.json().services.find(
+          (service: { id: string }) => service.id === id
+        ).status
+      ).toBe("not-configured");
+    }
+    expect(JSON.stringify(checked.json())).not.toContain(dataDirectory);
+    const cooldown = await app.inject({
+      method: "POST",
+      url: "/system/status/check",
+      cookies: { ou_session: cookie }
+    });
+    expect(cooldown.statusCode).toBe(429);
+    timestamp = new Date(timestamp.getTime() + 6000);
+    const second = await app.inject({
+      method: "POST",
+      url: "/system/status/check",
+      cookies: { ou_session: cookie }
+    });
+    expect(second.statusCode).toBe(200);
+    expect(store.snapshot().systemStatusHistory).toHaveLength(2);
+    expect(
+      store
+        .snapshot()
+        .auditEvents.filter((event) =>
+          event.action.startsWith("system.status.")
+        )
+        .every((event) => event.workspaceId === undefined)
+    ).toBe(true);
+  });
+
+  it("derives global jobs from real records and retries failed backups once", async () => {
+    const timestamp = new Date("2026-07-11T12:00:00.000Z");
+    const store = new AppStore(null);
+    const app = await createTestApp({ store, now: () => timestamp });
+    const setup = await app.inject({
+      method: "POST",
+      url: "/setup",
+      payload: owner
+    });
+    const cookie = setup.cookies.find(
+      (item) => item.name === "ou_session"
+    )!.value;
+    await store.update((state) => {
+      state.backups.push({
+        id: "failed-backup",
+        status: "failed",
+        archiveKey: "backups/failed.oubackup.gz",
+        createdBy: state.users[0]!.id,
+        createdAt: "2026-07-11T11:00:00.000Z",
+        completedAt: "2026-07-11T11:00:01.000Z",
+        fileCount: 0,
+        error: "private raw failure"
+      });
+      state.storageMigrations.push({
+        id: "completed-migration",
+        source: "local",
+        target: "s3",
+        status: "completed",
+        total: 1,
+        completed: 1,
+        failed: 0,
+        createdBy: state.users[0]!.id,
+        createdAt: "2026-07-11T10:00:00.000Z",
+        completedAt: "2026-07-11T10:00:01.000Z"
+      });
+    });
+    const beforeJobsRead = store.snapshot();
+    const jobs = await app.inject({
+      method: "GET",
+      url: "/jobs",
+      cookies: { ou_session: cookie }
+    });
+    expect(store.snapshot()).toEqual(beforeJobsRead);
+    expect(jobs.statusCode).toBe(200);
+    expect(jobs.json().jobs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "failed-backup",
+          kind: "backup",
+          status: "failed",
+          retryable: true,
+          errorCode: "BACKUP_FAILED"
+        }),
+        expect.objectContaining({
+          id: "completed-migration",
+          kind: "storage-migration",
+          status: "completed",
+          retryable: false
+        })
+      ])
+    );
+    expect(JSON.stringify(jobs.json())).not.toContain("private raw failure");
+    const retries = await Promise.all([
+      app.inject({
+        method: "POST",
+        url: "/jobs/backup/failed-backup/retry",
+        cookies: { ou_session: cookie }
+      }),
+      app.inject({
+        method: "POST",
+        url: "/jobs/backup/failed-backup/retry",
+        cookies: { ou_session: cookie }
+      })
+    ]);
+    expect(retries.map((item) => item.statusCode).sort()).toEqual([
+      200,
+      409
+    ]);
+    const snapshot = store.snapshot();
+    expect(
+      snapshot.backups.find((item) => item.id === "failed-backup")
+        ?.retriedAt
+    ).toBe(timestamp.toISOString());
+    expect(snapshot.backups).toHaveLength(2);
+    expect(
+      snapshot.auditEvents.find((event) => event.action === "job.retry")
+        ?.workspaceId
+    ).toBeUndefined();
+    const completedRetry = await app.inject({
+      method: "POST",
+      url: "/jobs/storage-migration/completed-migration/retry",
+      cookies: { ou_session: cookie }
+    });
+    expect(completedRetry.statusCode).toBe(409);
+    expect(completedRetry.json().error.code).toBe("JOB_NOT_FAILED");
+  });
+
+  it("normalizes hostile schema v6 fields into bounded schema v7 state", async () => {
+    const directory = await mkdtemp(
+      path.join(tmpdir(), "ou-image-v7-migration-")
+    );
+    temporaryDirectories.push(directory);
+    const filePath = path.join(directory, "state.json");
+    const createdAt = "2026-01-01T00:00:00.000Z";
+    const validServices = [
+      {
+        id: "metadata-store",
+        label: "元数据存储",
+        status: "operational",
+        mode: "single-process-json",
+        inUse: true,
+        checked: true,
+        detail: "ok",
+        latencyMs: 1
+      },
+      {
+        id: "local-storage",
+        label: "本地存储",
+        status: "operational",
+        mode: "filesystem",
+        inUse: true,
+        checked: true,
+        detail: "ok",
+        latencyMs: 1
+      },
+      {
+        id: "image-processing",
+        label: "图片处理",
+        status: "operational",
+        mode: "sharp-in-process",
+        inUse: true,
+        checked: true,
+        detail: "ok",
+        latencyMs: 1
+      },
+      {
+        id: "queue",
+        label: "任务队列",
+        status: "operational",
+        mode: "inline-single-process",
+        inUse: true,
+        checked: true,
+        detail: "ok",
+        latencyMs: 0
+      },
+      {
+        id: "postgresql",
+        label: "PostgreSQL",
+        status: "not-configured",
+        mode: "external",
+        inUse: false,
+        checked: false,
+        detail: "未配置",
+        latencyMs: 0
+      },
+      {
+        id: "redis",
+        label: "Redis",
+        status: "not-configured",
+        mode: "external",
+        inUse: false,
+        checked: false,
+        detail: "未配置",
+        latencyMs: 0
+      },
+      {
+        id: "cdn",
+        label: "CDN",
+        status: "not-configured",
+        mode: "external",
+        inUse: false,
+        checked: false,
+        detail: "未配置",
+        latencyMs: 0
+      }
+    ];
+    await writeFile(
+      filePath,
+      JSON.stringify({
+        schemaVersion: 6,
+        setupComplete: true,
+        site: {
+          siteName: "x",
+          siteDescription: "d".repeat(800),
+          registrationEnabled: "yes",
+          defaultStorage: "local",
+          theme: "system"
+        },
+        users: [
+          {
+            id: "owner",
+            email: "owner@migration.example",
+            displayName: "Owner",
+            passwordHash: "unused",
+            role: "owner",
+            theme: "system",
+            onboardingCompleted: true,
+            failedLoginCount: 0,
+            createdAt,
+            updatedAt: createdAt
+          }
+        ],
+        workspaces: [
+          {
+            id: "workspace",
+            name: "Workspace",
+            description: "",
+            slug: "workspace",
+            personal: false,
+            ownerUserId: "owner",
+            createdAt,
+            updatedAt: createdAt
+          }
+        ],
+        workspaceMembers: [
+          {
+            id: "member",
+            workspaceId: "workspace",
+            userId: "owner",
+            role: "owner",
+            createdAt,
+            updatedAt: createdAt
+          }
+        ],
+        workspaceSettings: [
+          {
+            workspaceId: "workspace",
+            uploadMaxBytes: -1,
+            allowedFormats: ["png", "png", "exe"],
+            processingQuality: 999,
+            thumbnailWidth: 1,
+            timezone: "Mars/Olympus",
+            locale: "xx",
+            defaultAppearance: "neon",
+            updatedAt: createdAt
+          },
+          {
+            workspaceId: "orphan",
+            allowedFormats: ["png"]
+          }
+        ],
+        images: [
+          {
+            id: "image",
+            userId: "owner",
+            workspaceId: "workspace",
+            name: "image.png",
+            size: 10,
+            mime: "image/png",
+            format: "png",
+            width: 1,
+            height: 1,
+            sha256: "a".repeat(64),
+            originalKey: "originals/image.png",
+            thumbnailKey: "thumbnails/image.webp",
+            favorite: false,
+            favoriteUserIds: [],
+            albumIds: [],
+            tagIds: [],
+            createdAt,
+            updatedAt: createdAt
+          }
+        ],
+        backups: [
+          null,
+          42,
+          "invalid-backup",
+          {
+            id: "interrupted",
+            status: "running",
+            archiveKey: "backups/interrupted.gz",
+            createdBy: "owner",
+            createdAt,
+            fileCount: 0
+          },
+          {
+            id: "unsafe-backup",
+            status: "failed",
+            archiveKey: "../private/state.json",
+            createdBy: "owner",
+            createdAt,
+            fileCount: Number.MAX_SAFE_INTEGER
+          }
+        ],
+        storageMigrations: [
+          null,
+          42,
+          "invalid-migration",
+          {
+            id: "interrupted-migration",
+            source: "local",
+            target: "s3",
+            status: "running",
+            total: 1,
+            completed: 0,
+            failed: 0,
+            createdBy: "owner",
+            createdAt
+          },
+          {
+            id: "fake-provider",
+            source: "ftp",
+            target: "local",
+            status: "failed",
+            total: 2,
+            completed: 2,
+            failed: 2,
+            createdBy: "owner",
+            createdAt
+          }
+        ],
+        analyticsDaily: [
+          null,
+          42,
+          "invalid-analytics",
+          {
+            workspaceId: "workspace",
+            date: "2026-01-01",
+            uploads: 2,
+            uploadedLogicalBytes: 20,
+            shareViews: 999,
+            imageShareViews: {
+              image: 3,
+              foreign: 4,
+              overflow: Number.MAX_SAFE_INTEGER + 1
+            }
+          },
+          {
+            workspaceId: "workspace",
+            date: "2026-02-30",
+            uploads: 1,
+            uploadedLogicalBytes: 10,
+            shareViews: 1,
+            imageShareViews: { image: 1 }
+          }
+        ],
+        analyticsCoverage: [
+          {
+            workspaceId: "workspace",
+            uploads: {
+              trackingStartedAt: "not-a-date",
+              status: "complete"
+            },
+            shareViews: {
+              trackingStartedAt: createdAt,
+              status: "complete"
+            }
+          }
+        ],
+        systemStatusHistory: [
+          null,
+          42,
+          "invalid-status",
+          ...Array.from({ length: 25 }, (_item, index) => ({
+            id: `status-${index}`,
+            checkedAt: new Date(
+              Date.parse(createdAt) + index
+            ).toISOString(),
+            overall: "operational",
+            latencyMs: 1,
+            services: validServices
+          })),
+          {
+            id: "forged-status",
+            checkedAt: createdAt,
+            overall: "operational",
+            latencyMs: 1,
+            services: [
+              {
+                id: "root-shell",
+                label: "伪服务",
+                status: "operational",
+                mode: "secret",
+                inUse: true,
+                checked: true,
+                detail: "/root/private",
+                latencyMs: 1
+              }
+            ]
+          }
+        ]
+      })
+    );
+    const store = new AppStore(filePath);
+    await store.initialize();
+    const state = store.snapshot();
+    expect(state.schemaVersion).toBe(7);
+    expect(state.site).toMatchObject({
+      siteName: "OU-Image Hosting",
+      registrationEnabled: false
+    });
+    expect(state.site!.siteDescription).toHaveLength(500);
+    expect(state.workspaceSettings).toHaveLength(2);
+    expect(
+      state.workspaceSettings.find(
+        (item) => item.workspaceId === "workspace"
+      )
+    ).toMatchObject({
+      uploadMaxBytes: 20 * 1024 * 1024,
+      allowedFormats: ["png"],
+      processingQuality: 85,
+      thumbnailWidth: 480,
+      timezone: "Asia/Shanghai",
+      locale: "zh-CN",
+      defaultAppearance: "system"
+    });
+    expect(
+      state.workspaceSettings.some((item) => item.workspaceId === "orphan")
+    ).toBe(false);
+    expect(state.analyticsCoverage).toHaveLength(2);
+    expect(
+      state.analyticsCoverage.every(
+        (coverage) =>
+          coverage.uploads.status === "partial" &&
+          coverage.shareViews.status === "partial" &&
+          Number.isFinite(
+            Date.parse(coverage.uploads.trackingStartedAt)
+          ) &&
+          Number.isFinite(
+            Date.parse(coverage.shareViews.trackingStartedAt)
+          )
+      )
+    ).toBe(true);
+    expect(state.analyticsDaily).toEqual([
+      {
+        workspaceId: "workspace",
+        date: "2026-01-01",
+        uploads: 2,
+        uploadedLogicalBytes: 20,
+        shareViews: 3,
+        imageShareViews: { image: 3 }
+      }
+    ]);
+    expect(state.backups).toHaveLength(1);
+    expect(state.backups[0]).toMatchObject({
+      status: "failed",
+      error: "interrupted by process restart",
+      retryInProgress: false
+    });
+    expect(state.storageMigrations).toHaveLength(1);
+    expect(state.storageMigrations[0]).toMatchObject({
+      id: "interrupted-migration",
+      status: "failed",
+      error: "interrupted by process restart"
+    });
+    expect(state.systemStatusHistory).toHaveLength(20);
+    expect(
+      state.systemStatusHistory.some((result) =>
+        result.services.some((service) => service.id === "root-shell")
+      )
+    ).toBe(false);
   });
 
   it("enforces strict bearer priority and exact API token scopes", async () => {
@@ -3145,7 +4084,7 @@ describe("OU-Image API", () => {
     expect(JSON.stringify(regenerationAudit)).not.toContain(secondCode);
   });
 
-  it("restores legacy v5 backup state through the v6 migration", async () => {
+  it("restores legacy v5 backup state through the v7 migration", async () => {
     const store = new AppStore(null);
     let dataDirectory = "";
     const app = await createTestApp({
@@ -3233,7 +4172,7 @@ describe("OU-Image API", () => {
     });
     expect(restored.statusCode).toBe(200);
     const state = store.snapshot();
-    expect(state.schemaVersion).toBe(6);
+    expect(state.schemaVersion).toBe(7);
     expect(state.workspaces).toHaveLength(1);
     expect(state.workspaceMembers[0]).toMatchObject({ role: "owner" });
     expect(state.users[0]).toMatchObject({

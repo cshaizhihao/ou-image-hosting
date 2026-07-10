@@ -26,7 +26,10 @@ import {
   verifyPassword,
   verifyTotp
 } from "./security.js";
-import { defaultNotificationPreferences } from "./store.js";
+import {
+  defaultNotificationPreferences,
+  defaultWorkspaceSettings
+} from "./store.js";
 import type {
   ApiTokenScope,
   AppState,
@@ -448,6 +451,20 @@ export function registerWorkspaceSecurityRoutes(
           createdAt: timestamp,
           updatedAt: timestamp
         });
+        state.workspaceSettings.push(
+          defaultWorkspaceSettings(id, timestamp)
+        );
+        state.analyticsCoverage.push({
+          workspaceId: id,
+          uploads: {
+            trackingStartedAt: timestamp,
+            status: "complete"
+          },
+          shareViews: {
+            trackingStartedAt: timestamp,
+            status: "complete"
+          }
+        });
         state.workspaceMembers.push({
           id: randomUUID(),
           workspaceId: id,
@@ -610,6 +627,18 @@ export function registerWorkspaceSecurityRoutes(
           createdAt: timestamp
         });
         state.workspaces = state.workspaces.filter((item) => item.id !== id);
+        state.workspaceSettings = state.workspaceSettings.filter(
+          (item) => item.workspaceId !== id
+        );
+        state.analyticsDaily = state.analyticsDaily.filter(
+          (item) => item.workspaceId !== id
+        );
+        state.analyticsCoverage = state.analyticsCoverage.filter(
+          (item) => item.workspaceId !== id
+        );
+        state.systemEvents = state.systemEvents.filter(
+          (item) => item.workspaceId !== id
+        );
         state.workspaceMembers = state.workspaceMembers.filter(
           (item) => item.workspaceId !== id
         );

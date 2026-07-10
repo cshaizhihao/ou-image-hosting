@@ -315,6 +315,7 @@ export function addAuditEvent(
   input: {
     principal?: Principal;
     workspaceId?: string;
+    global?: boolean;
     action: string;
     result: "success" | "failure";
     resourceType?: string;
@@ -326,7 +327,9 @@ export function addAuditEvent(
 ) {
   const event: StoredAuditEvent = {
     id: randomUUID(),
-    workspaceId: input.workspaceId ?? input.principal?.workspaceId,
+    workspaceId: input.global
+      ? undefined
+      : input.workspaceId ?? input.principal?.workspaceId,
     actorUserId: input.principal?.user.id,
     actorType: input.principal?.kind ?? "system",
     action: input.action,
