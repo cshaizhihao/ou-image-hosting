@@ -532,6 +532,19 @@ export function UploadWorkbench() {
         </header>
 
         <section className="upload-overview" aria-label="上传入口与存储摘要">
+          <input
+            accept="image/jpeg,image/png,image/webp,image/gif,image/avif"
+            aria-label="选择本地图片"
+            className="sr-only"
+            multiple
+            onChange={(event: ChangeEvent<HTMLInputElement>) => {
+              if (event.target.files) appendFiles(event.target.files);
+              event.target.value = "";
+            }}
+            ref={inputRef}
+            tabIndex={-1}
+            type="file"
+          />
           <div
             className={`upload-drop${dragging ? " is-dragging" : ""}`}
             onClick={() => inputRef.current?.click()}
@@ -570,17 +583,6 @@ export function UploadWorkbench() {
               <ImagePlus aria-hidden="true" size={17} />
               选择图片
             </span>
-            <input
-              accept="image/jpeg,image/png,image/webp,image/gif,image/avif"
-              className="sr-only"
-              multiple
-              onChange={(event: ChangeEvent<HTMLInputElement>) => {
-                if (event.target.files) appendFiles(event.target.files);
-                event.target.value = "";
-              }}
-              ref={inputRef}
-              type="file"
-            />
           </div>
 
           <aside className="upload-utility">

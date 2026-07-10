@@ -2,6 +2,44 @@
 
 本项目遵循 Semantic Versioning。
 
+## [1.0.0] - 2026-07-11
+
+### Added
+
+- 新增 Docker 双容器生产部署、内部 API 网络、回环端口绑定、只读根文件系统、非 root 运行、健康检查、日志轮转和合计低于 0.30 CPU 的运行配额。
+- 新增 GitHub Actions 质量检查与多架构容器镜像流程，以及部署、备份恢复、升级、故障排查、威胁模型和性能预算文档。
+- 新增 `/health/live` 与执行真实写入、重命名、读取和删除探针的 `/health/ready`，恢复维护期间 readiness 返回 503。
+- 新增备份恢复维护门、活动写请求排空、严格归档大小/文件数/压缩比限制、同卷 staging、原子目录切换和失败回滚。
+- 新增 Playwright 核心流程、Axe 无障碍、四档响应式、浅色/深色、reduced-motion 与最终截图自动化。
+- 新增顺序 HTTP 性能冒烟脚本和生产路由 JavaScript 体积预算。
+- 新增 Swei Ax Sans CJK SC Black 的 155,880 字节授权 WOFF2 网页子集、SIL OFL 1.1 文本和字体来源说明。
+- 新增 v1.0.0 桌面上传、命令面板、设置中心和移动端深色真实截图。
+
+### Changed
+
+- Web `/api/*` 从构建期固化 rewrite 改为 Node Route Handler 运行时流式同源代理，`API_PROXY_TARGET` 修改后无需重建 Web。
+- 生产 Web 配置从 `next.config.ts` 改为 `next.config.mjs`，避免精简生产依赖启动时尝试安装 TypeScript。
+- 未登录跳转根据受信转发主机或当前 Host 构造同源绝对地址，兼容 HTTPS 反向代理与本地生产启动。
+- 生产环境启动时强制校验随机 `OU_SECRET_KEY`、有效 `APP_ORIGIN`、HTTPS 边界和关闭开发重置令牌。
+- API 支持 SIGTERM/SIGINT 30 秒优雅关闭；状态持久化成功后才更新进程内状态。
+- 十轮路线图完成第 10 / 10 轮，仓库、运行时接口与包版本统一为 `1.0.0`。
+
+### Fixed
+
+- 修复备份恢复可能与并发写请求交错、失败后留下部分新状态或覆盖可回滚目录的问题。
+- 修复恶意或异常归档可通过路径、重复条目、base64、校验和、文件数量、解压大小或压缩比消耗资源的问题。
+- 修复 Web 生产部署的 API 地址在构建阶段被固定，导致 Docker 运行时 `API_PROXY_TARGET` 不生效的问题。
+- 修复 Next.js 生产中间件使用错误主机或相对 Location 时造成跨域跳转与 `Invalid URL` 的问题。
+- 修复上传区域键盘交互、命令面板焦点可见性和部分浅色小字号标签对比度不足的问题。
+
+### Security
+
+- 生产依赖审计无已知 moderate 及以上漏洞，PostCSS 锁定到已修复版本。
+- 容器丢弃全部 Linux capabilities、启用 `no-new-privileges`、限制 PID/内存/CPU，并仅让 API 暴露在内部网络。
+- 备份恢复拒绝越界路径、重复条目、非法状态、超限文件和不匹配 SHA-256，失败时保持旧数据可恢复。
+- API 代理移除 hop-by-hop 头、禁用上游压缩歧义并保留同源 Cookie 与查询参数。
+- 最终 E2E 覆盖安装、认证、上传、分享、管理、键盘操作、无障碍与响应式状态。
+
 ## [1.0.0-rc.1] - 2026-07-11
 
 ### Added

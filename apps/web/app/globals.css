@@ -1,8 +1,17 @@
 @import "tailwindcss";
 
+@font-face {
+  font-family: "OU Brand Display";
+  src: url("/fonts/ou-brand-display-black.woff2") format("woff2");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 900;
+}
+
 :root {
   color-scheme: light;
 
+  --primitive-font-display: "OU Brand Display";
   --primitive-ink: #080808;
   --primitive-charcoal: #303030;
   --primitive-warm-white: #f7f7f5;
@@ -10,10 +19,10 @@
   --primitive-pink: #ef8f8f;
   --primitive-pink-hover: #de7c7c;
   --primitive-blush: #fbe7e7;
-  --primitive-green: #2f855a;
-  --primitive-yellow: #b7791f;
+  --primitive-green: #246b48;
+  --primitive-yellow: #87540d;
   --primitive-red: #c84545;
-  --primitive-blue: #3973a8;
+  --primitive-blue: #2f628f;
 
   --surface-page: var(--primitive-warm-white);
   --surface-sidebar: #f2f2ef;
@@ -26,8 +35,13 @@
 
   --text-primary: #1a1a1a;
   --text-secondary: #686864;
-  --text-tertiary: #8b8b86;
+  --text-tertiary: #656560;
+  --text-accent: #9a3f4d;
   --text-on-accent: #241818;
+
+  --font-display:
+    var(--primitive-font-display), "Noto Sans SC", "Microsoft YaHei", system-ui,
+    sans-serif;
 
   --border-default: #e0e0dc;
   --border-strong: #c9c9c4;
@@ -69,6 +83,7 @@
   --text-primary: #f4f4f1;
   --text-secondary: #b9b9b2;
   --text-tertiary: #8d8d86;
+  --text-accent: #f0aaaa;
   --text-on-accent: #241818;
 
   --border-default: #30302e;
@@ -113,11 +128,35 @@ a {
   -webkit-tap-highlight-color: transparent;
 }
 
-button:focus-visible,
-a:focus-visible,
-input:focus-visible {
+:where(
+  button,
+  a,
+  input,
+  select,
+  textarea,
+  [role="button"],
+  [tabindex]
+):focus-visible {
   outline: 3px solid color-mix(in srgb, var(--border-focus) 72%, transparent);
   outline-offset: 2px;
+}
+
+.skip-link {
+  position: fixed;
+  z-index: 200;
+  top: 8px;
+  left: 8px;
+  padding: 9px 12px;
+  border: 2px solid var(--border-focus);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font-weight: 700;
+  transform: translateY(calc(-100% - 16px));
+}
+
+.skip-link:focus {
+  transform: translateY(0);
 }
 
 a {
@@ -205,8 +244,10 @@ img {
 .brand__text strong {
   overflow: hidden;
   color: var(--text-primary);
+  font-family: var(--font-display);
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 900;
+  font-synthesis: none;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -616,8 +657,10 @@ kbd {
 
 .page-heading h1 {
   margin: 8px 0 4px;
+  font-family: var(--font-display);
   font-size: clamp(26px, 3vw, 34px);
-  font-weight: 680;
+  font-weight: 900;
+  font-synthesis: none;
   line-height: 1.22;
 }
 
@@ -1218,6 +1261,17 @@ kbd {
   gap: 12px;
   padding: 0 16px;
   border-bottom: 1px solid var(--border-default);
+  transition:
+    background var(--motion-fast),
+    border-color var(--motion-fast),
+    box-shadow var(--motion-fast);
+}
+
+.command-dialog__search:focus-within {
+  border-bottom-color: var(--border-focus);
+  background: color-mix(in srgb, var(--action-primary) 5%, var(--surface-raised));
+  box-shadow: inset 0 0 0 2px
+    color-mix(in srgb, var(--border-focus) 68%, transparent);
 }
 
 .command-dialog__search input {
@@ -1711,13 +1765,16 @@ kbd {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  html:focus-within {
+    scroll-behavior: auto !important;
+  }
+
   *,
   *::before,
   *::after {
     scroll-behavior: auto !important;
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+    animation: none !important;
+    transition: none !important;
   }
 }
 
@@ -1796,7 +1853,10 @@ kbd {
 }
 
 .auth-brand strong {
+  font-family: var(--font-display);
   font-size: 14px;
+  font-weight: 900;
+  font-synthesis: none;
   letter-spacing: -0.01em;
 }
 
@@ -1839,7 +1899,7 @@ kbd {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: var(--action-primary-hover);
+  color: var(--text-accent);
   font-size: 11px;
   font-weight: 750;
   letter-spacing: 0.12em;
@@ -1847,8 +1907,10 @@ kbd {
 
 .auth-story h1 {
   margin: 18px 0 16px;
+  font-family: var(--font-display);
   font-size: clamp(40px, 5vw, 66px);
-  font-weight: 720;
+  font-weight: 900;
+  font-synthesis: none;
   letter-spacing: -0.055em;
   line-height: 1.07;
 }
@@ -2711,7 +2773,7 @@ kbd {
 }
 
 .library-eyebrow {
-  color: var(--action-primary-hover);
+  color: var(--text-accent);
   font-size: 11px;
   font-weight: 750;
   letter-spacing: 0.12em;
@@ -2719,7 +2781,10 @@ kbd {
 
 .library-header h1 {
   margin: 5px 0 3px;
+  font-family: var(--font-display);
   font-size: clamp(30px, 4vw, 44px);
+  font-weight: 900;
+  font-synthesis: none;
   letter-spacing: -0.045em;
   line-height: 1.1;
 }
@@ -3239,8 +3304,10 @@ kbd {
 .upload-hero h1 {
   max-width: 710px;
   margin: 12px 0 8px;
+  font-family: var(--font-display);
   font-size: clamp(30px, 4.2vw, 48px);
-  font-weight: 710;
+  font-weight: 900;
+  font-synthesis: none;
   letter-spacing: -0.052em;
   line-height: 1.08;
 }
@@ -3260,8 +3327,10 @@ kbd {
 }
 
 .upload-hero__stat strong {
+  font-family: var(--font-display);
   font-size: 38px;
-  font-weight: 680;
+  font-weight: 900;
+  font-synthesis: none;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.05em;
   line-height: 1;
@@ -3549,7 +3618,7 @@ kbd {
 }
 
 .upload-queue__eyebrow {
-  color: var(--action-primary-hover);
+  color: var(--text-accent);
   font-size: 10px;
   font-weight: 760;
   letter-spacing: 0.15em;

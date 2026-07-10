@@ -5,7 +5,15 @@ import Fastify, {
   type FastifyReply,
   type FastifyRequest
 } from "fastify";
-import { access, constants, mkdir } from "node:fs/promises";
+import {
+  access,
+  constants,
+  mkdir,
+  readFile,
+  rename,
+  unlink,
+  writeFile
+} from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import {
@@ -36,6 +44,7 @@ import { registerUploadRoutes } from "./uploads.js";
 import { registerInfrastructureRoutes } from "./infrastructure.js";
 import { registerWorkspaceSecurityRoutes } from "./workspace-security.js";
 import { registerOperationsRoutes } from "./operations.js";
+import { MaintenanceGate } from "./maintenance.js";
 
 const SESSION_COOKIE = "ou_session";
 const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
@@ -226,6 +235,12 @@ export async function buildApp(options: BuildAppOptions = {}) {
     (process.env.NODE_ENV !== "production" &&
       process.env.EXPOSE_DEVELOPMENT_RESET_TOKEN === "true");
   const now = options.now ?? (() => new Date());
+  const maintenance = new MaintenanceGate();
+  const writeReleases = new WeakMap<FastifyRequest, () => void>();
+  const releaseWrite = (request: FastifyRequest) => {
+    writeReleases.get(request)?.();
+    writeReleases.delete(request);
+  };
 
   await store.initialize();
 
@@ -259,6 +274,19 @@ export async function buildApp(options: BuildAppOptions = {}) {
 
   app.addHook("onRequest", async (request) => {
     if (!["POST", "PUT", "PATCH", "DELETE"].includes(request.method)) return;
+    if (maintenance.restoreInProgress) {
+      throw new PublicError(
+        503,
+        "RESTORE_MAINTENANCE",
+        "系统正在恢复备份，暂时无法执行写操作"
+      );
+    }
+    const isRestoreRequest =
+      request.method === "POST" &&
+      /^\/backups\/[^/?]+\/restore(?:\?|$)/.test(request.url);
+    if (!isRestoreRequest) {
+      writeReleases.set(request, maintenance.beginWrite());
+    }
     const origin = request.headers.origin;
     const hasSessionCookie = Boolean(request.cookies[SESSION_COOKIE]);
     const hasBrowserSignal =
@@ -287,6 +315,18 @@ export async function buildApp(options: BuildAppOptions = {}) {
     reply.header("x-content-type-options", "nosniff");
     reply.header("referrer-policy", "same-origin");
     return payload;
+  });
+
+  app.addHook("onError", async (request) => {
+    releaseWrite(request);
+  });
+
+  app.addHook("onTimeout", async (request) => {
+    releaseWrite(request);
+  });
+
+  app.addHook("onRequestAbort", async (request) => {
+    releaseWrite(request);
   });
 
   app.setErrorHandler((error, request, reply) => {
@@ -472,6 +512,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   };
 
   app.addHook("onResponse", async (request) => {
+    releaseWrite(request);
     const principal = principalByRequest.get(request);
     if (!principal) return;
     const timestamp = now();
@@ -538,8 +579,60 @@ export async function buildApp(options: BuildAppOptions = {}) {
   app.get("/health", async () => ({
     status: "ok",
     service: "ou-image-api",
-    version: "1.0.0-rc.1"
+    version: "1.0.0"
   }));
+
+  app.get("/health/live", async () => ({
+    status: "ok",
+    service: "ou-image-api",
+    version: "1.0.0"
+  }));
+
+  const probeDirectory = async (directory: string, label: string) => {
+    await mkdir(directory, { recursive: true });
+    await access(directory, constants.R_OK | constants.W_OK);
+    const id = randomUUID();
+    const temporaryPath = path.join(directory, `.ready-${id}.tmp`);
+    const renamedPath = path.join(directory, `.ready-${id}.ok`);
+    const value = Buffer.from(id);
+    try {
+      await writeFile(temporaryPath, value, { mode: 0o600 });
+      await rename(temporaryPath, renamedPath);
+      const read = await readFile(renamedPath);
+      if (!read.equals(value)) throw new Error(`${label} read mismatch`);
+      await unlink(renamedPath);
+    } catch {
+      await Promise.allSettled([
+        unlink(temporaryPath),
+        unlink(renamedPath)
+      ]);
+      throw new Error(`${label} unavailable`);
+    }
+  };
+
+  app.get("/health/ready", async (_request, reply) => {
+    if (maintenance.restoreInProgress) {
+      return reply.status(503).send({
+        status: "not-ready",
+        reason: "restore-maintenance"
+      });
+    }
+    try {
+      await probeDirectory(dataDirectory, "metadata");
+      await probeDirectory(path.join(dataDirectory, "storage"), "storage");
+      store.snapshot();
+      return {
+        status: "ready",
+        service: "ou-image-api",
+        schemaVersion: 7
+      };
+    } catch {
+      return reply.status(503).send({
+        status: "not-ready",
+        reason: "storage-unavailable"
+      });
+    }
+  });
 
   app.get("/setup/status", async () => {
     const state = store.snapshot();
@@ -1052,7 +1145,8 @@ export async function buildApp(options: BuildAppOptions = {}) {
     store,
     dataDirectory,
     now,
-    authenticate: authenticatedUser
+    authenticate: authenticatedUser,
+    maintenance
   });
 
   return app;

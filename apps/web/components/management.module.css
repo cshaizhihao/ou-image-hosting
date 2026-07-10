@@ -14,7 +14,7 @@
 .header > div:first-child > span,
 .panelHeading > span,
 .sectionTitle > span {
-  color: var(--action-primary-hover);
+  color: var(--text-accent);
   font-size: 10px;
   font-weight: 780;
   letter-spacing: 0.14em;
@@ -22,7 +22,10 @@
 
 .header h1 {
   margin: 5px 0 3px;
+  font-family: var(--font-display);
   font-size: clamp(30px, 4vw, 44px);
+  font-weight: 900;
+  font-synthesis: none;
   letter-spacing: -0.045em;
   line-height: 1.08;
 }
@@ -803,7 +806,7 @@
 }
 
 .drawerHead span {
-  color: var(--action-primary-hover);
+  color: var(--text-accent);
   font-size: 9px;
   font-weight: 780;
   letter-spacing: 0.14em;

@@ -1,6 +1,6 @@
 {
   "name": "ou-image-hosting",
-  "version": "1.0.0-rc.1",
+  "version": "1.0.0",
   "private": true,
   "packageManager": "pnpm@9.15.9",
   "scripts": {
@@ -9,13 +9,26 @@
     "build": "pnpm --workspace-concurrency=1 -r build",
     "typecheck": "pnpm --workspace-concurrency=1 -r typecheck",
     "test": "vitest run --maxWorkers=1 --minWorkers=1",
+    "test:e2e": "playwright test --workers=1",
+    "test:e2e:smoke": "playwright test tests/e2e/core.spec.ts --workers=1",
+    "test:e2e:a11y": "playwright test tests/e2e/accessibility.spec.ts --workers=1",
     "lint": "pnpm --workspace-concurrency=1 -r lint",
-    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build"
+    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "check:ui": "pnpm --filter @ou-image/web typecheck && pnpm test:e2e",
+    "screenshots:release": "node scripts/capture-release-screenshots.mjs",
+    "test:perf": "node scripts/performance-smoke.mjs"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.10.2",
+    "@playwright/test": "1.61.1",
     "@types/node": "^20.17.0",
     "playwright": "^1.61.1",
     "typescript": "^5.8.0",
     "vitest": "^3.2.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "postcss": "8.5.10"
+    }
   }
 }

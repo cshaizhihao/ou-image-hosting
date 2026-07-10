@@ -51,7 +51,14 @@ export function AuthShell({
   };
 
   return (
-    <main className={cn("auth-layout", mode === "install" && "auth-layout--install")}>
+    <main
+      className={cn("auth-layout", mode === "install" && "auth-layout--install")}
+      id="main-content"
+      tabIndex={-1}
+    >
+      <a className="skip-link" href="#main-content">
+        跳到主要内容
+      </a>
       <section className="auth-story" aria-label="产品介绍">
         <div className="auth-story__top">
           <BrandLockup />

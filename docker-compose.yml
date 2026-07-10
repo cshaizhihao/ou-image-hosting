@@ -1,0 +1,111 @@
+name: ou-image-hosting
+
+x-runtime-defaults: &runtime-defaults
+  restart: unless-stopped
+  init: true
+  read_only: true
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
+
+services:
+  api:
+    <<: *runtime-defaults
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api
+    image: ou-image-hosting-api:${OU_IMAGE_TAG:-local}
+    env_file:
+      - ${OU_ENV_FILE:-.env.production}
+    environment:
+      NODE_ENV: production
+      API_PORT: "4000"
+      OU_DATA_DIR: /data
+      COOKIE_SECURE: "true"
+      EXPOSE_DEVELOPMENT_RESET_TOKEN: "false"
+      TRUST_PROXY: "true"
+      TRUST_PROXY_ADDRESSES: 172.30.10.2/32
+    expose:
+      - "4000"
+    volumes:
+      - ou_data:/data
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    networks:
+      backend:
+        ipv4_address: 172.30.10.3
+      egress: {}
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch('http://127.0.0.1:4000/health/ready').then((response)=>{if(!response.ok)process.exit(1)}).catch(()=>process.exit(1))
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    stop_grace_period: 30s
+    pids_limit: 160
+    cpus: "0.18"
+    mem_limit: 768m
+
+  web:
+    <<: *runtime-defaults
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: web
+    image: ou-image-hosting-web:${OU_IMAGE_TAG:-local}
+    env_file:
+      - ${OU_ENV_FILE:-.env.production}
+    environment:
+      NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+      PORT: "3000"
+      API_PROXY_TARGET: http://api:4000
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${WEB_BIND_HOST:-127.0.0.1}:${WEB_BIND_PORT:-3000}:3000"
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+      - /app/.next/cache:rw,noexec,nosuid,size=128m
+    networks:
+      backend:
+        ipv4_address: 172.30.10.2
+      edge: {}
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch('http://127.0.0.1:3000/login').then((response)=>{if(response.status>=500)process.exit(1)}).catch(()=>process.exit(1))
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    stop_grace_period: 30s
+    pids_limit: 120
+    cpus: "0.10"
+    mem_limit: 512m
+
+volumes:
+  ou_data:
+
+networks:
+  backend:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.10.0/29
+  egress: {}
+  edge: {}

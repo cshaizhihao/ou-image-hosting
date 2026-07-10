@@ -16,6 +16,8 @@ import {
   mkdir,
   readFile,
   readdir,
+  rename,
+  rm,
   stat,
   statfs,
   unlink,
@@ -39,18 +41,26 @@ import {
   type StoredBackup,
   type StoredStorageMigration
 } from "./store.js";
+import type { MaintenanceGate } from "./maintenance.js";
 type LegacyBackupState = Omit<Partial<AppState>, "schemaVersion"> & {
   schemaVersion: number;
 };
 
 const gzipAsync = promisify(gzip);
 const gunzipAsync = promisify(gunzip);
+const MAX_BACKUP_ARCHIVE_BYTES = 64 * 1024 * 1024;
+const MAX_BACKUP_ENVELOPE_BYTES = 256 * 1024 * 1024;
+const MAX_BACKUP_TOTAL_FILE_BYTES = 128 * 1024 * 1024;
+const MAX_BACKUP_SINGLE_FILE_BYTES = 24 * 1024 * 1024;
+const MAX_BACKUP_FILES = 5000;
+const MAX_BACKUP_COMPRESSION_RATIO = 200;
 
 type InfrastructureOptions = {
   store: AppStore;
   dataDirectory: string;
   now: () => Date;
   authenticate: (request: FastifyRequest) => Principal;
+  maintenance: MaintenanceGate;
 };
 
 type RemoteInput = {
@@ -560,6 +570,235 @@ function safeDataPath(root: string, relative: string) {
   return target;
 }
 
+function backupLimit(message: string): never {
+  throw new PublicError(400, "BACKUP_LIMIT_EXCEEDED", message);
+}
+
+function validIso(value: unknown) {
+  return (
+    typeof value === "string" &&
+    value.length <= 50 &&
+    Number.isFinite(new Date(value).getTime())
+  );
+}
+
+async function stageBackupArchive(
+  archivePath: string,
+  backup: StoredBackup,
+  stagingStorageRoot: string
+) {
+  const archiveStat = await stat(archivePath);
+  if (
+    archiveStat.size <= 0 ||
+    archiveStat.size > MAX_BACKUP_ARCHIVE_BYTES
+  ) {
+    backupLimit("备份归档大小超过安全限制");
+  }
+  if (backup.size !== undefined && backup.size !== archiveStat.size) {
+    throw new PublicError(
+      400,
+      "BACKUP_CHECKSUM_MISMATCH",
+      "备份归档大小校验失败"
+    );
+  }
+  const archive = await readFile(archivePath);
+  if (backup.checksum && sha256(archive) !== backup.checksum) {
+    throw new PublicError(
+      400,
+      "BACKUP_CHECKSUM_MISMATCH",
+      "备份归档校验失败"
+    );
+  }
+  let expanded: Buffer;
+  try {
+    expanded = await gunzipAsync(archive, {
+      maxOutputLength: MAX_BACKUP_ENVELOPE_BYTES
+    });
+  } catch {
+    throw new PublicError(400, "INVALID_BACKUP", "备份归档无法解析");
+  }
+  if (
+    expanded.byteLength > MAX_BACKUP_ENVELOPE_BYTES ||
+    expanded.byteLength / archive.byteLength >
+      MAX_BACKUP_COMPRESSION_RATIO
+  ) {
+    backupLimit("备份归档压缩比或解压大小超过安全限制");
+  }
+  let envelope: BackupEnvelope;
+  try {
+    envelope = JSON.parse(expanded.toString("utf8")) as BackupEnvelope;
+  } catch {
+    throw new PublicError(400, "INVALID_BACKUP", "备份归档无法解析");
+  }
+  if (
+    !envelope ||
+    typeof envelope !== "object" ||
+    envelope.format !== "ou-image-backup-v1" ||
+    !validIso(envelope.createdAt) ||
+    !envelope.manifest ||
+    typeof envelope.manifest !== "object" ||
+    typeof envelope.manifest.stateSha256 !== "string" ||
+    !/^[a-f0-9]{64}$/i.test(envelope.manifest.stateSha256) ||
+    !Array.isArray(envelope.manifest.files) ||
+    !Array.isArray(envelope.files) ||
+    !envelope.state ||
+    typeof envelope.state !== "object" ||
+    ![5, 6, 7].includes(envelope.state.schemaVersion)
+  ) {
+    throw new PublicError(400, "INVALID_BACKUP", "备份清单校验失败");
+  }
+  if (
+    envelope.files.length > MAX_BACKUP_FILES ||
+    envelope.manifest.files.length > MAX_BACKUP_FILES
+  ) {
+    backupLimit("备份文件数量超过安全限制");
+  }
+  const stateJson = JSON.stringify(envelope.state);
+  if (
+    sha256(stateJson) !== envelope.manifest.stateSha256 ||
+    envelope.files.length !== envelope.manifest.files.length
+  ) {
+    throw new PublicError(400, "INVALID_BACKUP", "备份清单校验失败");
+  }
+  const migratedState = migrateAppState(envelope.state);
+  const encodedByPath = new Map<string, string>();
+  for (const file of envelope.files) {
+    if (
+      !file ||
+      typeof file !== "object" ||
+      typeof file.path !== "string" ||
+      typeof file.contentBase64 !== "string"
+    ) {
+      throw new PublicError(400, "INVALID_BACKUP", "备份文件记录无效");
+    }
+    const safe = safeRelativePath(file.path);
+    if (
+      encodedByPath.has(safe) ||
+      file.contentBase64.length >
+        Math.ceil(MAX_BACKUP_SINGLE_FILE_BYTES / 3) * 4 + 4
+    ) {
+      throw new PublicError(
+        400,
+        "INVALID_BACKUP",
+        "备份包含重复路径或超限文件"
+      );
+    }
+    encodedByPath.set(safe, file.contentBase64);
+  }
+  const manifestPaths = new Set<string>();
+  let totalBytes = 0;
+  await mkdir(stagingStorageRoot, { recursive: true });
+  for (const manifest of envelope.manifest.files) {
+    if (
+      !manifest ||
+      typeof manifest !== "object" ||
+      typeof manifest.path !== "string" ||
+      !Number.isSafeInteger(manifest.size) ||
+      manifest.size < 0 ||
+      typeof manifest.sha256 !== "string" ||
+      !/^[a-f0-9]{64}$/i.test(manifest.sha256)
+    ) {
+      throw new PublicError(400, "INVALID_BACKUP", "备份文件清单无效");
+    }
+    if (manifest.size > MAX_BACKUP_SINGLE_FILE_BYTES) {
+      backupLimit("备份包含超过单文件限制的内容");
+    }
+    const safe = safeRelativePath(manifest.path);
+    if (manifestPaths.has(safe)) {
+      throw new PublicError(
+        400,
+        "INVALID_BACKUP",
+        "备份包含重复文件路径"
+      );
+    }
+    manifestPaths.add(safe);
+    totalBytes += manifest.size;
+    if (totalBytes > MAX_BACKUP_TOTAL_FILE_BYTES) {
+      backupLimit("备份文件总大小超过安全限制");
+    }
+    const encoded = encodedByPath.get(safe);
+    if (encoded === undefined) {
+      throw new PublicError(400, "INVALID_BACKUP", "备份缺少清单文件");
+    }
+    const content = Buffer.from(encoded, "base64");
+    if (
+      content.toString("base64") !== encoded ||
+      content.byteLength !== manifest.size ||
+      sha256(content) !== manifest.sha256
+    ) {
+      throw new PublicError(
+        400,
+        "BACKUP_CHECKSUM_MISMATCH",
+        "备份文件校验失败"
+      );
+    }
+    const target = safeDataPath(stagingStorageRoot, safe);
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, content, { mode: 0o600 });
+  }
+  if (manifestPaths.size !== encodedByPath.size) {
+    throw new PublicError(400, "INVALID_BACKUP", "备份清单文件不一致");
+  }
+  return {
+    migratedState,
+    fileCount: envelope.files.length
+  };
+}
+
+async function switchRestoredStorage(
+  store: AppStore,
+  storageRoot: string,
+  stagedStorageRoot: string,
+  rollbackRoot: string,
+  migratedState: AppState
+) {
+  await rm(rollbackRoot, { recursive: true, force: true });
+  let previousMoved = false;
+  let stagedInstalled = false;
+  try {
+    try {
+      await rename(storageRoot, rollbackRoot);
+      previousMoved = true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    await rename(stagedStorageRoot, storageRoot);
+    stagedInstalled = true;
+    await store.update((draft) => {
+      const backups = draft.backups;
+      const migrations = draft.storageMigrations;
+      Object.assign(draft, migratedState);
+      draft.backups = backups;
+      draft.storageMigrations = migrations;
+    });
+  } catch (error) {
+    let rollbackFailure: unknown;
+    if (stagedInstalled) {
+      try {
+        await rm(storageRoot, { recursive: true, force: true });
+      } catch (cleanupError) {
+        rollbackFailure = cleanupError;
+      }
+    }
+    if (previousMoved && !rollbackFailure) {
+      try {
+        await rename(rollbackRoot, storageRoot);
+      } catch (renameError) {
+        rollbackFailure = renameError;
+      }
+    }
+    if (rollbackFailure) {
+      throw new Error("restore rollback failed", {
+        cause: rollbackFailure
+      });
+    }
+    throw error;
+  }
+  await rm(rollbackRoot, { recursive: true, force: true }).catch(
+    () => undefined
+  );
+}
+
 function publicBackup(backup: StoredBackup) {
   return {
     id: backup.id,
@@ -607,7 +846,7 @@ export function registerInfrastructureRoutes(
   app: FastifyInstance,
   options: InfrastructureOptions
 ) {
-  const { store, dataDirectory, now, authenticate } = options;
+  const { store, dataDirectory, now, authenticate, maintenance } = options;
   const storageRoot = path.join(dataDirectory, "storage");
   const backupsRoot = path.join(dataDirectory, "backups");
 
@@ -1031,11 +1270,23 @@ export function registerInfrastructureRoutes(
       state.backups = state.backups.filter((item) => item.id !== backup.id);
       const stateJson = JSON.stringify(state);
       const filePaths = await listFiles(storageRoot);
+      if (filePaths.length > MAX_BACKUP_FILES) {
+        backupLimit("备份文件数量超过安全限制");
+      }
       const files: BackupEnvelope["files"] = [];
       const manifestFiles: BackupEnvelope["manifest"]["files"] = [];
+      let totalFileBytes = 0;
       for (const relative of filePaths) {
-        const content = await readFile(path.join(storageRoot, relative));
         const safe = safeRelativePath(relative);
+        const fileStat = await stat(path.join(storageRoot, safe));
+        if (fileStat.size > MAX_BACKUP_SINGLE_FILE_BYTES) {
+          backupLimit("备份包含超过单文件限制的内容");
+        }
+        totalFileBytes += fileStat.size;
+        if (totalFileBytes > MAX_BACKUP_TOTAL_FILE_BYTES) {
+          backupLimit("备份文件总大小超过安全限制");
+        }
+        const content = await readFile(path.join(storageRoot, safe));
         files.push({
           path: safe,
           contentBase64: content.toString("base64")
@@ -1056,9 +1307,16 @@ export function registerInfrastructureRoutes(
         state,
         files
       };
-      const archive = await gzipAsync(Buffer.from(JSON.stringify(envelope)), {
+      const envelopeBuffer = Buffer.from(JSON.stringify(envelope));
+      if (envelopeBuffer.byteLength > MAX_BACKUP_ENVELOPE_BYTES) {
+        backupLimit("备份解压后大小超过安全限制");
+      }
+      const archive = await gzipAsync(envelopeBuffer, {
         level: 6
       });
+      if (archive.byteLength > MAX_BACKUP_ARCHIVE_BYTES) {
+        backupLimit("备份归档大小超过安全限制");
+      }
       const archivePath = safeDataPath(dataDirectory, backup.archiveKey);
       await mkdir(path.dirname(archivePath), { recursive: true });
       await writeFile(archivePath, archive, { mode: 0o600 });
@@ -1138,109 +1396,46 @@ export function registerInfrastructureRoutes(
     { schema: { params: idParamsSchema } },
     async (request) => {
       requireOwner(request, authenticate);
-      const backup = store
-        .snapshot()
-        .backups.find((item) => item.id === request.params.id);
-      if (!backup || backup.status !== "completed") {
-        throw new PublicError(404, "BACKUP_NOT_FOUND", "备份不存在");
-      }
-      const archive = await readFile(
-        safeDataPath(dataDirectory, backup.archiveKey)
+      const releaseRestore = await maintenance.beginRestore();
+      const operationId = randomUUID();
+      const stagingRoot = path.join(
+        dataDirectory,
+        `.restore-staging-${operationId}`
       );
-      if (backup.checksum && sha256(archive) !== backup.checksum) {
-        throw new PublicError(
-          400,
-          "BACKUP_CHECKSUM_MISMATCH",
-          "备份归档校验失败"
-        );
-      }
-      let envelope: BackupEnvelope;
+      const stagedStorageRoot = path.join(stagingRoot, "storage");
+      const rollbackRoot = path.join(
+        dataDirectory,
+        `.restore-rollback-${operationId}`
+      );
       try {
-        envelope = JSON.parse(
-          (await gunzipAsync(archive)).toString("utf8")
-        ) as BackupEnvelope;
-      } catch {
-        throw new PublicError(
-          400,
-          "INVALID_BACKUP",
-          "备份归档无法解析"
-        );
-      }
-      const stateJson = JSON.stringify(envelope.state);
-      if (
-        envelope.format !== "ou-image-backup-v1" ||
-        ![5, 6, 7].includes(envelope.state.schemaVersion) ||
-        sha256(stateJson) !== envelope.manifest.stateSha256 ||
-        envelope.files.length !== envelope.manifest.files.length
-      ) {
-        throw new PublicError(
-          400,
-          "INVALID_BACKUP",
-          "备份清单校验失败"
-        );
-      }
-      const filesByPath = new Map(
-        envelope.files.map((file) => [
-          safeRelativePath(file.path),
-          file.contentBase64
-        ])
-      );
-      if (
-        filesByPath.size !== envelope.files.length ||
-        new Set(envelope.manifest.files.map((file) => file.path)).size !==
-          envelope.manifest.files.length
-      ) {
-        throw new PublicError(
-          400,
-          "INVALID_BACKUP",
-          "备份包含重复文件路径"
-        );
-      }
-      for (const manifest of envelope.manifest.files) {
-        const safe = safeRelativePath(manifest.path);
-        const encoded = filesByPath.get(safe);
-        if (!encoded) {
-          throw new PublicError(
-            400,
-            "INVALID_BACKUP",
-            "备份缺少清单文件"
-          );
+        const backup = store
+          .snapshot()
+          .backups.find((item) => item.id === request.params.id);
+        if (!backup || backup.status !== "completed") {
+          throw new PublicError(404, "BACKUP_NOT_FOUND", "备份不存在");
         }
-        const content = Buffer.from(encoded, "base64");
-        if (
-          content.byteLength !== manifest.size ||
-          sha256(content) !== manifest.sha256
-        ) {
-          throw new PublicError(
-            400,
-            "BACKUP_CHECKSUM_MISMATCH",
-            "备份文件校验失败"
-          );
-        }
-      }
-
-      for (const manifest of envelope.manifest.files) {
-        const content = Buffer.from(
-          filesByPath.get(manifest.path)!,
-          "base64"
+        await rm(stagingRoot, { recursive: true, force: true });
+        const staged = await stageBackupArchive(
+          safeDataPath(dataDirectory, backup.archiveKey),
+          backup,
+          stagedStorageRoot
         );
-        const target = safeDataPath(storageRoot, manifest.path);
-        await mkdir(path.dirname(target), { recursive: true });
-        await writeFile(target, content, { mode: 0o600 });
+        await switchRestoredStorage(
+          store,
+          storageRoot,
+          stagedStorageRoot,
+          rollbackRoot,
+          staged.migratedState
+        );
+        return {
+          restored: true,
+          files: staged.fileCount,
+          backup: publicBackup(backup)
+        };
+      } finally {
+        await rm(stagingRoot, { recursive: true, force: true });
+        releaseRestore();
       }
-      const migratedState = migrateAppState(envelope.state);
-      await store.update((draft) => {
-        const backups = draft.backups;
-        const migrations = draft.storageMigrations;
-        Object.assign(draft, migratedState);
-        draft.backups = backups;
-        draft.storageMigrations = migrations;
-      });
-      return {
-        restored: true,
-        files: envelope.files.length,
-        backup: publicBackup(backup)
-      };
     }
   );
 

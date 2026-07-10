@@ -480,6 +480,9 @@ export function AppShell({
   return (
     <Tooltip.Provider delayDuration={350}>
       <div className={cn("app-shell", !online && "app-shell--offline")}>
+        <a className="skip-link" href="#main-content">
+          跳到主要内容
+        </a>
         <aside className="sidebar">
           <div className="sidebar__brand">
             <Brand />
@@ -780,7 +783,7 @@ export function AppShell({
           </div>
         )}
 
-        <div className="app-content">
+        <div className="app-content" id="main-content" tabIndex={-1}>
           {currentWorkspace ? (
             children
           ) : (

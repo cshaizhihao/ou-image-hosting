@@ -26,6 +26,8 @@ import {
   totpAt
 } from "./security.js";
 import { AppStore } from "./store.js";
+import { MaintenanceGate } from "./maintenance.js";
+import { assertProductionConfiguration } from "./runtime.js";
 
 const apps: Awaited<ReturnType<typeof buildApp>>[] = [];
 const rawInjectors = new WeakMap<
@@ -119,16 +121,146 @@ const owner = {
 
 describe("OU-Image API", () => {
   it("reports health and initial setup status", async () => {
-    const app = await createTestApp();
+    let dataDirectory = "";
+    const app = await createTestApp({
+      onDataDirectory: (directory) => {
+        dataDirectory = directory;
+      }
+    });
     const health = await app.inject({ method: "GET", url: "/health" });
+    const live = await app.inject({
+      method: "GET",
+      url: "/health/live"
+    });
+    const ready = await app.inject({
+      method: "GET",
+      url: "/health/ready"
+    });
     const status = await app.inject({ method: "GET", url: "/setup/status" });
 
     expect(health.statusCode).toBe(200);
     expect(health.json()).toMatchObject({
       status: "ok",
-      version: "1.0.0-rc.1"
+      version: "1.0.0"
     });
+    expect(live.json()).toMatchObject({
+      status: "ok",
+      version: "1.0.0"
+    });
+    expect(ready.statusCode).toBe(200);
+    expect(ready.json()).toMatchObject({
+      status: "ready",
+      schemaVersion: 7
+    });
+    expect(
+      (await readdir(dataDirectory)).some((name) =>
+        name.startsWith(".ready-")
+      )
+    ).toBe(false);
+    expect(
+      (await readdir(path.join(dataDirectory, "storage"))).some((name) =>
+        name.startsWith(".ready-")
+      )
+    ).toBe(false);
     expect(status.json()).toEqual({ setupComplete: false, site: null });
+  });
+
+  it("drains active writes before restore maintenance and blocks new writes", async () => {
+    const maintenance = new MaintenanceGate();
+    const releaseWrite = maintenance.beginWrite();
+    let restoreEntered = false;
+    const restore = maintenance.beginRestore().then((release) => {
+      restoreEntered = true;
+      return release;
+    });
+    await Promise.resolve();
+    expect(restoreEntered).toBe(false);
+    expect(() => maintenance.beginWrite()).toThrow(
+      "系统正在恢复备份"
+    );
+    releaseWrite();
+    const releaseRestore = await restore;
+    expect(restoreEntered).toBe(true);
+    expect(() => maintenance.beginWrite()).toThrow(
+      "系统正在恢复备份"
+    );
+    releaseRestore();
+    const releaseNextWrite = maintenance.beginWrite();
+    releaseNextWrite();
+  });
+
+  it("fails fast on unsafe production configuration", () => {
+    const validSecret = "8rH4rE3QwY9xVm2Tp6Ns7Kc5Jd1Lf0Za";
+    expect(() =>
+      assertProductionConfiguration({
+        NODE_ENV: "production",
+        OU_SECRET_KEY: "short",
+        APP_ORIGIN: "https://images.example.com"
+      })
+    ).toThrow("OU_SECRET_KEY");
+    expect(() =>
+      assertProductionConfiguration({
+        NODE_ENV: "production",
+        OU_SECRET_KEY:
+          "replace-with-a-long-random-production-secret",
+        APP_ORIGIN: "https://images.example.com"
+      })
+    ).toThrow("OU_SECRET_KEY");
+    expect(() =>
+      assertProductionConfiguration({
+        NODE_ENV: "production",
+        OU_SECRET_KEY: validSecret,
+        APP_ORIGIN: "http://images.example.com"
+      })
+    ).toThrow("HTTPS");
+    expect(() =>
+      assertProductionConfiguration({
+        NODE_ENV: "production",
+        OU_SECRET_KEY: validSecret,
+        APP_ORIGIN: "ftp://localhost"
+      })
+    ).toThrow("HTTPS");
+    expect(() =>
+      assertProductionConfiguration({
+        NODE_ENV: "production",
+        OU_SECRET_KEY: validSecret,
+        APP_ORIGIN: "https://images.example.com",
+        EXPOSE_DEVELOPMENT_RESET_TOKEN: "true"
+      })
+    ).toThrow("EXPOSE_DEVELOPMENT_RESET_TOKEN");
+    expect(() =>
+      assertProductionConfiguration({
+        NODE_ENV: "production",
+        OU_SECRET_KEY: validSecret,
+        APP_ORIGIN: "https://images.example.com"
+      })
+    ).not.toThrow();
+    expect(() =>
+      assertProductionConfiguration({
+        NODE_ENV: "production",
+        OU_SECRET_KEY: validSecret,
+        APP_ORIGIN: "http://localhost:3000"
+      })
+    ).not.toThrow();
+  });
+
+  it("keeps in-memory state unchanged when persistence fails", async () => {
+    const directory = await mkdtemp(
+      path.join(tmpdir(), "ou-image-store-rollback-")
+    );
+    temporaryDirectories.push(directory);
+    const statePath = path.join(directory, "state.json");
+    const store = new AppStore(statePath);
+    await store.initialize();
+    const before = store.snapshot();
+    await rm(directory, { recursive: true, force: true });
+    await writeFile(directory, "not-a-directory");
+    await expect(
+      store.update((state) => {
+        state.setupComplete = true;
+      })
+    ).rejects.toBeTruthy();
+    expect(store.snapshot()).toEqual(before);
   });
 
   it("creates an owner, persists a session and logs out", async () => {
@@ -1809,6 +1941,25 @@ describe("OU-Image API", () => {
   it("creates, validates, restores and deletes safe backup archives", async () => {
     let dataDirectory = "";
     const store = new AppStore(null);
+    const originalStoreUpdate = store.update.bind(store);
+    let pauseNextUpdate = false;
+    let failNextUpdate = false;
+    let enteredPausedUpdate: (() => void) | undefined;
+    let continuePausedUpdate: (() => void) | undefined;
+    store.update = (async (mutate: Parameters<AppStore["update"]>[0]) => {
+      if (pauseNextUpdate) {
+        pauseNextUpdate = false;
+        enteredPausedUpdate?.();
+        await new Promise<void>((resolve) => {
+          continuePausedUpdate = resolve;
+        });
+      }
+      if (failNextUpdate) {
+        failNextUpdate = false;
+        throw new Error("simulated persistence failure");
+      }
+      return originalStoreUpdate(mutate);
+    }) as AppStore["update"];
     const app = await createTestApp({
       store,
       onDataDirectory: (directory) => {
@@ -1873,6 +2024,26 @@ describe("OU-Image API", () => {
     });
     expect(envelope.manifest.files).toHaveLength(2);
 
+    const unauthenticatedWrite = await rawInject(app, {
+      method: "POST",
+      url: "/backups"
+    });
+    expect(unauthenticatedWrite.statusCode).toBe(401);
+    const invalidWrite = await app.inject({
+      method: "POST",
+      url: "/storage/migrations",
+      cookies,
+      payload: { source: "local" }
+    });
+    expect(invalidWrite.statusCode).toBe(400);
+    const failedHandlerWrite = await app.inject({
+      method: "PATCH",
+      url: "/uploads/missing",
+      cookies,
+      payload: { name: "missing.png" }
+    });
+    expect(failedHandlerWrite.statusCode).toBe(404);
+
     await app.inject({
       method: "PATCH",
       url: `/uploads/${imageId}`,
@@ -1882,11 +2053,44 @@ describe("OU-Image API", () => {
     const originalKey = store.snapshot().images[0]!.originalKey;
     await unlink(path.join(dataDirectory, "storage", originalKey));
 
-    const restored = await app.inject({
+    const pausedUpdateEntered = new Promise<void>((resolve) => {
+      enteredPausedUpdate = resolve;
+    });
+    pauseNextUpdate = true;
+    const restorePromise = Promise.resolve(app.inject({
+      method: "POST",
+      url: `/backups/${backupId}/restore`,
+      cookies
+    }));
+    await pausedUpdateEntered;
+    const blockedWrite = await app.inject({
+      method: "PATCH",
+      url: `/uploads/${imageId}`,
+      cookies,
+      payload: { name: "blocked-during-restore.png" }
+    });
+    const blockedRestore = await app.inject({
       method: "POST",
       url: `/backups/${backupId}/restore`,
       cookies
     });
+    const notReady = await app.inject({
+      method: "GET",
+      url: "/health/ready"
+    });
+    expect(blockedWrite.statusCode).toBe(503);
+    expect(blockedWrite.json().error.code).toBe("RESTORE_MAINTENANCE");
+    expect(blockedRestore.statusCode).toBe(503);
+    expect(blockedRestore.json().error.code).toBe(
+      "RESTORE_MAINTENANCE"
+    );
+    expect(notReady.statusCode).toBe(503);
+    expect(notReady.json()).toEqual({
+      status: "not-ready",
+      reason: "restore-maintenance"
+    });
+    continuePausedUpdate?.();
+    const restored = await restorePromise;
     expect(restored.statusCode).toBe(200);
     expect(restored.json()).toMatchObject({
       restored: true,
@@ -1905,6 +2109,37 @@ describe("OU-Image API", () => {
     expect(restoredFile.statusCode).toBe(200);
     expect(restoredFile.rawPayload.equals(png)).toBe(true);
 
+    const sentinelPath = path.join(
+      dataDirectory,
+      "storage",
+      "online-sentinel.txt"
+    );
+    await writeFile(sentinelPath, "online-only");
+    const beforeFailedSwitch = store.snapshot();
+    failNextUpdate = true;
+    const failedSwitch = await app.inject({
+      method: "POST",
+      url: `/backups/${backupId}/restore`,
+      cookies
+    });
+    expect(failedSwitch.statusCode).toBe(500);
+    expect(await readFile(sentinelPath, "utf8")).toBe("online-only");
+    expect(store.snapshot()).toEqual(beforeFailedSwitch);
+    expect(
+      (await readdir(dataDirectory)).filter(
+        (name) =>
+          name.startsWith(".restore-staging-") ||
+          name.startsWith(".restore-rollback-")
+      )
+    ).toEqual([]);
+
+    const onlineRename = await app.inject({
+      method: "PATCH",
+      url: `/uploads/${imageId}`,
+      cookies,
+      payload: { name: "online-safe.png" }
+    });
+    expect(onlineRename.statusCode).toBe(200);
     const backup = store.snapshot().backups.find(
       (item) => item.id === backupId
     )!;
@@ -1933,6 +2168,49 @@ describe("OU-Image API", () => {
     await expect(
       access(path.join(dataDirectory, "escape"))
     ).rejects.toMatchObject({ code: "ENOENT" });
+    const afterTraversal = await app.inject({
+      method: "GET",
+      url: `/uploads/${imageId}`,
+      cookies
+    });
+    expect(afterTraversal.json().image.name).toBe("online-safe.png");
+    expect(
+      (await readdir(dataDirectory)).filter(
+        (name) =>
+          name.startsWith(".restore-staging-") ||
+          name.startsWith(".restore-rollback-")
+      )
+    ).toEqual([]);
+
+    const oversized = JSON.parse(
+      gunzipSync(downloaded.rawPayload).toString("utf8")
+    );
+    oversized.manifest.files[0].size = 24 * 1024 * 1024 + 1;
+    const oversizedArchive = gzipSync(
+      Buffer.from(JSON.stringify(oversized))
+    );
+    await writeFile(archivePath, oversizedArchive);
+    await store.update((state) => {
+      const current = state.backups.find((item) => item.id === backupId)!;
+      current.checksum = createHash("sha256")
+        .update(oversizedArchive)
+        .digest("hex");
+      current.size = oversizedArchive.byteLength;
+    });
+    const overLimit = await app.inject({
+      method: "POST",
+      url: `/backups/${backupId}/restore`,
+      cookies
+    });
+    expect(overLimit.statusCode).toBe(400);
+    expect(overLimit.json().error.code).toBe("BACKUP_LIMIT_EXCEEDED");
+    const afterFailedRestoreWrite = await app.inject({
+      method: "PATCH",
+      url: `/uploads/${imageId}`,
+      cookies,
+      payload: { name: "maintenance-released.png" }
+    });
+    expect(afterFailedRestoreWrite.statusCode).toBe(200);
 
     const removed = await app.inject({
       method: "DELETE",

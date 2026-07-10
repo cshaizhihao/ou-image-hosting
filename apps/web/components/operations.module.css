@@ -104,7 +104,7 @@
 }
 
 .panelHead > div:first-child > span {
-  color: var(--action-primary-hover);
+  color: var(--text-accent);
   font-size: 8px;
   font-weight: 800;
   letter-spacing: 0.12em;

@@ -1359,8 +1359,8 @@ export class AppStore {
     const operation = this.queue.then(async () => {
       const draft = structuredClone(this.state);
       result = await mutate(draft);
-      this.state = draft;
       await this.persist(draft);
+      this.state = draft;
     });
     this.queue = operation.catch(() => undefined);
     await operation;

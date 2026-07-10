@@ -1,20 +1,10 @@
-import type { NextConfig } from "next";
 import path from "node:path";
 
-const nextConfig: NextConfig = {
+/** @type {import("next").NextConfig} */
+const nextConfig = {
   outputFileTracingRoot: path.resolve(process.cwd(), "../.."),
   transpilePackages: ["@ou-image/ui", "@ou-image/shared"],
   poweredByHeader: false,
-  async rewrites() {
-    const apiTarget =
-      process.env.API_PROXY_TARGET ?? "http://127.0.0.1:4000";
-    return [
-      {
-        source: "/api/:path*",
-        destination: `${apiTarget}/:path*`
-      }
-    ];
-  },
   async headers() {
     return [
       {
