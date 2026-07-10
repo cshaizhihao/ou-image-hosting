@@ -1,9 +1,11 @@
 # Production deployment
 
-This guide deploys OU-Image Hosting as two containers:
+This guide deploys OU-Image Hosting as three containers:
 
 - `web`: the public Next.js process, bound to host loopback by default.
 - `api`: the private Fastify process, reachable only from the internal Docker network.
+- `caddy`: the optional `https` profile, terminating TLS on ports 80/443 and
+  proxying to Web.
 
 The API stores metadata and image files in one Docker volume. PostgreSQL, Redis,
 S3/R2 active reads and writes, and an external job queue are not enabled by this
@@ -25,8 +27,8 @@ deployment.
 
 - Docker Engine 24 or newer
 - Docker Compose v2
-- A reverse proxy that terminates HTTPS
-- A hostname whose DNS points to the reverse proxy
+- A hostname whose DNS points to the server
+- Inbound TCP ports 80/443 for the built-in Caddy profile
 - Sufficient disk space for the data volume and an additional backup copy
 
 ## Configure production
@@ -37,7 +39,8 @@ openssl rand -hex 32
 ```
 
 Paste the generated value into `OU_SECRET_KEY`. Set `APP_ORIGIN` to the exact
-public HTTPS origin without a trailing slash.
+public HTTPS origin without a trailing slash, set `OU_PUBLIC_HOST` to the bare
+hostname, and choose `OU_PROXY_MODE=caddy` or `OU_PROXY_MODE=cloudflare`.
 
 Keep these production values:
 
@@ -57,7 +60,7 @@ Do not commit `.env.production`.
 ## Validate and build
 
 ```bash
-docker compose --env-file .env.production config --quiet
+docker compose --env-file .env.production --profile https config --quiet
 COMPOSE_PARALLEL_LIMIT=1 docker compose --env-file .env.production build api
 COMPOSE_PARALLEL_LIMIT=1 docker compose --env-file .env.production build web
 ```
@@ -72,44 +75,34 @@ strict host CPU policy.
 ## Start
 
 ```bash
-docker compose --env-file .env.production up -d
-docker compose ps
-curl --fail http://127.0.0.1:3000/api/health
+docker compose --env-file .env.production --profile https up -d
+docker compose --env-file .env.production --profile https ps
+curl --fail http://127.0.0.1:3000/api/health/ready
 ```
 
-Only Web publishes a host port. API port 4000 is exposed to the internal Docker
-network but is not published to the host or internet.
+Caddy publishes 80/443. Web publishes only the configured loopback port for
+local readiness and external-proxy compatibility. API port 4000 remains private.
 
 Web proxies `/api/*` through a Node Route Handler. `API_PROXY_TARGET` is read at
 runtime, so changing the internal API address only requires restarting Web; it
 does not require rebuilding the image.
 
-## Reverse proxy
+## Built-in Caddy and Cloudflare
 
-Example nginx virtual host:
+Caddy automatically obtains and renews a publicly trusted certificate for
+`OU_PUBLIC_HOST`. Direct DNS mode uses `OU_PROXY_MODE=caddy`.
 
-```nginx
-server {
-    listen 443 ssl;
-    server_name images.example.com;
+For a Cloudflare proxied record, use `OU_PROXY_MODE=cloudflare` and set
+Cloudflare SSL/TLS to `Full (strict)`. Caddy still obtains the origin
+certificate; the installer validates both the local origin certificate and a
+Cloudflare edge response. During the first certificate issuance, disable
+Cloudflare `Always Use HTTPS` and custom HTTPS redirect rules so the ACME
+HTTP-01 challenge can reach Caddy on port 80; they can be re-enabled after the
+installer succeeds. Do not use `Flexible`.
 
-    client_max_body_size 24m;
-
-    location / {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Host $host;
-        proxy_set_header X-Forwarded-Proto https;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_read_timeout 120s;
-        proxy_send_timeout 120s;
-    }
-}
-```
-
-Provision certificates using the reverse proxy's normal ACME workflow. Do not
-publish API port 4000.
+If another reverse proxy already owns ports 80/443, use
+`OU_PROXY_MODE=external`, do not enable the `https` profile, and proxy to the
+configured loopback Web port. Do not publish API port 4000.
 
 ## Runtime hardening
 
@@ -123,7 +116,7 @@ Compose applies these defaults:
 - process, memory, and CPU limits;
 - health checks and restart policy.
 
-The combined runtime CPU quota is below 0.30 CPU by default. Adjust carefully on
+The API, Web, and Caddy quotas total 0.29 CPU by default. Adjust carefully on
 hosts with strict sustained CPU limits.
 
 ## Data and lifecycle
@@ -133,10 +126,12 @@ is changed.
 
 ```bash
 docker volume inspect ou-image-hosting_ou_data
-docker compose --env-file .env.production logs --tail=200 api
-docker compose --env-file .env.production logs --tail=200 web
-docker compose --env-file .env.production stop
-docker compose --env-file .env.production start
+ouih status
+ouih logs api
+ouih logs web
+ouih logs caddy
+ouih stop
+ouih start
 ```
 
 Never use `docker compose down -v` unless permanent deletion of all local

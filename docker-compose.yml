@@ -28,10 +28,10 @@ services:
       NODE_ENV: production
       API_PORT: "4000"
       OU_DATA_DIR: /data
-      COOKIE_SECURE: "true"
-      EXPOSE_DEVELOPMENT_RESET_TOKEN: "false"
-      TRUST_PROXY: "true"
-      TRUST_PROXY_ADDRESSES: 172.30.10.2/32
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      EXPOSE_DEVELOPMENT_RESET_TOKEN: ${EXPOSE_DEVELOPMENT_RESET_TOKEN:-false}
+      TRUST_PROXY: ${TRUST_PROXY:-true}
+      TRUST_PROXY_ADDRESSES: ${TRUST_PROXY_ADDRESSES:-172.30.10.2/32}
     expose:
       - "4000"
     volumes:
@@ -54,7 +54,7 @@ services:
       start_period: 20s
     stop_grace_period: 30s
     pids_limit: 160
-    cpus: "0.18"
+    cpus: "0.16"
     mem_limit: 768m
 
   web:
@@ -95,11 +95,50 @@ services:
       start_period: 30s
     stop_grace_period: 30s
     pids_limit: 120
-    cpus: "0.10"
+    cpus: "0.08"
     mem_limit: 512m
+
+  caddy:
+    <<: *runtime-defaults
+    profiles:
+      - https
+    image: caddy:2.10.2-alpine
+    env_file:
+      - ${OU_ENV_FILE:-.env.production}
+    depends_on:
+      web:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    networks:
+      - edge
+    cap_add:
+      - NET_BIND_SERVICE
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null && wget -q --spider http://web:3000/login
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    stop_grace_period: 30s
+    pids_limit: 80
+    cpus: "0.05"
+    mem_limit: 128m
 
 volumes:
   ou_data:
+  caddy_data:
+  caddy_config:
 
 networks:
   backend:

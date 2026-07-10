@@ -3,11 +3,11 @@
 ## First checks
 
 ```bash
-docker compose --env-file .env.production config --quiet
-docker compose ps
-docker compose --env-file .env.production logs --tail=200 api
-docker compose --env-file .env.production logs --tail=200 web
-curl -i http://127.0.0.1:3000/api/health
+ouih status
+ouih logs api
+ouih logs web
+ouih logs caddy
+curl -i http://127.0.0.1:3000/api/health/ready
 docker system df
 ```
 
@@ -20,7 +20,31 @@ credentials, or complete state files into public issue reports.
 - Confirm `APP_ORIGIN` exactly matches the public origin.
 - Check that `172.30.10.0/29` does not overlap another Docker network.
 - Check port 3000 is not already in use.
+- Built-in HTTPS additionally requires free inbound TCP ports 80/443.
 - Inspect container logs rather than repeatedly restarting.
+
+## Browser reports ERR_SSL_PROTOCOL_ERROR
+
+This means an HTTPS URL reached a service that only spoke HTTP, or the TLS
+proxy did not start.
+
+- Run `ouih status` and confirm `caddy` is running.
+- Run `ouih logs caddy` and inspect ACME/certificate errors.
+- Confirm `OU_PROXY_MODE` is `caddy` or `cloudflare`.
+- Confirm the domain A/AAAA record points to the server and TCP 80/443 are open.
+- Do not browse to `https://domain` while only exposing the Web HTTP port.
+
+## Cloudflare reports 525 or 526
+
+- Set Cloudflare SSL/TLS mode to `Full (strict)`, never `Flexible`.
+- Confirm the DNS record has the orange-cloud proxy enabled.
+- Confirm Caddy can obtain its origin certificate with `ouih logs caddy`.
+- During first issuance, disable `Always Use HTTPS` and custom HTTPS redirects
+  so ACME HTTP-01 can reach Caddy on port 80.
+- Temporarily disable Cloudflare Access or WAF rules that block
+  `/api/health/ready`.
+- Verify the origin directly from the server:
+  `curl --resolve domain.example:443:127.0.0.1 https://domain.example/api/health/ready`.
 
 ## Web is healthy but API requests fail
 
@@ -80,7 +104,7 @@ stop the stack and create a streamed volume tarball as described in
 
 ## CPU-limited hosts
 
-The Compose runtime quotas total less than 0.30 CPU. Local Docker builds are
+The Compose runtime quotas total 0.29 CPU. Local Docker builds are
 controlled by the Docker daemon and can exceed that level temporarily. Prefer
 CI-built images and never run multiple builds, tests, or browser sessions in
 parallel.

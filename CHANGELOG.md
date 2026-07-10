@@ -2,6 +2,28 @@
 
 本项目遵循 Semantic Versioning。
 
+## [1.0.2] - 2026-07-11
+
+### Added
+
+- 新增 Compose 内置 Caddy HTTPS 反向代理，通过 `https` profile 自动申请、续期并持久化公网域名证书。
+- 新增全局 `ouih` 管理命令与品牌化交互菜单，集中提供更新、卸载、访问地址、安装目录、状态、日志和启停操作。
+- 新增 `--proxy caddy|cloudflare|external|none` 安装参数，兼容域名直连、Cloudflare 小黄云、已有反向代理和本机 HTTP 四种部署方式。
+- 新增 Caddy 证书数据卷、配置卷、健康检查与安装后 HTTPS 入口验证。
+
+### Changed
+
+- HTTPS 域名安装默认启用 Caddy，并将 Web 服务固定绑定到 `127.0.0.1`，不再把反向代理留给用户手工配置。
+- 安装器会预检宿主机 80/443 端口、等待本地 readiness，并进一步验证真实证书与 HTTPS 反向代理链路。
+- Cloudflare 模式会继续验证边缘响应中的 `CF-Ray` / Cloudflare 标识，确认小黄云链路真正生效。
+- README 快速开始、日常运维、Cloudflare DNS 指引和故障排查统一改为自动 HTTPS 与 `ouih` 工作流。
+
+### Fixed
+
+- 修复安装器在没有 TLS 终止层时仍输出 HTTPS 安装成功，导致浏览器出现 `ERR_SSL_PROTOCOL_ERROR` 的问题。
+- 修复公网域名配置正确但 Compose 仅暴露 HTTP 回环端口，用户无法直接通过域名访问的问题。
+- 更新与卸载流程默认保留生产配置、加密密钥和 Docker 数据卷，危险清理必须显式确认。
+
 ## [1.0.1] - 2026-07-11
 
 ### Added

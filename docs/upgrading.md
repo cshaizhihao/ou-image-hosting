@@ -16,23 +16,24 @@ Do not rely on a backup that exists only inside the same data volume.
 ## Upgrade procedure
 
 ```bash
-git fetch --tags
-git checkout v1.0.0
-docker compose --env-file .env.production config --quiet
-COMPOSE_PARALLEL_LIMIT=1 docker compose --env-file .env.production build api
-COMPOSE_PARALLEL_LIMIT=1 docker compose --env-file .env.production build web
-docker compose --env-file .env.production up -d
+ouih update
 ```
 
-Prefer CI-built images on hosts with strict CPU limits.
+The command refuses a dirty Git working tree, preserves `.env.production`,
+updates `ouih` itself, builds API and Web sequentially, and starts the correct
+Compose profile for direct Caddy or Cloudflare mode.
+
+If `ouih` is not installed yet, rerun the one-line installer. Prefer CI-built
+images on hosts with strict CPU limits.
 
 Monitor startup:
 
 ```bash
-docker compose --env-file .env.production logs --tail=200 api
-docker compose --env-file .env.production logs --tail=200 web
-docker compose ps
-curl --fail http://127.0.0.1:3000/api/health
+ouih status
+ouih logs api
+ouih logs web
+ouih logs caddy
+curl --fail http://127.0.0.1:3000/api/health/ready
 ```
 
 Then verify installation status, login, upload, image access, sharing, and the

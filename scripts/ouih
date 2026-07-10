@@ -1,0 +1,477 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+PRODUCT_NAME="OU-Image Hosting"
+PRODUCT_CN="欧记图床"
+SYSTEM_INSTALL_CONF="/etc/ou-image-hosting/install.conf"
+USER_INSTALL_CONF="${XDG_CONFIG_HOME:-${HOME:-/tmp}/.config}/ou-image-hosting/install.conf"
+INSTALL_CONF="${OUIH_INSTALL_CONF:-}"
+INSTALL_DIR="${OUIH_INSTALL_DIR:-}"
+ENV_FILE_NAME="${OUIH_ENV_FILE_NAME:-.env.production}"
+INPUT_DEVICE="${INPUT_DEVICE:-/dev/tty}"
+
+if [[ ! -r "$INPUT_DEVICE" ]]; then
+  INPUT_DEVICE="/dev/stdin"
+fi
+
+if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
+  RESET=$'\033[0m'
+  BOLD=$'\033[1m'
+  PINK=$'\033[38;5;210m'
+  GREEN=$'\033[38;5;114m'
+  YELLOW=$'\033[38;5;221m'
+  RED=$'\033[38;5;203m'
+  GRAY=$'\033[38;5;245m'
+else
+  RESET=""
+  BOLD=""
+  PINK=""
+  GREEN=""
+  YELLOW=""
+  RED=""
+  GRAY=""
+fi
+
+info() {
+  printf '%s\n' "${PINK}●${RESET} $*"
+}
+
+success() {
+  printf '%s\n' "${GREEN}✓${RESET} $*"
+}
+
+warning() {
+  printf '%s\n' "${YELLOW}!${RESET} $*"
+}
+
+fatal() {
+  printf '%s\n' "${RED}✕ $*${RESET}" >&2
+  exit 1
+}
+
+banner() {
+  printf '%s\n' "${BOLD}${PINK}OU-Image Hosting · 欧记图床${RESET}"
+  printf '%s\n' "${GRAY}漂亮地托管，也轻松地管理。${RESET}"
+}
+
+usage() {
+  cat <<'EOF'
+OU-Image Hosting · 欧记图床 管理命令
+
+用法：
+  ouih                         打开交互菜单
+  ouih update                  拉取 main，顺序重建并启动
+  ouih uninstall               安全卸载，默认保留数据卷
+  ouih uninstall --purge-data  卸载并永久删除数据卷
+  ouih url                     显示公开访问地址
+  ouih dir                     显示安装目录
+  ouih status                  显示容器状态
+  ouih logs [Compose 参数]     查看日志，例如 ouih logs -f api
+  ouih start                   启动服务
+  ouih stop                    停止服务
+  ouih help                    显示帮助
+
+安装目录发现顺序：
+  1. OUIH_INSTALL_DIR 环境变量
+  2. 当前脚本所在项目目录
+  3. /etc/ou-image-hosting/install.conf 中的 INSTALL_DIR
+  4. ~/.config/ou-image-hosting/install.conf 中的 INSTALL_DIR
+EOF
+}
+
+command_exists() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+canonical_path() {
+  local target="$1"
+  if command_exists realpath; then
+    realpath "$target"
+  elif command_exists readlink; then
+    readlink -f "$target"
+  else
+    (
+      cd "$(dirname "$target")"
+      printf '%s/%s\n' "$PWD" "$(basename "$target")"
+    )
+  fi
+}
+
+read_install_conf() {
+  local config="$1"
+  [[ -r "$config" ]] || return 1
+  local value
+  value="$(
+    sed -n \
+      -e 's/^[[:space:]]*INSTALL_DIR[[:space:]]*=[[:space:]]*//p' \
+      "$config" |
+      head -n 1
+  )"
+  value="${value%$'\r'}"
+  if [[ "$value" == \"*\" && "$value" == *\" ]]; then
+    value="${value:1:${#value}-2}"
+  elif [[ "$value" == \'*\' && "$value" == *\' ]]; then
+    value="${value:1:${#value}-2}"
+  fi
+  [[ -n "$value" ]] || return 1
+  printf '%s\n' "$value"
+}
+
+looks_like_installation() {
+  local directory="$1"
+  [[ -d "$directory" &&
+     -f "$directory/docker-compose.yml" &&
+     -f "$directory/$ENV_FILE_NAME" ]]
+}
+
+discover_install_dir() {
+  if [[ -n "$INSTALL_DIR" ]]; then
+    INSTALL_DIR="$(canonical_path "$INSTALL_DIR")"
+  else
+    local script_path script_dir candidate configured config
+    script_path="$(canonical_path "${BASH_SOURCE[0]}")"
+    script_dir="$(dirname "$script_path")"
+    candidate="$(dirname "$script_dir")"
+    if looks_like_installation "$candidate"; then
+      INSTALL_DIR="$candidate"
+    else
+      if [[ -n "$INSTALL_CONF" ]]; then
+        config="$INSTALL_CONF"
+        if configured="$(read_install_conf "$config" 2>/dev/null)" &&
+           [[ -n "$configured" ]]; then
+          INSTALL_DIR="$(canonical_path "$configured")"
+        fi
+      else
+        for config in "$SYSTEM_INSTALL_CONF" "$USER_INSTALL_CONF"; do
+          if configured="$(read_install_conf "$config" 2>/dev/null)" &&
+             [[ -n "$configured" ]]; then
+            INSTALL_CONF="$config"
+            INSTALL_DIR="$(canonical_path "$configured")"
+            break
+          fi
+        done
+      fi
+      if [[ -z "$INSTALL_DIR" ]] && looks_like_installation "$PWD"; then
+        INSTALL_DIR="$(canonical_path "$PWD")"
+      fi
+      [[ -n "$INSTALL_DIR" ]] ||
+        fatal "找不到安装目录。请设置 OUIH_INSTALL_DIR，或重新运行安装器修复管理命令。"
+    fi
+  fi
+
+  looks_like_installation "$INSTALL_DIR" ||
+    fatal "目录不是有效的 OU-Image Hosting 安装：${INSTALL_DIR}"
+}
+
+env_file() {
+  printf '%s/%s\n' "$INSTALL_DIR" "$ENV_FILE_NAME"
+}
+
+compose() {
+  (
+    cd "$INSTALL_DIR"
+    local proxy_mode
+    local -a command=(
+      docker compose
+      --env-file "$ENV_FILE_NAME"
+      -f docker-compose.yml
+    )
+    proxy_mode="$(
+      sed -n 's/^OU_PROXY_MODE=//p' "$ENV_FILE_NAME" |
+        head -n 1
+    )"
+    if [[ "$proxy_mode" == "caddy" || "$proxy_mode" == "cloudflare" ]]; then
+      command+=(--profile https)
+    fi
+    "${command[@]}" "$@"
+  )
+}
+
+refresh_management_command() {
+  local source_path self_path
+  if [[ "${OUIH_DISABLE_SELF_UPDATE:-false}" == "true" ]]; then
+    return 0
+  fi
+  source_path="$INSTALL_DIR/scripts/ouih"
+  if [[ ! -x "$source_path" ]]; then
+    return 0
+  fi
+  self_path="$(canonical_path "${BASH_SOURCE[0]}")"
+  if [[ "$self_path" == "$source_path" ]]; then
+    return 0
+  fi
+
+  if [[ -w "$self_path" || -w "$(dirname "$self_path")" ]]; then
+    install -m 0755 "$source_path" "$self_path"
+    success "ouih 管理命令已同步到最新版本"
+  elif [[ "${EUID:-$(id -u)}" -ne 0 ]] && command_exists sudo; then
+    sudo install -m 0755 "$source_path" "$self_path"
+    success "ouih 管理命令已同步到最新版本"
+  else
+    warning "没有权限更新 ${self_path}；应用已更新，但建议重新运行安装器刷新 ouih。"
+  fi
+}
+
+docker_ready() {
+  command_exists docker || fatal "未安装 Docker。请先安装 Docker Engine。"
+  docker compose version >/dev/null 2>&1 ||
+    fatal "未检测到 Docker Compose v2。"
+  if ! docker info >/dev/null 2>&1; then
+    if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
+      fatal "无法连接 Docker。请将当前用户加入 docker 组，或使用 sudo ouih $*。"
+    fi
+    fatal "无法连接 Docker 服务，请确认 Docker 已启动。"
+  fi
+}
+
+confirm_yes() {
+  local prompt="$1"
+  local answer=""
+  printf '%s [y/N]: ' "$prompt" >&2
+  IFS= read -r answer < "$INPUT_DEVICE" || true
+  [[ "$answer" =~ ^[Yy]$ ]]
+}
+
+confirm_phrase() {
+  local prompt="$1"
+  local expected="$2"
+  local answer=""
+  printf '%s\n' "$prompt" >&2
+  printf '请输入 %s 继续: ' "$expected" >&2
+  IFS= read -r answer < "$INPUT_DEVICE" || true
+  [[ "$answer" == "$expected" ]]
+}
+
+safe_install_dir() {
+  local directory="$1"
+  [[ "$directory" == /* ]] || fatal "拒绝删除非绝对路径。"
+  [[ "$directory" != "/" &&
+     "$directory" != "/opt" &&
+     "$directory" != "/usr" &&
+     "$directory" != "/var" &&
+     "$directory" != "${HOME:-/__missing__}" &&
+     ${#directory} -ge 12 ]] ||
+    fatal "安装目录过于宽泛，拒绝卸载：${directory}"
+}
+
+remove_path() {
+  local target="$1"
+  if [[ ! -e "$target" ]]; then
+    return
+  fi
+  if [[ -w "$target" || -w "$(dirname "$target")" ]]; then
+    rm -rf -- "$target"
+    return
+  fi
+  if [[ "${EUID:-$(id -u)}" -ne 0 ]] && command_exists sudo; then
+    warning "删除 ${target} 需要管理员权限，即将调用 sudo。"
+    sudo rm -rf -- "$target"
+    return
+  fi
+  fatal "没有权限删除 ${target}。请使用 sudo 重新运行。"
+}
+
+show_url() {
+  local value
+  value="$(
+    sed -n 's/^APP_ORIGIN=//p' "$(env_file)" |
+      head -n 1
+  )"
+  [[ -n "$value" ]] || fatal "${ENV_FILE_NAME} 中没有 APP_ORIGIN。"
+  printf '%s\n' "$value"
+}
+
+show_dir() {
+  printf '%s\n' "$INSTALL_DIR"
+}
+
+update_application() {
+  docker_ready update
+  command_exists git || fatal "缺少 Git，无法更新。"
+  [[ -d "$INSTALL_DIR/.git" ]] ||
+    fatal "安装目录不是 Git 仓库，无法自动更新。"
+  [[ -z "$(git -C "$INSTALL_DIR" status --porcelain)" ]] ||
+    fatal "仓库存在未提交修改。请先提交、暂存或清理后再更新。"
+
+  local production_env backup_env
+  production_env="$(env_file)"
+  [[ -f "$production_env" ]] ||
+    fatal "缺少 ${production_env}，为避免丢失配置已停止更新。"
+  backup_env="$(mktemp)"
+  cp -p "$production_env" "$backup_env"
+  restore_configuration() {
+    if [[ -f "$backup_env" ]]; then
+      cp -p "$backup_env" "$production_env"
+      rm -f "$backup_env"
+    fi
+  }
+
+  info "检查并拉取 main 分支"
+  local git_status
+  set +e
+  git -C "$INSTALL_DIR" fetch --depth 1 origin main &&
+    git -C "$INSTALL_DIR" checkout main &&
+    git -C "$INSTALL_DIR" pull --ff-only origin main
+  git_status=$?
+  set -e
+  restore_configuration
+  ((git_status == 0)) || fatal "拉取 main 失败，生产配置已恢复。"
+  refresh_management_command
+
+  info "校验 Compose 配置"
+  compose config --quiet
+  info "低并发顺序构建 API"
+  COMPOSE_PARALLEL_LIMIT=1 compose build api
+  info "低并发顺序构建 Web"
+  COMPOSE_PARALLEL_LIMIT=1 compose build web
+  info "启动更新后的服务"
+  compose up -d
+  success "更新完成，现有 ${ENV_FILE_NAME} 已保留。"
+}
+
+uninstall_application() {
+  local purge_data="false"
+  while (($# > 0)); do
+    case "$1" in
+      --purge-data)
+        purge_data="true"
+        ;;
+      *)
+        fatal "未知卸载参数：$1"
+        ;;
+    esac
+    shift
+  done
+
+  safe_install_dir "$INSTALL_DIR"
+  docker_ready uninstall
+  warning "即将卸载 ${PRODUCT_NAME}，安装目录：${INSTALL_DIR}"
+  if [[ "$purge_data" == "true" ]]; then
+    warning "你选择了 --purge-data，所有图片、配置状态和数据卷将永久删除。"
+  else
+    info "默认保留 Docker 数据卷 ou-image-hosting_ou_data。"
+  fi
+
+  confirm_yes "第一次确认：继续卸载？" ||
+    fatal "已取消卸载，没有修改任何内容。"
+  local phrase="UNINSTALL"
+  [[ "$purge_data" == "true" ]] && phrase="PURGE DATA"
+  confirm_phrase "第二次确认：此操作不可自动撤销。" "$phrase" ||
+    fatal "确认文字不匹配，已取消卸载。"
+
+  if [[ "$purge_data" == "true" ]]; then
+    compose down --remove-orphans --volumes
+  else
+    compose down --remove-orphans
+  fi
+
+  if [[ "$purge_data" == "true" ]]; then
+    local configured self_path config
+    for config in "${INSTALL_CONF:-}" "$SYSTEM_INSTALL_CONF" "$USER_INSTALL_CONF"; do
+      [[ -n "$config" && -r "$config" ]] || continue
+      configured="$(read_install_conf "$config" 2>/dev/null || true)"
+      if [[ "$configured" == "$INSTALL_DIR" ]]; then
+        remove_path "$config"
+      fi
+    done
+    self_path="$(canonical_path "${BASH_SOURCE[0]}")"
+    remove_path "$INSTALL_DIR"
+    if [[ "$self_path" != "$INSTALL_DIR/"* &&
+          ("$self_path" == "/usr/local/bin/ouih" ||
+           "$self_path" == "${HOME:-/tmp}/.local/bin/ouih") ]]; then
+      remove_path "$self_path"
+    fi
+    success "${PRODUCT_CN} 已卸载，数据卷已永久删除。"
+  else
+    success "${PRODUCT_CN} 运行环境已卸载。"
+    printf '%s\n' "安装目录、生产配置与数据卷均已保留：${INSTALL_DIR}"
+    printf '%s\n' "需要恢复时运行：ouih start"
+  fi
+}
+
+status_application() {
+  docker_ready status
+  compose ps
+}
+
+logs_application() {
+  docker_ready logs
+  if (($# == 0)); then
+    compose logs --tail=200
+  else
+    compose logs "$@"
+  fi
+}
+
+start_application() {
+  docker_ready start
+  compose up -d
+  success "${PRODUCT_CN} 已启动。"
+}
+
+stop_application() {
+  docker_ready stop
+  compose stop
+  success "${PRODUCT_CN} 已停止。"
+}
+
+interactive_menu() {
+  banner
+  cat <<'EOF'
+
+  1) 查看状态
+  2) 查看日志
+  3) 启动服务
+  4) 停止服务
+  5) 更新应用
+  6) 显示访问地址
+  7) 显示安装目录
+  8) 卸载应用
+  0) 退出
+EOF
+  local choice=""
+  printf '\n请选择 [0-8]: ' >&2
+  IFS= read -r choice < "$INPUT_DEVICE" || true
+  case "$choice" in
+    1) status_application ;;
+    2) logs_application ;;
+    3) start_application ;;
+    4) stop_application ;;
+    5) update_application ;;
+    6) show_url ;;
+    7) show_dir ;;
+    8) uninstall_application ;;
+    0) success "已退出管理工具。" ;;
+    *) fatal "无效选择：${choice:-空}" ;;
+  esac
+}
+
+main() {
+  local command="${1:-menu}"
+  if (($# > 0)); then
+    shift
+  fi
+  case "$command" in
+    help|-h|--help)
+      usage
+      return
+      ;;
+  esac
+
+  discover_install_dir
+  case "$command" in
+    menu) interactive_menu ;;
+    update) update_application "$@" ;;
+    uninstall) uninstall_application "$@" ;;
+    url) show_url ;;
+    dir) show_dir ;;
+    status) status_application ;;
+    logs) logs_application "$@" ;;
+    start) start_application ;;
+    stop) stop_application ;;
+    *) fatal "未知命令：${command}。使用 ouih help 查看帮助。" ;;
+  esac
+}
+
+main "$@"

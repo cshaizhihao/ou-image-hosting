@@ -91,6 +91,7 @@ OU-Image Hosting 不只是一个生成图片外链的上传框。
 - Docker Engine 24+ / Docker Desktop
 - Docker Compose v2
 - Git、curl、OpenSSL
+- 公网 HTTPS 部署需要域名解析到服务器，并放行 TCP 80/443
 
 ### 交互式安装
 
@@ -115,14 +116,27 @@ curl -fsSL https://raw.githubusercontent.com/cshaizhihao/ou-image-hosting/main/i
 它会依次完成：
 
 1. 检查 Git、curl、OpenSSL、Docker 与 Compose。
-2. 询问安装目录、访问地址、监听端口和存储配额。
+2. 询问安装目录、访问地址、HTTPS 接入方式、监听端口和存储配额。
 3. 克隆项目；重复执行时安全更新已有安装。
 4. 生成权限为 `600` 的生产配置和 256-bit 随机密钥。
 5. 升级时保留原加密密钥，并备份现有 `.env.production`。
-6. 顺序构建 API 与 Web，避免两个镜像同时构建。
-7. 启动容器并等待 readiness 健康检查通过。
+6. HTTPS 域名默认部署 Caddy，自动申请并续期证书。
+7. 顺序构建 API 与 Web，避免两个镜像同时构建。
+8. 安装全局 `ouih` 管理命令。
+9. 启动容器，依次验证 readiness、TLS 证书与 HTTPS 反向代理。
 
 安装完成后，打开安装器显示的地址，跟随页面向导创建站点和第一个管理员。
+
+### Cloudflare 域名
+
+1. 在 Cloudflare DNS 中添加指向服务器公网 IP 的 `A` 记录；存在 IPv6 时再添加 `AAAA`。
+2. 开启该记录的小黄云代理，并把 Cloudflare SSL/TLS 模式设为 `Full (strict)`。
+3. 在云厂商安全组和服务器防火墙中放行 TCP `80`、`443`。
+4. 首次签发证书期间关闭 Cloudflare `Always Use HTTPS` 和自定义强制 HTTPS 重定向规则，安装成功后可以重新开启。
+5. 运行一键安装，选择「公网 HTTPS 域名」和「Cloudflare 小黄云」。
+6. 安装器会先验证 Caddy 公共源站证书，再验证 Cloudflare 边缘响应；不要使用 `Flexible`。
+
+如果服务器已有 Nginx、Caddy、宝塔或 1Panel 反向代理，安装时选择「使用现有反向代理」，或传入 `--proxy external`，然后把域名转发到安装器显示的 `127.0.0.1:<端口>`。
 
 ### 无人值守安装
 
@@ -140,6 +154,7 @@ curl -fsSL https://raw.githubusercontent.com/cshaizhihao/ou-image-hosting/main/i
   | bash -s -- \
       --yes \
       --origin https://img.example.com \
+      --proxy cloudflare \
       --port 3080 \
       --quota-gb 20
 ```
@@ -150,8 +165,6 @@ curl -fsSL https://raw.githubusercontent.com/cshaizhihao/ou-image-hosting/main/i
 curl -fsSL https://raw.githubusercontent.com/cshaizhihao/ou-image-hosting/main/install.sh \
   | bash -s -- --help
 ```
-
-> 使用 HTTPS 域名时，仍需把 Nginx、Caddy 或其他反向代理转发到安装时选择的本机端口。
 
 <details>
 <summary><strong>手动使用 Docker Compose 安装</strong></summary>
@@ -164,12 +177,12 @@ cp .env.production.example .env.production
 openssl rand -hex 32
 ```
 
-将随机值写入 `.env.production` 的 `OU_SECRET_KEY`，配置实际 `APP_ORIGIN`，然后：
+将随机值写入 `.env.production` 的 `OU_SECRET_KEY`，配置实际 `APP_ORIGIN`、`OU_PUBLIC_HOST` 和 `OU_PROXY_MODE=caddy`，然后：
 
 ```bash
 COMPOSE_PARALLEL_LIMIT=1 docker compose --env-file .env.production build api
 COMPOSE_PARALLEL_LIMIT=1 docker compose --env-file .env.production build web
-docker compose --env-file .env.production up -d
+docker compose --env-file .env.production --profile https up -d
 curl --fail http://127.0.0.1:3000/api/health/ready
 ```
 
@@ -210,26 +223,32 @@ curl --fail http://127.0.0.1:3000/api/health/ready
 
 ## 日常运维
 
-默认安装目录为 `~/ou-image-hosting`。
+安装完成后直接运行 `ouih` 打开交互菜单：
 
 ```bash
-cd ~/ou-image-hosting
-
-# 查看状态
-docker compose ps
-
-# 实时日志
-docker compose logs -f
-
-# 停止 / 启动
-docker compose stop
-docker compose start
-
-# readiness
-curl --fail http://127.0.0.1:3000/api/health/ready
+ouih
 ```
 
-升级时重新执行一键安装命令即可。安装器会拒绝覆盖存在未提交修改的仓库，并在更新配置前创建备份。
+也可以直接使用子命令：
+
+```bash
+# 查看访问地址与安装目录
+ouih url
+ouih dir
+
+# 更新、状态与日志
+ouih update
+ouih status
+ouih logs
+
+# 停止 / 启动
+ouih stop
+ouih start
+```
+
+`ouih update` 会拒绝覆盖存在未提交修改的仓库，保留 `.env.production` 和 `OU_SECRET_KEY`，顺序重建镜像并重新验证服务。
+
+`ouih uninstall` 默认只移除运行中的容器并保留生产配置与 Docker 数据卷，方便重新安装恢复。永久删除图片与元数据必须显式使用数据清理选项并完成二次确认。
 
 > 不要执行 `docker compose down -v`，除非你明确要永久删除全部元数据、图片、版本、缩略图和卷内备份。
 
@@ -239,7 +258,8 @@ curl --fail http://127.0.0.1:3000/api/health/ready
 - 当前图片读写的权威来源是 Docker 持久化卷中的本地存储。
 - S3/R2 已支持安全配置、连接探测和迁移，但日常读写尚未切换到远端。
 - PostgreSQL、Redis 与 CDN 变量用于状态探测，不代表业务已经启用这些组件。
-- 正式公网部署应使用 HTTPS 反向代理，并把备份导出到服务器之外。
+- 正式公网安装默认由内置 Caddy 提供 HTTPS；使用外部反向代理时必须正确转发原始 Host 与 HTTPS scheme。
+- 备份应定期导出到服务器之外，Docker 数据卷不能替代异地备份。
 
 ## 技术栈
 
@@ -249,7 +269,7 @@ curl --fail http://127.0.0.1:3000/api/health/ready
 | UI | Radix UI、Lucide、三层 Design Token、浅色/深色主题 |
 | API | Fastify 5、Multipart、Cookie、Rate Limit、Node.js Crypto |
 | Image | Sharp、版本原图、WebP 缩略图、SHA-256 去重 |
-| Runtime | Docker Compose、非 root、只读根文件系统、健康检查 |
+| Runtime | Docker Compose、Caddy 自动 HTTPS、非 root、只读根文件系统、健康检查 |
 | Test | Vitest、Playwright、Axe |
 
 ## 文档

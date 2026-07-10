@@ -1,0 +1,23 @@
+{
+	servers {
+		protocols h1 h2 h3
+	}
+}
+
+https://{$OU_PUBLIC_HOST} {
+	encode zstd gzip
+
+	header {
+		-Server
+	}
+
+	reverse_proxy web:3000 {
+		header_up Host {host}
+		header_up X-Real-IP {remote_host}
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}
