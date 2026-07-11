@@ -219,6 +219,7 @@ export function SettingsConsole() {
     useState<ActiveSession | null>(null);
   const [revokeOthersOpen, setRevokeOthersOpen] = useState(false);
   const [resetBrandingOpen, setResetBrandingOpen] = useState(false);
+  const [featureIconPicker, setFeatureIconPicker] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1579,33 +1580,72 @@ export function SettingsConsole() {
                             </span>
                             <div className={styles.featureEditorGrid}>
                               {siteSettings.publicFeatureCards.map((card, index) => {
-                                const Icon = publicFeatureIconOptions.find((option) => option.value === card.icon)?.icon ?? ImageIcon;
+                                const selectedOption = publicFeatureIconOptions.find((option) => option.value === card.icon) ?? publicFeatureIconOptions[0]!;
+                                const Icon = selectedOption.icon;
+                                const pickerOpen = featureIconPicker === index;
                                 return (
                                   <article className={styles.featureEditorCard} key={index}>
                                     <div className={styles.featureEditorCardHead}>
-                                      <span><Icon aria-hidden="true" size={17} />卡片 {index + 1}</span>
-                                      <select
-                                        className={styles.select}
-                                        onChange={(event) =>
-                                          setSiteSettings((current) =>
-                                            current
-                                              ? {
-                                                  ...current,
-                                                  publicFeatureCards: current.publicFeatureCards.map((item, itemIndex) =>
-                                                    itemIndex === index
-                                                      ? { ...item, icon: event.target.value as PublicFeatureIcon }
-                                                      : item
-                                                  )
-                                                }
-                                              : current
-                                          )
-                                        }
-                                        value={card.icon}
-                                      >
-                                        {publicFeatureIconOptions.map((option) => (
-                                          <option key={option.value} value={option.value}>{option.label}</option>
-                                        ))}
-                                      </select>
+                                      <div className={styles.featureEditorCardTitle}>
+                                        <span><Icon aria-hidden="true" size={18} /></span>
+                                        <div>
+                                          <strong>卡片 {index + 1}</strong>
+                                          <small>{card.title || "未命名欢迎卡片"}</small>
+                                        </div>
+                                      </div>
+                                      <div className={styles.iconPicker}>
+                                        <button
+                                          aria-expanded={pickerOpen}
+                                          aria-haspopup="listbox"
+                                          className={styles.iconPickerTrigger}
+                                          onClick={() => setFeatureIconPicker((current) => current === index ? null : index)}
+                                          type="button"
+                                        >
+                                          <Icon aria-hidden="true" size={17} />
+                                          <span>{selectedOption.label}</span>
+                                        </button>
+                                        {pickerOpen && (
+                                          <div className={styles.iconPickerPanel} role="listbox">
+                                            <div>
+                                              <strong>选择卡片图标</strong>
+                                              <small>预览会同步到公共首页。</small>
+                                            </div>
+                                            <div>
+                                              {publicFeatureIconOptions.map((option) => {
+                                                const OptionIcon = option.icon;
+                                                const selected = option.value === card.icon;
+                                                return (
+                                                  <button
+                                                    aria-selected={selected}
+                                                    className={cn(selected && styles.iconPickerOptionActive)}
+                                                    key={option.value}
+                                                    onClick={() => {
+                                                      setSiteSettings((current) =>
+                                                        current
+                                                          ? {
+                                                              ...current,
+                                                              publicFeatureCards: current.publicFeatureCards.map((item, itemIndex) =>
+                                                                itemIndex === index
+                                                                  ? { ...item, icon: option.value }
+                                                                  : item
+                                                              )
+                                                            }
+                                                          : current
+                                                      );
+                                                      setFeatureIconPicker(null);
+                                                    }}
+                                                    role="option"
+                                                    type="button"
+                                                  >
+                                                    <span><OptionIcon aria-hidden="true" size={18} /></span>
+                                                    <strong>{option.label}</strong>
+                                                  </button>
+                                                );
+                                              })}
+                                            </div>
+                                          </div>
+                                        )}
+                                      </div>
                                     </div>
                                     <label className={styles.field}>
                                       <span><strong>标题</strong></span>

@@ -1658,12 +1658,14 @@
 
 .featureEditorGrid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(220px, 1fr));
   gap: 12px;
 }
 
 .featureEditorCard {
+  position: relative;
   display: grid;
+  min-width: 0;
   gap: 12px;
   padding: 14px;
   border: 1px solid var(--border-default);
@@ -1674,27 +1676,175 @@
 }
 
 .featureEditorCardHead {
-  display: flex;
-  align-items: center;
-  gap: 9px;
+  position: relative;
+  z-index: 3;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  gap: 10px;
 }
 
-.featureEditorCardHead > span {
+.featureEditorCardTitle {
   display: grid;
-  width: 36px;
-  height: 36px;
+  grid-template-columns: 42px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.featureEditorCardTitle > span {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--action-primary) 12%, var(--surface-panel));
+  color: var(--action-primary-hover);
+}
+
+.featureEditorCardTitle > div {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.featureEditorCardTitle strong {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.featureEditorCardTitle small {
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.iconPicker {
+  position: relative;
+}
+
+.iconPickerTrigger {
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 9px;
+  padding: 0 12px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-panel);
+  color: var(--text-primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 760;
+  transition:
+    border-color var(--motion-fast) var(--ease-out),
+    box-shadow var(--motion-fast) var(--ease-out),
+    transform var(--motion-fast) var(--ease-out);
+}
+
+.iconPickerTrigger:hover,
+.iconPickerTrigger[aria-expanded="true"] {
+  border-color: color-mix(in srgb, var(--action-primary) 48%, var(--border-default));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--action-primary) 12%, transparent);
+}
+
+.iconPickerTrigger svg {
+  flex: 0 0 auto;
+  color: var(--action-primary-hover);
+}
+
+.iconPickerTrigger span {
+  min-width: 0;
+  margin-right: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.iconPickerPanel {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 8px);
+  left: 0;
+  width: min(280px, calc(100vw - 48px));
+  padding: 12px;
+  border: 1px solid var(--border-default);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--surface-panel) 96%, var(--surface-page));
+  box-shadow: var(--shadow-overlay);
+  animation: dialog-in var(--motion-fast) var(--ease-out);
+}
+
+.iconPickerPanel > div:first-child {
+  display: grid;
+  gap: 2px;
+  margin-bottom: 10px;
+}
+
+.iconPickerPanel > div:first-child strong {
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.iconPickerPanel > div:first-child small {
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.iconPickerPanel > div:last-child {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.iconPickerPanel button {
+  display: grid;
+  min-height: 76px;
+  justify-items: center;
+  gap: 6px;
+  padding: 10px 8px;
+  border: 1px solid var(--border-default);
+  border-radius: 14px;
+  background: var(--surface-page);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 760;
+  transition:
+    border-color var(--motion-fast) var(--ease-out),
+    background var(--motion-fast) var(--ease-out),
+    color var(--motion-fast) var(--ease-out),
+    transform var(--motion-fast) var(--ease-out);
+}
+
+.iconPickerPanel button:hover,
+.iconPickerOptionActive {
+  border-color: color-mix(in srgb, var(--action-primary) 50%, var(--border-default));
+  background: color-mix(in srgb, var(--action-primary) 12%, var(--surface-panel));
+  color: var(--text-primary);
+  transform: translateY(-1px);
+}
+
+.iconPickerPanel button > span {
+  display: grid;
+  width: 34px;
+  height: 34px;
   place-items: center;
   border-radius: 12px;
   background: color-mix(in srgb, var(--action-primary) 12%, var(--surface-panel));
   color: var(--action-primary-hover);
 }
 
-.featureEditorCardHead strong {
-  color: var(--text-primary);
-  font-size: 14px;
-}
-
-@media (max-width: 980px) {
+@media (max-width: 1180px) {
   .featureEditorGrid {
     grid-template-columns: 1fr;
   }
