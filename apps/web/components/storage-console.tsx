@@ -46,7 +46,9 @@ import {
 } from "react";
 import { apiRequest } from "@/lib/api";
 import {
+  explainStorageConnectionError,
   getStorageProviderGuide,
+  type StorageGuideFieldKey,
   type StorageGuideProvider
 } from "@/lib/storage-guides";
 import { AppShell } from "./app-shell";
@@ -319,8 +321,17 @@ function migrationProgress(migration: Migration) {
   if (!migration.total) return migration.status === "running" ? 8 : 0;
   return Math.min(
     100,
-    Math.round((migration.completed / migration.total) * 100)
+    Math.round(
+      ((migration.completed + migration.failed) / migration.total) * 100
+    )
   );
+}
+
+function migrationStage(migration: Migration) {
+  if (migration.status === "completed") return "复制与校验已完成";
+  if (migration.status === "failed") return "任务已停止，请检查失败原因";
+  if (!migration.total) return "正在扫描并统计来源文件";
+  return "正在复制并校验对象";
 }
 
 function StatusNotice({
@@ -488,6 +499,9 @@ function StorageGuideDialog({
   if (!guide) return null;
 
   const step = guide.steps[stepIndex]!;
+  const stepFields = guide.fields.filter((field) =>
+    step.fieldKeys?.includes(field.key)
+  );
   const isFirst = stepIndex === 0;
   const isLast = stepIndex === guide.steps.length - 1;
 
@@ -577,6 +591,20 @@ function StorageGuideDialog({
                   </li>
                 ))}
               </ul>
+              {!!stepFields.length && (
+                <div className={styles.guideFields}>
+                  <strong>本步对应字段</strong>
+                  <dl>
+                    {stepFields.map((field) => (
+                      <div key={field.key}>
+                        <dt>{field.label}</dt>
+                        <dd>{field.description}</dd>
+                        <code>{field.example}</code>
+                      </div>
+                    ))}
+                  </dl>
+                </div>
+              )}
             </div>
           </section>
 
@@ -1217,12 +1245,37 @@ export function StorageConsole() {
                         ? "连接测试通过"
                         : "连接测试失败"}
                     </strong>
-                    <span>
-                      {tests[selectedProvider]?.message ?? "提供商已响应"}
-                      {tests[selectedProvider]?.latencyMs
-                        ? ` · ${tests[selectedProvider]?.latencyMs} ms`
-                        : ""}
-                    </span>
+                    {providerIsHealthy(tests[selectedProvider]) ||
+                    selectedProvider === "local" ? (
+                      <span>
+                        {tests[selectedProvider]?.message ?? "提供商已响应"}
+                        {tests[selectedProvider]?.latencyMs
+                          ? ` · ${tests[selectedProvider]?.latencyMs} ms`
+                          : ""}
+                      </span>
+                    ) : (
+                      (() => {
+                        const detail = explainStorageConnectionError(
+                          tests[selectedProvider]?.message ?? "",
+                          selectedProvider
+                        );
+                        return (
+                          <div className={styles.testTroubleshooting}>
+                            <span>
+                              {detail.title}：{detail.description}
+                            </span>
+                            <ul>
+                              {detail.suggestions.map((suggestion) => (
+                                <li key={suggestion}>{suggestion}</li>
+                              ))}
+                            </ul>
+                            {tests[selectedProvider]?.message && (
+                              <code>{tests[selectedProvider]?.message}</code>
+                            )}
+                          </div>
+                        );
+                      })()
+                    )}
                   </div>
                 </div>
               )}
@@ -1558,6 +1611,13 @@ export function StorageConsole() {
                 <div className={styles.migrationList}>
                   {migrations.map((migration) => {
                     const progress = migrationProgress(migration);
+                    const processed = Math.min(
+                      migration.total || Number.POSITIVE_INFINITY,
+                      migration.completed + migration.failed
+                    );
+                    const remaining = migration.total
+                      ? Math.max(0, migration.total - processed)
+                      : null;
                     return (
                       <article key={migration.id}>
                         <div className={styles.migrationRoute}>
@@ -1571,22 +1631,43 @@ export function StorageConsole() {
                         </div>
                         <MigrationBadge status={migration.status} />
                         <div className={styles.progressMeta}>
-                          <span>
-                            {migration.completed} / {migration.total || "—"} 个对象
-                          </span>
+                          <span>{migrationStage(migration)}</span>
                           <strong>{progress}%</strong>
                         </div>
-                        <div className={styles.progressTrack}>
+                        <div
+                          aria-label={`迁移进度 ${progress}%`}
+                          aria-valuemax={100}
+                          aria-valuemin={0}
+                          aria-valuenow={progress}
+                          className={styles.progressTrack}
+                          role="progressbar"
+                        >
                           <span
                             style={{ transform: `scaleX(${progress / 100})` }}
                           />
                         </div>
+                        <div className={styles.migrationStats}>
+                          <span>
+                            <strong>{migration.completed}</strong> 成功
+                          </span>
+                          <span
+                            className={
+                              migration.failed ? styles.failed : undefined
+                            }
+                          >
+                            <strong>{migration.failed}</strong> 失败
+                          </span>
+                          <span>
+                            <strong>{remaining ?? "—"}</strong> 剩余
+                          </span>
+                          <span>
+                            <strong>{migration.total || "—"}</strong> 总计
+                          </span>
+                        </div>
                         <div className={styles.rowMeta}>
-                          <span>{formatDate(migration.createdAt)}</span>
-                          {!!migration.failed && (
-                            <span className={styles.failed}>
-                              {migration.failed} 个失败
-                            </span>
+                          <span>创建于 {formatDate(migration.createdAt)}</span>
+                          {migration.completedAt && (
+                            <span>结束于 {formatDate(migration.completedAt)}</span>
                           )}
                         </div>
                         {migration.error && (
@@ -1886,9 +1967,13 @@ function RemoteProviderFields({
   onChange: (key: keyof RemoteProviderConfig, value: string | boolean) => void;
   onSecretChange: (value: string) => void;
 }) {
+  const guide = getStorageProviderGuide(provider);
+  const fieldHint = (key: StorageGuideFieldKey) =>
+    guide.fields.find((field) => field.key === key)?.description;
+
   return (
     <div className={styles.fieldGrid}>
-      <Field hint="对象存储的 HTTPS API 地址。" label="Endpoint" wide>
+      <Field hint={fieldHint("endpoint")} label="Endpoint" wide>
         <input
           onChange={(event) => onChange("endpoint", event.target.value)}
           placeholder={
@@ -1899,21 +1984,21 @@ function RemoteProviderFields({
           value={config.endpoint}
         />
       </Field>
-      <Field label="Region">
+      <Field hint={fieldHint("region")} label="Region">
         <input
           onChange={(event) => onChange("region", event.target.value)}
           placeholder={provider === "r2" ? "auto" : "ap-east-1"}
           value={config.region}
         />
       </Field>
-      <Field label="Bucket">
+      <Field hint={fieldHint("bucket")} label="Bucket">
         <input
           onChange={(event) => onChange("bucket", event.target.value)}
           placeholder="ou-image-assets"
           value={config.bucket}
         />
       </Field>
-      <Field label="Access Key ID">
+      <Field hint={fieldHint("accessKeyId")} label="Access Key ID">
         <input
           autoComplete="off"
           onChange={(event) => onChange("accessKeyId", event.target.value)}
@@ -1924,7 +2009,7 @@ function RemoteProviderFields({
         hint={
           config.secretConfigured
             ? "已安全保存；留空将继续使用原密钥。"
-            : "只在保存时发送，服务端不会回显。"
+            : fieldHint("secretAccessKey")
         }
         label="Secret Access Key"
       >
@@ -1936,7 +2021,7 @@ function RemoteProviderFields({
           value={secret}
         />
       </Field>
-      <Field hint="可选，用于公开图片链接。" label="Public Base URL" wide>
+      <Field hint={fieldHint("publicBaseUrl")} label="Public Base URL" wide>
         <input
           onChange={(event) => onChange("publicBaseUrl", event.target.value)}
           placeholder="https://cdn.example.com"
@@ -1946,7 +2031,7 @@ function RemoteProviderFields({
       <div className={cn(styles.inlineOption, styles.fieldWide)}>
         <div>
           <strong>Path-style 访问</strong>
-          <small>兼容 MinIO 等需要 bucket 路径的服务</small>
+          <small>{fieldHint("pathStyle")}</small>
         </div>
         <Toggle
           checked={config.pathStyle}

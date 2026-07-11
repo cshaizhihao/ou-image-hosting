@@ -20,7 +20,7 @@ test("键盘上传、图库、详情与公开分享核心流程", async ({
     mimeType: "image/jpeg",
     buffer: await imageFixture()
   });
-  await expect(page.getByDisplayValue(imageName)).toBeVisible();
+  await expect(page.locator(`input[value="${imageName}"]`)).toBeVisible();
   const uploadResponsePromise = page.waitForResponse(
     (response) =>
       response.request().method() === "POST" &&

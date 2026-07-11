@@ -16,7 +16,7 @@
   <a href="https://github.com/cshaizhihao/ou-image-hosting/releases">
     <img src="https://img.shields.io/github/v/release/cshaizhihao/ou-image-hosting?style=flat-square&color=ef8f8f" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-v1.10.1-ef8f8f?style=flat-square" alt="Current version v1.10.1" />
+  <img src="https://img.shields.io/badge/version-v1.11.0-ef8f8f?style=flat-square" alt="Current version v1.11.0" />
   <a href="https://github.com/cshaizhihao/ou-image-hosting/actions/workflows/check.yml">
     <img src="https://img.shields.io/github/actions/workflow/status/cshaizhihao/ou-image-hosting/check.yml?branch=main&style=flat-square&label=check" alt="Check" />
   </a>
@@ -245,12 +245,24 @@ curl --fail http://127.0.0.1:3000/api/health/ready
 
 - 本地原图、缩略图、版本和物理空间统计
 - 更完整的概况面板：容量水位环、健康状态、平均图片大小、快捷入口和存储提醒
-- S3、Cloudflare R2、S3-compatible 配置、迁移与内置分步教程
+- S3、Cloudflare R2、S3-compatible 配置与内置分步向导，逐项解释字段并链接官方控制台
+- 连接测试可区分权限、密钥、存储桶、区域和网络错误；迁移任务展示成功、失败、剩余及总量
 - 自定义域名、链接模板、防盗链和签名 URL
 - gzip 完整备份、严格校验、维护模式与原子恢复
 - `/health/live`、`/health/ready` 与 Docker 健康检查
 
 后台针对浏览器 100% 缩放重新调整了侧栏、顶栏、字号和内容宽度；常用操作保持清晰、紧凑，桌面宽屏不再出现大面积无效留白。
+
+### S3 / R2 快速配置
+
+进入“存储”并选择 Amazon S3 或 Cloudflare R2，先打开卡片右上角的配置向导：
+
+1. 在对应控制台创建专用 Bucket，并创建仅拥有该 Bucket 对象读写权限的访问密钥。
+2. S3 填写 Bucket 实际 Region；R2 的 Region 固定为 `auto`，Endpoint 使用账户级 `https://<ACCOUNT_ID>.r2.cloudflarestorage.com`。
+3. Bucket 只填写名称，Access Key ID 与 Secret 必须来自同一组凭证；公开域名填写在 Public Base URL，而不是 Endpoint。
+4. 先运行“测试连接”，根据页面给出的权限、凭证、桶、区域或网络建议修正，再保存配置并开始迁移。
+
+密钥只在保存或测试时发送，后台不会回显 Secret。迁移前建议先完成一次站外备份，并保留本地文件直至抽查原图与缩略图均可访问。
 
 ## 日常运维
 
@@ -274,12 +286,17 @@ ouih update
 ouih status
 ouih logs
 
+# 一键诊断安装、代理、网络和资源状态
+ouih doctor
+
 # 停止 / 启动
 ouih stop
 ouih start
 ```
 
-`ouih update` 会自动补齐 Git、curl、OpenSSL、coreutils 等基础依赖，并拒绝覆盖存在未提交修改的仓库；正常安装目录会先备份 `.env.production`，再同步远端 `main`，恢复生产配置与 `OU_SECRET_KEY`，顺序重建镜像并重新验证服务。
+`ouih doctor` 会检查生产配置、Docker、Compose、容器、Caddy、监听端口、DNS、HTTPS、磁盘和内存，并为 Cloudflare 小黄云部署提示 `Full (strict)` 核对项。诊断结果会汇总通过、警告和失败数量，方便直接定位打不开站点的原因。
+
+`ouih update` 会自动补齐 Git、curl、OpenSSL、coreutils 等基础依赖，并拒绝覆盖存在未提交修改的仓库；正常安装目录会先备份 `.env.production`，再同步远端 `main`，恢复生产配置与 `OU_SECRET_KEY`，顺序重建镜像并重新验证服务。任一阶段失败都会保留配置并给出重试和代码回退提示。
 
 `ouih uninstall` 默认只移除运行中的容器并保留生产配置与 Docker 数据卷，方便重新安装恢复。永久删除图片与元数据必须显式使用数据清理选项并完成二次确认。
 

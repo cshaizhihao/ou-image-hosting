@@ -497,13 +497,14 @@
 
 .field strong {
   color: var(--text-secondary);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 650;
 }
 
 .field small {
   color: var(--text-tertiary);
-  font-size: 9px;
+  font-size: 11px;
+  line-height: 1.4;
 }
 
 .fieldWide {
@@ -522,7 +523,7 @@
   outline: 0;
   background: var(--surface-panel);
   color: var(--text-primary);
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .field input:focus,
@@ -560,12 +561,13 @@
 }
 
 .inlineOption strong {
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .inlineOption small {
   color: var(--text-secondary);
-  font-size: 9px;
+  font-size: 11px;
+  line-height: 1.4;
 }
 
 .toggle {
@@ -627,7 +629,34 @@
 
 .testResult span {
   color: var(--text-secondary);
-  font-size: 9px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.testTroubleshooting {
+  gap: 7px;
+  min-width: 0;
+}
+
+.testTroubleshooting ul {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.testTroubleshooting code {
+  max-width: 100%;
+  padding: 6px 8px;
+  overflow-wrap: anywhere;
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+  color: var(--text-tertiary);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 10px;
 }
 
 .twoColumn,
@@ -1008,7 +1037,7 @@
   align-items: center;
   gap: 5px;
   min-width: 0;
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .migrationRoute span {
@@ -1026,7 +1055,32 @@
   gap: 12px;
   grid-column: 1 / -1;
   color: var(--text-secondary);
-  font-size: 9px;
+  font-size: 11px;
+}
+
+.migrationStats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  grid-column: 1 / -1;
+}
+
+.migrationStats span {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 4px;
+  padding: 7px 8px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--surface-panel);
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
+.migrationStats strong {
+  color: var(--text-primary);
+  font-size: 12px;
 }
 
 .progressMeta strong {
@@ -1053,6 +1107,11 @@
 }
 
 .failed {
+  color: var(--action-danger);
+}
+
+.migrationStats .failed,
+.migrationStats .failed strong {
   color: var(--action-danger);
 }
 
@@ -1227,8 +1286,9 @@
 
 .guideDialog {
   width: min(640px, calc(100vw - 30px));
+  max-height: calc(100vh - 30px);
   padding: 0;
-  overflow: hidden;
+  overflow-y: auto;
   animation: guideDialogIn 160ms var(--ease-out);
 }
 
@@ -1323,6 +1383,8 @@
   grid-template-columns: 50px minmax(0, 1fr);
   gap: 16px;
   min-height: 260px;
+  max-height: min(430px, max(180px, calc(100vh - 300px)));
+  overflow-y: auto;
   padding: 24px 22px 18px;
   animation: guideStepIn 150ms var(--ease-out);
 }
@@ -1385,6 +1447,58 @@
     var(--surface-panel)
   );
   color: var(--status-success);
+}
+
+.guideFields {
+  display: grid;
+  gap: 8px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-default);
+}
+
+.guideFields > strong {
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.guideFields dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.guideFields dl > div {
+  display: grid;
+  align-content: start;
+  gap: 3px;
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-page);
+}
+
+.guideFields dt {
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.guideFields dd {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.guideFields code {
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+  color: var(--text-tertiary);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 10px;
 }
 
 .guideLinks {
@@ -1716,6 +1830,7 @@
     grid-template-columns: 40px minmax(0, 1fr);
     gap: 12px;
     min-height: 0;
+    max-height: none;
     padding: 20px 16px 16px;
   }
 
@@ -1782,6 +1897,11 @@
 
   .migrationList article {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .migrationStats,
+  .guideFields dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .migrationList article > :global(.ou-badge) {

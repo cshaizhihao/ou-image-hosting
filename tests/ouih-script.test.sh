@@ -42,10 +42,12 @@ make_install() {
   cp "$SOURCE_SCRIPT" "$directory/scripts/ouih"
   chmod +x "$directory/scripts/ouih"
   printf 'name: ou-image-hosting\nservices: {}\n' > "$directory/docker-compose.yml"
+  printf 'https://{$OU_PUBLIC_HOST} { reverse_proxy web:3000 }\n' > "$directory/Caddyfile"
   cat > "$directory/.env.production" <<'EOF'
 APP_ORIGIN=https://img.example.com
 OU_SECRET_KEY=keep-this-production-secret-unchanged
 OU_PROXY_MODE=cloudflare
+OU_PUBLIC_HOST=img.example.com
 EOF
 }
 
@@ -63,6 +65,9 @@ printf 'docker %s\n' "$*" >> "$MOCK_LOG"
 if [[ "${1:-}" == "info" ]]; then
   exit "${MOCK_DOCKER_INFO_EXIT:-0}"
 fi
+if [[ "$*" == *"ps --status running --services"* ]]; then
+  printf 'api\nweb\ncaddy\n'
+fi
 exit 0
 EOF
 
@@ -73,6 +78,9 @@ printf 'git %s\n' "$*" >> "$MOCK_LOG"
 if [[ "$*" == *"status --porcelain"* ]]; then
   [[ "${MOCK_GIT_DIRTY:-0}" == "1" ]] && printf ' M local-change\n'
 fi
+if [[ "$*" == *"rev-parse HEAD"* ]]; then
+  printf 'previous-revision\n'
+fi
 if [[ "$*" == *"reset --hard origin/main"* ]]; then
   if [[ "${MOCK_GIT_OVERWRITE_ENV:-0}" == "1" ]]; then
     printf 'APP_ORIGIN=https://overwritten.invalid\n' > "$2/.env.production"
@@ -82,6 +90,29 @@ fi
 exit 0
 EOF
 chmod +x "$MOCK_BIN/docker" "$MOCK_BIN/git"
+
+cat > "$MOCK_BIN/curl" <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+printf 'curl %s\n' "$*" >> "$MOCK_LOG"
+exit "${MOCK_CURL_EXIT:-0}"
+EOF
+
+cat > "$MOCK_BIN/getent" <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+printf 'getent %s\n' "$*" >> "$MOCK_LOG"
+[[ "${MOCK_DNS_FAIL:-0}" != "1" ]]
+EOF
+
+cat > "$MOCK_BIN/ss" <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+printf 'LISTEN 0 4096 0.0.0.0:80 0.0.0.0:*\n'
+printf 'LISTEN 0 4096 0.0.0.0:443 0.0.0.0:*\n'
+printf 'LISTEN 0 4096 127.0.0.1:3000 0.0.0.0:*\n'
+EOF
+chmod +x "$MOCK_BIN/curl" "$MOCK_BIN/getent" "$MOCK_BIN/ss"
 
 export PATH="$MOCK_BIN:$PATH"
 export MOCK_BIN
@@ -143,6 +174,8 @@ fi
 [[ "$(cat "$install_one/.env.production")" == "$env_before" ]] ||
   fail "同步失败后未恢复生产配置"
 assert_contains "$(cat "$TEST_ROOT/sync-fail.out")" "生产配置已恢复"
+assert_contains "$(cat "$TEST_ROOT/sync-fail.out")" "修复原因后可重试：ouih update"
+assert_contains "$(cat "$TEST_ROOT/sync-fail.out")" "如需回退代码"
 if grep -F "build api" "$MOCK_LOG" >/dev/null; then
   fail "同步失败后不应开始构建"
 fi
@@ -190,6 +223,27 @@ assert_log_contains "docker compose --env-file .env.production -f docker-compose
 assert_log_contains "docker compose --env-file .env.production -f docker-compose.yml --profile https logs -f api"
 assert_log_contains "docker compose --env-file .env.production -f docker-compose.yml --profile https up -d"
 assert_log_contains "docker compose --env-file .env.production -f docker-compose.yml --profile https stop"
+
+reset_log
+output="$(OUIH_INSTALL_DIR="$install_one" "$SOURCE_SCRIPT" doctor)"
+assert_contains "$output" "系统诊断"
+assert_contains "$output" "生产配置可读取"
+assert_contains "$output" "Docker Compose v2 可用"
+assert_contains "$output" "Caddy 容器正在运行"
+assert_contains "$output" "Caddy 配置校验通过"
+assert_contains "$output" "DNS 可以解析：img.example.com"
+assert_contains "$output" "公网地址可以访问：https://img.example.com"
+assert_contains "$output" "诊断摘要"
+assert_contains "$output" "0 项失败"
+assert_log_contains "curl --silent --show-error --fail --location --connect-timeout 3 --max-time 8 --output /dev/null https://img.example.com"
+
+reset_log
+if MOCK_CURL_EXIT=22 OUIH_INSTALL_DIR="$install_one" \
+  "$SOURCE_SCRIPT" doctor >"$TEST_ROOT/doctor-fail.out" 2>&1; then
+  fail "公网探测失败时 doctor 应返回非零"
+fi
+assert_contains "$(cat "$TEST_ROOT/doctor-fail.out")" "公网地址访问失败"
+assert_contains "$(cat "$TEST_ROOT/doctor-fail.out")" "项失败"
 
 install_cancel="$TEST_ROOT/install-cancel"
 make_install "$install_cancel"

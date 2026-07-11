@@ -61,6 +61,7 @@ OU-Image Hosting · 欧记图床 管理命令
 
 用法：
   ouih                         打开交互菜单
+  ouih doctor                  检查安装、网络、资源与运行环境
   ouih update                  同步 main，顺序重建并启动
   ouih uninstall               安全卸载，默认保留数据卷
   ouih uninstall --purge-data  卸载并永久删除数据卷
@@ -362,6 +363,227 @@ show_dir() {
   printf '%s\n' "$INSTALL_DIR"
 }
 
+env_value() {
+  local key="$1"
+  local file
+  file="$(env_file)"
+  [[ -r "$file" ]] || return 0
+  sed -n "s/^${key}=//p" "$file" | head -n 1
+}
+
+DOCTOR_OK=0
+DOCTOR_WARN=0
+DOCTOR_FAIL=0
+
+doctor_ok() {
+  DOCTOR_OK=$((DOCTOR_OK + 1))
+  success "$*"
+}
+
+doctor_warn() {
+  DOCTOR_WARN=$((DOCTOR_WARN + 1))
+  warning "$*"
+}
+
+doctor_fail() {
+  DOCTOR_FAIL=$((DOCTOR_FAIL + 1))
+  printf '%s\n' "${RED}✕ $*${RESET}"
+}
+
+origin_host() {
+  local origin="$1"
+  origin="${origin#*://}"
+  origin="${origin%%/*}"
+  origin="${origin%%:*}"
+  printf '%s\n' "$origin"
+}
+
+port_is_listening() {
+  local port="$1"
+  command_exists ss || return 2
+  ss -ltn 2>/dev/null |
+    awk -v expected=":${port}" '$4 ~ expected "$" { found=1 } END { exit !found }'
+}
+
+doctor_port() {
+  local label="$1"
+  local port="$2"
+  if port_is_listening "$port"; then
+    doctor_ok "${label}端口 ${port} 正在监听"
+  else
+    local status=$?
+    if ((status == 2)); then
+      doctor_warn "缺少 ss，无法检查${label}端口 ${port}"
+    else
+      doctor_warn "${label}端口 ${port} 当前未监听"
+    fi
+  fi
+}
+
+doctor_application() {
+  DOCTOR_OK=0
+  DOCTOR_WARN=0
+  DOCTOR_FAIL=0
+
+  local production_env origin proxy_mode public_host web_port host
+  production_env="$(env_file)"
+  origin="$(env_value APP_ORIGIN)"
+  proxy_mode="$(env_value OU_PROXY_MODE)"
+  public_host="$(env_value OU_PUBLIC_HOST)"
+  web_port="$(env_value WEB_BIND_PORT)"
+  web_port="${web_port:-3000}"
+  host="$(origin_host "$origin")"
+
+  banner
+  printf '\n%s\n' "系统诊断"
+  info "安装目录：${INSTALL_DIR}"
+
+  if [[ -r "$production_env" ]]; then
+    doctor_ok "生产配置可读取：${production_env}"
+  else
+    doctor_fail "生产配置不可读取：${production_env}"
+  fi
+  if [[ -n "$origin" && "$origin" =~ ^https?://[^/]+$ ]]; then
+    doctor_ok "公开地址格式正确：${origin}"
+  else
+    doctor_fail "APP_ORIGIN 缺失或格式无效（应为不带尾部斜杠的完整地址）"
+  fi
+  case "$proxy_mode" in
+    caddy|cloudflare|external|none)
+      doctor_ok "代理模式：${proxy_mode}"
+      ;;
+    *)
+      doctor_fail "OU_PROXY_MODE 无效：${proxy_mode:-未设置}"
+      ;;
+  esac
+
+  if command_exists docker; then
+    doctor_ok "Docker 命令可用"
+    if docker compose version >/dev/null 2>&1; then
+      doctor_ok "Docker Compose v2 可用"
+    else
+      doctor_fail "Docker Compose v2 不可用"
+    fi
+    if docker info >/dev/null 2>&1; then
+      doctor_ok "Docker 服务可连接"
+      if compose config --quiet >/dev/null 2>&1; then
+        doctor_ok "Compose 配置校验通过"
+      else
+        doctor_fail "Compose 配置校验失败"
+      fi
+      local running_services
+      running_services="$(compose ps --status running --services 2>/dev/null || true)"
+      for service in api web; do
+        if grep -Fx "$service" <<< "$running_services" >/dev/null; then
+          doctor_ok "${service} 容器正在运行"
+        else
+          doctor_warn "${service} 容器未运行"
+        fi
+      done
+      if [[ "$proxy_mode" == "caddy" || "$proxy_mode" == "cloudflare" ]]; then
+        if grep -Fx "caddy" <<< "$running_services" >/dev/null; then
+          doctor_ok "Caddy 容器正在运行"
+          if compose exec -T caddy caddy validate \
+            --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1; then
+            doctor_ok "Caddy 配置校验通过"
+          else
+            doctor_fail "Caddy 配置校验失败"
+          fi
+        else
+          doctor_fail "Caddy 容器未运行"
+        fi
+      fi
+    else
+      doctor_fail "无法连接 Docker 服务"
+    fi
+  else
+    doctor_fail "未安装 Docker"
+  fi
+
+  doctor_port "Web " "$web_port"
+  if [[ "$proxy_mode" == "caddy" || "$proxy_mode" == "cloudflare" ]]; then
+    doctor_port "HTTP " 80
+    doctor_port "HTTPS " 443
+    if [[ -r "$INSTALL_DIR/Caddyfile" ]]; then
+      doctor_ok "Caddyfile 可读取"
+    else
+      doctor_fail "Caddyfile 缺失或不可读取"
+    fi
+    if [[ -n "$public_host" && "$public_host" == "$host" ]]; then
+      doctor_ok "OU_PUBLIC_HOST 与公开地址一致"
+    else
+      doctor_fail "OU_PUBLIC_HOST 与 APP_ORIGIN 主机名不一致"
+    fi
+  fi
+
+  if [[ -n "$host" ]] && command_exists getent; then
+    if getent ahosts "$host" >/dev/null 2>&1; then
+      doctor_ok "DNS 可以解析：${host}"
+    else
+      doctor_fail "DNS 无法解析：${host}"
+    fi
+  elif [[ -n "$host" ]]; then
+    doctor_warn "缺少 getent，无法检查 DNS：${host}"
+  fi
+
+  if [[ -n "$origin" ]] && command_exists curl; then
+    if curl --silent --show-error --fail --location \
+      --connect-timeout 3 --max-time 8 --output /dev/null "$origin"; then
+      doctor_ok "公网地址可以访问：${origin}"
+    else
+      doctor_fail "公网地址访问失败：${origin}"
+    fi
+    if [[ "$origin" == https://* ]]; then
+      doctor_ok "公开地址已使用 HTTPS"
+    else
+      doctor_warn "公开地址未使用 HTTPS"
+    fi
+  elif [[ -n "$origin" ]]; then
+    doctor_warn "缺少 curl，无法检查公网地址与 HTTPS"
+  fi
+  if [[ "$proxy_mode" == "cloudflare" ]]; then
+    doctor_warn "Cloudflare 模式请在控制台确认小黄云已开启，SSL/TLS 使用 Full (strict)"
+  fi
+
+  local disk_available_kb memory_available_kb
+  disk_available_kb="$(df -Pk "$INSTALL_DIR" 2>/dev/null | awk 'NR==2 { print $4 }')"
+  if [[ "$disk_available_kb" =~ ^[0-9]+$ ]]; then
+    if ((disk_available_kb >= 1048576)); then
+      doctor_ok "可用磁盘空间：$((disk_available_kb / 1024)) MiB"
+    else
+      doctor_warn "可用磁盘不足 1 GiB：$((disk_available_kb / 1024)) MiB"
+    fi
+  else
+    doctor_warn "无法读取可用磁盘空间"
+  fi
+  memory_available_kb="$(awk '/^MemAvailable:/ { print $2 }' /proc/meminfo 2>/dev/null || true)"
+  if [[ "$memory_available_kb" =~ ^[0-9]+$ ]]; then
+    if ((memory_available_kb >= 524288)); then
+      doctor_ok "可用内存：$((memory_available_kb / 1024)) MiB"
+    else
+      doctor_warn "可用内存不足 512 MiB：$((memory_available_kb / 1024)) MiB"
+    fi
+  else
+    doctor_warn "无法读取可用内存"
+  fi
+
+  printf '\n%s\n' "诊断摘要：${DOCTOR_OK} 项通过，${DOCTOR_WARN} 项警告，${DOCTOR_FAIL} 项失败。"
+  if ((DOCTOR_FAIL > 0)); then
+    printf '%s\n' "建议先处理失败项，再运行 ouih doctor 复查。"
+    return 1
+  fi
+  success "未发现阻断运行的问题。"
+}
+
+update_recovery_hint() {
+  local stage="$1"
+  local previous_revision="$2"
+  warning "更新在“${stage}”阶段失败，生产配置已恢复并保留。"
+  printf '%s\n' "修复原因后可重试：ouih update" >&2
+  printf '%s\n' "如需回退代码：git -C ${INSTALL_DIR} reset --hard ${previous_revision}" >&2
+  printf '%s\n' "回退后请顺序重建 api、web，再运行 ouih start。" >&2
+}
+
 update_application() {
   bootstrap_base_dependencies
   docker_ready update
@@ -370,12 +592,13 @@ update_application() {
   [[ -z "$(git -C "$INSTALL_DIR" status --porcelain)" ]] ||
     fatal "仓库存在未提交修改。请先提交、暂存或清理后再更新。"
 
-  local production_env backup_env
+  local production_env backup_env previous_revision
   production_env="$(env_file)"
   [[ -f "$production_env" ]] ||
     fatal "缺少 ${production_env}，为避免丢失配置已停止更新。"
   backup_env="$(mktemp)"
   cp -p "$production_env" "$backup_env"
+  previous_revision="$(git -C "$INSTALL_DIR" rev-parse HEAD)"
   restore_configuration() {
     if [[ -f "$backup_env" ]]; then
       cp -p "$backup_env" "$production_env"
@@ -392,17 +615,32 @@ update_application() {
   git_status=$?
   set -e
   restore_configuration
-  ((git_status == 0)) || fatal "同步 main 失败，生产配置已恢复。"
+  if ((git_status != 0)); then
+    update_recovery_hint "同步 main" "$previous_revision"
+    return 1
+  fi
   refresh_management_command
 
   info "校验 Compose 配置"
-  compose config --quiet
+  if ! compose config --quiet; then
+    update_recovery_hint "校验 Compose 配置" "$previous_revision"
+    return 1
+  fi
   info "低并发顺序构建 API"
-  COMPOSE_PARALLEL_LIMIT=1 compose build api
+  if ! COMPOSE_PARALLEL_LIMIT=1 compose build api; then
+    update_recovery_hint "构建 API" "$previous_revision"
+    return 1
+  fi
   info "低并发顺序构建 Web"
-  COMPOSE_PARALLEL_LIMIT=1 compose build web
+  if ! COMPOSE_PARALLEL_LIMIT=1 compose build web; then
+    update_recovery_hint "构建 Web" "$previous_revision"
+    return 1
+  fi
   info "启动更新后的服务"
-  compose up -d
+  if ! compose up -d; then
+    update_recovery_hint "启动服务" "$previous_revision"
+    return 1
+  fi
   success "更新完成，现有 ${ENV_FILE_NAME} 已保留。"
 }
 
@@ -512,10 +750,11 @@ interactive_menu() {
   6) 显示访问地址
   7) 显示安装目录
   8) 卸载应用
+  9) 系统诊断
   0) 退出
 EOF
     local choice=""
-    printf '\n请选择 [0-8]: ' >&2
+    printf '\n请选择 [0-9]: ' >&2
     if ! IFS= read -r choice < "$INPUT_DEVICE"; then
       success "输入已结束，退出管理工具。"
       return
@@ -529,6 +768,7 @@ EOF
       6) show_url ;;
       7) show_dir ;;
       8) uninstall_application ;;
+      9) doctor_application || true ;;
       0)
         success "已退出管理工具。"
         return
@@ -556,6 +796,7 @@ main() {
   discover_install_dir
   case "$command" in
     menu) interactive_menu ;;
+    doctor) doctor_application ;;
     update) update_application "$@" ;;
     uninstall) uninstall_application "$@" ;;
     url) show_url ;;

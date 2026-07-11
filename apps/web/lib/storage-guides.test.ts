@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  explainStorageConnectionError,
   getStorageProviderGuide,
   storageProviderGuides,
   type StorageGuideProvider
@@ -15,12 +16,26 @@ describe("storage provider guides", () => {
       const guide = getStorageProviderGuide(provider);
       expect(guide.provider).toBe(provider);
       expect(guide.steps.length).toBeGreaterThanOrEqual(4);
+      expect(guide.fields.length).toBeGreaterThanOrEqual(7);
+      expect(new Set(guide.fields.map((field) => field.key)).size).toBe(
+        guide.fields.length
+      );
+      expect(
+        guide.fields.every(
+          (field) => field.description.trim() && field.example.trim()
+        )
+      ).toBe(true);
 
       for (const step of guide.steps) {
         expect(step.title.trim()).not.toBe("");
         expect(step.description.trim()).not.toBe("");
         expect(step.checklist.length).toBeGreaterThanOrEqual(3);
         expect(step.checklist.every(Boolean)).toBe(true);
+        expect(
+          step.fieldKeys?.every((key) =>
+            guide.fields.some((field) => field.key === key)
+          ) ?? true
+        ).toBe(true);
       }
     }
   });
@@ -37,6 +52,22 @@ describe("storage provider guides", () => {
     );
     expect(storageProviderGuides.r2.docsUrl).toMatch(
       /^https:\/\/developers\.cloudflare\.com\//
+    );
+  });
+
+  it("turns common provider failures into actionable guidance", () => {
+    expect(explainStorageConnectionError("AccessDenied: 403", "s3").title).toBe(
+      "凭证没有所需权限"
+    );
+    expect(
+      explainStorageConnectionError("NoSuchBucket", "r2").suggestions.join(" ")
+    ).toContain("Account ID");
+    expect(
+      explainStorageConnectionError("AuthorizationHeaderMalformed: region", "s3")
+        .title
+    ).toBe("区域设置不一致");
+    expect(explainStorageConnectionError("ETIMEDOUT", "r2").title).toBe(
+      "无法连接到存储服务"
     );
   });
 });
