@@ -141,11 +141,11 @@ describe("OU-Image API", () => {
     expect(health.statusCode).toBe(200);
     expect(health.json()).toMatchObject({
       status: "ok",
-      version: "1.5.0"
+      version: "1.6.0"
     });
     expect(live.json()).toMatchObject({
       status: "ok",
-      version: "1.5.0"
+      version: "1.6.0"
     });
     expect(ready.statusCode).toBe(200);
     expect(ready.json()).toMatchObject({
@@ -576,6 +576,66 @@ describe("OU-Image API", () => {
       cookies: cookieMap
     });
     expect(bySize.json().images[0].name).toBe("beta.jpg");
+
+    const published = await app.inject({
+      method: "POST",
+      url: "/uploads/bulk",
+      cookies: cookieMap,
+      payload: {
+        ids: [alpha.json().image.id, beta.json().image.id],
+        action: "set-public-visibility",
+        publicVisible: true
+      }
+    });
+    expect(published.json()).toEqual({ updated: 2, publicVisible: true });
+
+    const publicImages = await app.inject({
+      method: "GET",
+      url: "/public/images"
+    });
+    expect(publicImages.json().images).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "alpha.png" }),
+        expect.objectContaining({ name: "beta.jpg" })
+      ])
+    );
+
+    const hidden = await app.inject({
+      method: "POST",
+      url: "/uploads/bulk",
+      cookies: cookieMap,
+      payload: {
+        ids: [alpha.json().image.id],
+        action: "set-public-visibility",
+        publicVisible: false
+      }
+    });
+    expect(hidden.json()).toEqual({ updated: 1, publicVisible: false });
+
+    const visibleAgain = await app.inject({
+      method: "GET",
+      url: "/public/images"
+    });
+    expect(
+      visibleAgain.json().images.some((image: { name: string }) => image.name === "alpha.png")
+    ).toBe(false);
+    expect(
+      visibleAgain.json().images.some((image: { name: string }) => image.name === "beta.jpg")
+    ).toBe(true);
+
+    const missingVisibility = await app.inject({
+      method: "POST",
+      url: "/uploads/bulk",
+      cookies: cookieMap,
+      payload: {
+        ids: [beta.json().image.id],
+        action: "set-public-visibility"
+      }
+    });
+    expect(missingVisibility.statusCode).toBe(400);
+    expect(missingVisibility.json().error.code).toBe(
+      "PUBLIC_VISIBILITY_REQUIRED"
+    );
 
     const trashed = await app.inject({
       method: "POST",

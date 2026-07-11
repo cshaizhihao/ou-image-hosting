@@ -4634,6 +4634,136 @@ kbd {
   font-size: 12px;
 }
 
+.public-user-library {
+  width: min(1180px, 100%);
+  margin: 26px auto 0;
+  padding: 18px;
+  border: 1px solid var(--border-default);
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--action-primary) 12%, transparent), transparent 30%),
+    color-mix(in srgb, var(--surface-panel) 94%, transparent);
+  box-shadow: 0 20px 64px rgb(30 25 25 / 7%);
+  animation: public-pop var(--motion-standard) var(--ease-out);
+}
+
+.public-user-library__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 16px;
+}
+
+.public-user-library__head span,
+.public-gallery__head span {
+  color: var(--text-accent);
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.public-user-library__head h2 {
+  margin: 5px 0 5px;
+  color: var(--text-primary);
+  font-size: clamp(25px, 3vw, 36px);
+  letter-spacing: -0.05em;
+}
+
+.public-user-library__head p {
+  max-width: 620px;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+.public-user-library__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 260px;
+}
+
+.public-user-library__actions > span {
+  flex-basis: 100%;
+  color: var(--text-tertiary);
+  font-size: 13px;
+  font-weight: 760;
+  letter-spacing: 0;
+  text-align: right;
+  text-transform: none;
+}
+
+.public-user-library__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 12px;
+}
+
+.public-user-library__card {
+  position: relative;
+  display: grid;
+  gap: 9px;
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid var(--border-default);
+  border-radius: 18px;
+  background: var(--surface-raised);
+  cursor: pointer;
+  box-shadow: 0 10px 28px rgb(30 25 25 / 5%);
+  transition:
+    transform var(--motion-standard) var(--ease-out),
+    border-color var(--motion-standard) var(--ease-out),
+    box-shadow var(--motion-standard) var(--ease-out);
+}
+
+.public-user-library__card:hover,
+.public-user-library__card.is-selected {
+  border-color: color-mix(in srgb, var(--action-primary) 54%, var(--border-default));
+  box-shadow: 0 16px 40px rgb(30 25 25 / 9%);
+  transform: translateY(-2px);
+}
+
+.public-user-library__card input {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 1;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--action-primary);
+}
+
+.public-user-library__card img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: 13px;
+  object-fit: cover;
+  background: var(--surface-muted);
+}
+
+.public-user-library__card strong,
+.public-user-library__card small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.public-user-library__card strong {
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.public-user-library__card small {
+  margin-top: 3px;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
 .public-gallery {
   width: min(1180px, 100%);
   margin: 64px auto 0;
@@ -4880,6 +5010,29 @@ kbd {
     flex-direction: column;
   }
 
+  .public-user-library {
+    padding: 14px;
+    border-radius: 20px;
+  }
+
+  .public-user-library__head {
+    flex-direction: column;
+  }
+
+  .public-user-library__actions {
+    justify-content: flex-start;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .public-user-library__actions > span {
+    text-align: left;
+  }
+
+  .public-user-library__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .public-upload-history__list article {
     grid-template-columns: 48px minmax(0, 1fr);
   }
@@ -4928,12 +5081,14 @@ kbd {
   .public-upload-toast,
   .public-upload-result,
   .public-upload-history,
+  .public-user-library,
   .public-gallery-preview,
   .public-gallery-preview__panel {
     animation: none;
   }
 
   .public-gallery__grid button,
+  .public-user-library__card,
   .public-gallery-preview__close,
   .public-gallery-preview__nav {
     transition: none;

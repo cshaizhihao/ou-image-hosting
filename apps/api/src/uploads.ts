@@ -83,8 +83,9 @@ type PublicUploadQuery = {
 };
 type BulkBody = {
   ids: string[];
-  action: "trash" | "add-to-albums";
+  action: "trash" | "add-to-albums" | "set-public-visibility";
   albumIds?: string[];
+  publicVisible?: boolean;
 };
 
 function publicImage(
@@ -241,7 +242,7 @@ async function readRemoteImage(rawUrl: string, maximumBytes: number) {
       signal: AbortSignal.timeout(10_000),
       headers: {
         accept: "image/avif,image/webp,image/png,image/jpeg,image/gif",
-        "user-agent": "OU-Image-Hosting/1.5.0"
+        "user-agent": "OU-Image-Hosting/1.6.0"
       }
     });
   } catch {
@@ -608,13 +609,17 @@ export async function registerUploadRoutes(
               uniqueItems: true,
               items: { type: "string", minLength: 1, maxLength: 80 }
             },
-            action: { type: "string", enum: ["trash", "add-to-albums"] },
+            action: {
+              type: "string",
+              enum: ["trash", "add-to-albums", "set-public-visibility"]
+            },
             albumIds: {
               type: "array",
               maxItems: 50,
               uniqueItems: true,
               items: { type: "string", minLength: 1, maxLength: 80 }
-            }
+            },
+            publicVisible: { type: "boolean" }
           }
         }
       }
@@ -626,13 +631,26 @@ export async function registerUploadRoutes(
         "write",
         request.body.action === "trash"
           ? ["images:delete"]
-          : ["images:write", "organization:write"]
+          : request.body.action === "set-public-visibility"
+            ? ["images:write"]
+            : ["images:write", "organization:write"]
       );
       const ids = new Set(request.body.ids);
       const albumIds = new Set(request.body.albumIds ?? []);
       const timestamp = now().toISOString();
       const updated = await store.update((state) => {
         let count = 0;
+        if (
+          request.body.action === "set-public-visibility" &&
+          typeof request.body.publicVisible !== "boolean"
+        ) {
+          throw new PublicError(
+            400,
+            "PUBLIC_VISIBILITY_REQUIRED",
+            "请选择公开或隐藏状态"
+          );
+        }
+        const nextPublicVisible = request.body.publicVisible === true;
         if (request.body.action === "add-to-albums") {
           if (albumIds.size === 0) {
             throw new PublicError(
@@ -664,6 +682,12 @@ export async function registerUploadRoutes(
               image.deletedAt = timestamp;
               image.updatedAt = timestamp;
               count += 1;
+            } else if (request.body.action === "set-public-visibility") {
+              if (image.publicVisible !== nextPublicVisible) {
+                image.publicVisible = nextPublicVisible;
+                image.updatedAt = timestamp;
+              }
+              count += 1;
             } else {
               const nextAlbumIds = new Set(image.albumIds);
               const before = nextAlbumIds.size;
@@ -683,6 +707,10 @@ export async function registerUploadRoutes(
         albumIds:
           request.body.action === "add-to-albums"
             ? [...albumIds]
+            : undefined,
+        publicVisible:
+          request.body.action === "set-public-visibility"
+            ? request.body.publicVisible
             : undefined
       };
     }

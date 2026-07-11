@@ -52,7 +52,15 @@ type PublicImage = {
   originalUrl: string;
   width: number;
   height: number;
+  publicVisible?: boolean;
   createdAt: string;
+};
+
+type PersonalImage = PublicImage & {
+  size: number;
+  mime: string;
+  format: string;
+  updatedAt: string;
 };
 
 type UploadResult = {
@@ -121,6 +129,11 @@ export function PublicUploadLanding() {
   const [config, setConfig] = useState<PublicConfig>(fallbackConfig);
   const [session, setSession] = useState<SessionStatus>({ authenticated: false });
   const [gallery, setGallery] = useState<PublicImage[]>([]);
+  const [personalImages, setPersonalImages] = useState<PersonalImage[]>([]);
+  const [selectedPersonalIds, setSelectedPersonalIds] = useState<Set<string>>(
+    () => new Set()
+  );
+  const [visibilityBusy, setVisibilityBusy] = useState(false);
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [publicVisible, setPublicVisible] = useState(true);
   const [dragging, setDragging] = useState(false);
@@ -147,6 +160,7 @@ export function PublicUploadLanding() {
   );
   const previewImage =
     previewIndex === null ? null : galleryItems.at(previewIndex) ?? null;
+  const selectedPersonalCount = selectedPersonalIds.size;
   const originalUrl = result ? publicUrl(result.image.originalUrl) : "";
   const markdown = result
     ? `![${result.image.name}](${originalUrl})`
@@ -179,6 +193,24 @@ export function PublicUploadLanding() {
     document.documentElement.dataset.theme = nextDark ? "dark" : "light";
   }, []);
 
+  const refreshPublicGallery = useCallback(async () => {
+    if (!site.publicGalleryEnabled) return;
+    const images = await apiJson<{ images: PublicImage[] }>("/public/images");
+    setGallery(images.images);
+  }, [site.publicGalleryEnabled]);
+
+  const refreshPersonalImages = useCallback(async () => {
+    if (!session.authenticated) return;
+    const payload = await apiJson<{ images: PersonalImage[] }>(
+      "/uploads?limit=18&sort=newest"
+    );
+    setPersonalImages(payload.images);
+    setSelectedPersonalIds((current) => {
+      const validIds = new Set(payload.images.map((image) => image.id));
+      return new Set([...current].filter((id) => validIds.has(id)));
+    });
+  }, [session.authenticated]);
+
   useEffect(() => {
     let alive = true;
     const load = async () => {
@@ -200,6 +232,12 @@ export function PublicUploadLanding() {
           const images = await apiJson<{ images: PublicImage[] }>("/public/images");
           if (alive) setGallery(images.images);
         }
+        if (sessionPayload.authenticated) {
+          const personal = await apiJson<{ images: PersonalImage[] }>(
+            "/uploads?limit=18&sort=newest"
+          );
+          if (alive) setPersonalImages(personal.images);
+        }
       } catch (requestError) {
         if (alive) {
           setError(
@@ -215,6 +253,51 @@ export function PublicUploadLanding() {
       alive = false;
     };
   }, []);
+
+  const togglePersonalSelection = (imageId: string) => {
+    setSelectedPersonalIds((current) => {
+      const next = new Set(current);
+      if (next.has(imageId)) next.delete(imageId);
+      else next.add(imageId);
+      return next;
+    });
+  };
+
+  const setSelectedPersonalVisibility = async (publicVisibleNext: boolean) => {
+    if (selectedPersonalIds.size === 0 || visibilityBusy) return;
+    setVisibilityBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const payload = await apiJson<{ updated: number; publicVisible: boolean }>(
+        "/uploads/bulk",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            ids: Array.from(selectedPersonalIds),
+            action: "set-public-visibility",
+            publicVisible: publicVisibleNext
+          })
+        }
+      );
+      setNotice(
+        publicVisibleNext
+          ? `已公开 ${payload.updated} 张图片。`
+          : `已隐藏 ${payload.updated} 张图片。`
+      );
+      setSelectedPersonalIds(new Set());
+      await Promise.all([refreshPersonalImages(), refreshPublicGallery()]);
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "公开状态更新失败"
+      );
+    } finally {
+      setVisibilityBusy(false);
+    }
+  };
 
   const closePreview = useCallback(() => setPreviewIndex(null), []);
 
@@ -311,8 +394,10 @@ export function PublicUploadLanding() {
             : `已处理 ${completed} 张图片，其中 ${duplicates} 张为已存在图片。`
         );
         if (publicVisible && site.publicGalleryEnabled) {
-          const images = await apiJson<{ images: PublicImage[] }>("/public/images");
-          setGallery(images.images);
+          await refreshPublicGallery();
+        }
+        if (session.authenticated) {
+          await refreshPersonalImages();
         }
       } catch (requestError) {
         if (
@@ -336,6 +421,9 @@ export function PublicUploadLanding() {
     },
     [
       publicVisible,
+      refreshPersonalImages,
+      refreshPublicGallery,
+      session.authenticated,
       site.publicGalleryEnabled,
       uploadEnabled,
       uploading,
@@ -617,6 +705,59 @@ export function PublicUploadLanding() {
                 </article>
               );
             })}
+          </div>
+        </section>
+      )}
+
+      {session.authenticated && personalImages.length > 0 && (
+        <section className="public-user-library" aria-label="我的上传历史">
+          <div className="public-user-library__head">
+            <div>
+              <span>MY UPLOADS</span>
+              <h2>我的上传历史</h2>
+              <p>登录后上传的图片会留在这里，可多选后公开或从公共图床隐藏。</p>
+            </div>
+            <div className="public-user-library__actions">
+              <span>{selectedPersonalCount > 0 ? `已选择 ${selectedPersonalCount} 张` : `${personalImages.length} 张最近上传`}</span>
+              <Button
+                disabled={selectedPersonalCount === 0 || visibilityBusy}
+                onClick={() => void setSelectedPersonalVisibility(true)}
+                size="compact"
+                variant="secondary"
+              >
+                设为公开
+              </Button>
+              <Button
+                disabled={selectedPersonalCount === 0 || visibilityBusy}
+                onClick={() => void setSelectedPersonalVisibility(false)}
+                size="compact"
+                variant="ghost"
+              >
+                设为隐藏
+              </Button>
+            </div>
+          </div>
+          <div className="public-user-library__grid">
+            {personalImages.map((image) => (
+              <label
+                className={cn(
+                  "public-user-library__card",
+                  selectedPersonalIds.has(image.id) && "is-selected"
+                )}
+                key={image.id}
+              >
+                <input
+                  checked={selectedPersonalIds.has(image.id)}
+                  onChange={() => togglePersonalSelection(image.id)}
+                  type="checkbox"
+                />
+                <img alt={image.name} loading="lazy" src={image.thumbnailUrl} />
+                <span>
+                  <strong>{image.name}</strong>
+                  <small>{image.publicVisible ? "正在公共图床展示" : "仅自己可见"}</small>
+                </span>
+              </label>
+            ))}
           </div>
         </section>
       )}
