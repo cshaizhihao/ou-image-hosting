@@ -850,6 +850,18 @@ export function PublicUploadLanding() {
         跳到公共上传区域
       </a>
 
+      <div className="public-upload-sparkles" aria-hidden="true">
+        <i />
+        <i />
+        <i />
+        <i />
+        <i />
+        <i />
+        <i />
+        <i />
+        <i />
+      </div>
+
       <header className="public-upload-topbar">
         <Link className="public-upload-brand" href="/">
           <span>

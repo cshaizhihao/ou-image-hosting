@@ -173,15 +173,15 @@ export function AuthShell({
           <div className="auth-benefits">
             <div>
               <span><ImageIcon size={17} /></span>
-              <p><strong>清爽管理</strong><small>上传、归档、分享一气呵成，让图片资产始终井然有序。</small></p>
+              <p><strong>欢迎回来</strong><small>把图片放进来，剩下的慢慢整理。</small></p>
             </div>
             <div>
               <span><ShieldCheck size={17} /></span>
-              <p><strong>私有部署</strong><small>运行在你的服务器与存储中，访问、权限和数据都由你掌控。</small></p>
+              <p><strong>随手上传</strong><small>截图、照片、素材，都可以先收进来。</small></p>
             </div>
             <div>
               <span><Check size={17} /></span>
-              <p><strong>稳定可控</strong><small>从上传反馈到公开展示，每一步都尽量清楚、克制、可预期。</small></p>
+              <p><strong>安心保存</strong><small>每一张图片，都在你的空间里好好待着。</small></p>
             </div>
           </div>
         </div>

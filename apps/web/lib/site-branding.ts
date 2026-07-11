@@ -21,18 +21,18 @@ export const PUBLIC_FEATURE_ICON_VALUES: PublicFeatureIcon[] = [
 export const DEFAULT_PUBLIC_FEATURE_CARDS: PublicFeatureCard[] = [
   {
     icon: "image",
-    title: "清爽管理",
-    description: "上传、归档、分享一气呵成，让图片资产始终井然有序。"
+    title: "欢迎回来",
+    description: "把图片放进来，剩下的慢慢整理。"
   },
   {
     icon: "shield",
-    title: "私有部署",
-    description: "运行在你的服务器与存储中，访问、权限和数据都由你掌控。"
+    title: "随手上传",
+    description: "截图、照片、素材，都可以先收进来。"
   },
   {
     icon: "check",
-    title: "稳定可控",
-    description: "从上传反馈到公开展示，每一步都尽量清楚、克制、可预期。"
+    title: "安心保存",
+    description: "每一张图片，都在你的空间里好好待着。"
   }
 ];
 

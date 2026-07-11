@@ -1535,7 +1535,7 @@ export function SettingsConsole() {
                       <details className={styles.settingsAccordion}>
                         <summary>
                           <span>公共首页</span>
-                          <small>公共上传页标题、说明和三张卖点卡片。</small>
+                          <small>公共上传页标题、说明和三张欢迎卡片。</small>
                         </summary>
                         <div className={styles.formGrid}>
                           <label className={styles.field}>
@@ -1574,7 +1574,7 @@ export function SettingsConsole() {
                           </label>
                           <div className={cn(styles.field, styles.spanFull)}>
                             <span>
-                              <strong>首页卖点卡片</strong>
+                              <strong>首页欢迎卡片</strong>
                               <small>三张小卡片会展示在公共上传页左侧。</small>
                             </span>
                             <div className={styles.featureEditorGrid}>

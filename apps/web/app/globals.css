@@ -4601,6 +4601,39 @@ kbd {
   opacity: 0.42;
 }
 
+.public-upload-sparkles {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.public-upload-sparkles i {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle, rgb(255 255 255 / 96%) 0 28%, color-mix(in srgb, var(--action-primary) 58%, transparent) 38%, transparent 72%);
+  box-shadow:
+    0 0 16px color-mix(in srgb, var(--action-primary) 42%, transparent),
+    0 0 30px rgb(255 255 255 / 46%);
+  opacity: 0.18;
+  transform: scale(0.72);
+  animation: public-sparkle-breathe 7.8s var(--ease-out) infinite;
+}
+
+.public-upload-sparkles i:nth-child(1) { top: 15%; left: 8%; animation-delay: -1.2s; }
+.public-upload-sparkles i:nth-child(2) { top: 23%; left: 34%; width: 4px; height: 4px; animation-delay: -4.8s; }
+.public-upload-sparkles i:nth-child(3) { top: 12%; right: 18%; animation-delay: -2.8s; }
+.public-upload-sparkles i:nth-child(4) { top: 48%; left: 12%; width: 5px; height: 5px; animation-delay: -6.2s; }
+.public-upload-sparkles i:nth-child(5) { top: 58%; right: 10%; width: 4px; height: 4px; animation-delay: -3.9s; }
+.public-upload-sparkles i:nth-child(6) { bottom: 18%; left: 24%; animation-delay: -7.1s; }
+.public-upload-sparkles i:nth-child(7) { bottom: 12%; right: 32%; width: 5px; height: 5px; animation-delay: -2.1s; }
+.public-upload-sparkles i:nth-child(8) { top: 35%; right: 43%; width: 3px; height: 3px; animation-delay: -5.4s; }
+.public-upload-sparkles i:nth-child(9) { bottom: 34%; left: 48%; width: 4px; height: 4px; animation-delay: -0.6s; }
+
 .public-upload-topbar,
 .public-upload-hero,
 .public-upload-result,
@@ -5595,6 +5628,23 @@ kbd {
   right: 14px;
 }
 
+@keyframes public-sparkle-breathe {
+  0%, 100% {
+    opacity: 0.14;
+    transform: translate3d(0, 0, 0) scale(0.7);
+  }
+
+  42% {
+    opacity: 0.82;
+    transform: translate3d(0, -10px, 0) scale(1.16);
+  }
+
+  58% {
+    opacity: 0.32;
+    transform: translate3d(0, -14px, 0) scale(0.92);
+  }
+}
+
 @keyframes public-pop {
   from {
     opacity: 0;
@@ -5735,6 +5785,7 @@ kbd {
 @media (prefers-reduced-motion: reduce) {
   .public-upload-toast,
   .public-upload-result,
+  .public-upload-sparkles i,
   .public-upload-history,
   .public-user-library,
   .public-gallery-preview,
