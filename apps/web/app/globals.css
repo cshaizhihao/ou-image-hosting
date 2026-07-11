@@ -3,11 +3,10 @@
 @font-face {
   font-family: "OU Brand Display";
   src: url("/fonts/ou-brand-display-black.woff2") format("woff2");
-  font-display: swap;
+  font-display: block;
   font-style: normal;
   font-weight: 900;
 }
-
 :root {
   color-scheme: light;
 
@@ -42,6 +41,9 @@
   --font-display:
     var(--primitive-font-display), "Noto Sans SC", "Microsoft YaHei", system-ui,
     sans-serif;
+  --display-letter-tight: -0.018em;
+  --display-letter-hero: -0.024em;
+  --display-letter-logo: 0.005em;
 
   --border-default: #e0e0dc;
   --border-strong: #c9c9c4;
@@ -1995,7 +1997,7 @@ kbd {
   font-size: 14px;
   font-weight: 900;
   font-synthesis: none;
-  letter-spacing: -0.01em;
+  letter-spacing: var(--display-letter-logo);
 }
 
 .auth-brand small {
@@ -2049,8 +2051,8 @@ kbd {
   font-size: clamp(40px, 5vw, 66px);
   font-weight: 900;
   font-synthesis: none;
-  letter-spacing: -0.055em;
-  line-height: 1.07;
+  letter-spacing: var(--display-letter-hero);
+  line-height: 1.12;
 }
 
 .auth-story__content > p {
@@ -2168,8 +2170,8 @@ kbd {
   margin: 0;
   font-size: 28px;
   font-weight: 700;
-  letter-spacing: -0.035em;
-  line-height: 1.2;
+  letter-spacing: var(--display-letter-tight);
+  line-height: 1.24;
 }
 
 .auth-heading p,
@@ -2923,8 +2925,8 @@ kbd {
   font-size: clamp(30px, 4vw, 44px);
   font-weight: 900;
   font-synthesis: none;
-  letter-spacing: -0.045em;
-  line-height: 1.1;
+  letter-spacing: var(--display-letter-tight);
+  line-height: 1.14;
 }
 
 .library-header p {
@@ -3744,8 +3746,8 @@ kbd {
   font-weight: 900;
   font-synthesis: none;
   font-variant-numeric: tabular-nums;
-  letter-spacing: -0.05em;
-  line-height: 1;
+  letter-spacing: var(--display-letter-tight);
+  line-height: 1.04;
 }
 
 .upload-hero__stat span {
@@ -4717,8 +4719,8 @@ kbd {
   font-size: clamp(48px, 7vw, 86px);
   font-weight: 900;
   font-synthesis: none;
-  letter-spacing: -0.06em;
-  line-height: 0.98;
+  letter-spacing: var(--display-letter-hero);
+  line-height: 1.08;
 }
 
 .public-upload-copy p {

@@ -132,7 +132,6 @@ ouih doctor
 - [v1.0.0 发布说明](./docs/releases/v1.0.0.md)
 
 ## 🤍 License
-
 MIT License。
 
 如果它刚好让你的图片小屋舒服了一点，那就很好。

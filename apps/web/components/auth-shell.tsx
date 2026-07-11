@@ -173,15 +173,15 @@ export function AuthShell({
           <div className="auth-benefits">
             <div>
               <span><ImageIcon size={17} /></span>
-              <p><strong>专注图片</strong><small>围绕高频操作设计，不堆砌无关功能。</small></p>
+              <p><strong>清爽管理</strong><small>上传、归档、分享一气呵成，让图片资产始终井然有序。</small></p>
             </div>
             <div>
               <span><ShieldCheck size={17} /></span>
-              <p><strong>数据自持</strong><small>部署在自己的环境，凭证与数据由你掌握。</small></p>
+              <p><strong>私有部署</strong><small>运行在你的服务器与存储中，访问、权限和数据都由你掌控。</small></p>
             </div>
             <div>
               <span><Check size={17} /></span>
-              <p><strong>细节可靠</strong><small>响应式布局、深色模式与完整状态反馈。</small></p>
+              <p><strong>稳定可控</strong><small>从上传反馈到公开展示，每一步都尽量清楚、克制、可预期。</small></p>
             </div>
           </div>
         </div>
