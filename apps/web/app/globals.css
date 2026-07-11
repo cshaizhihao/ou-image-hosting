@@ -4530,6 +4530,7 @@ kbd {
 }
 
 .public-upload-topbar {
+  z-index: 40;
   display: flex;
   width: min(1480px, 100%);
   align-items: center;
@@ -5109,7 +5110,7 @@ kbd {
 .public-account-menu summary::-webkit-details-marker { display: none; }
 .public-account-menu summary > span { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 9px; background: var(--text-primary); color: var(--surface-panel); font-size: 11px; font-weight: 800; }
 .public-account-menu summary strong { max-width: 150px; overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
-.public-account-menu > div { position: absolute; z-index: 20; top: calc(100% + 8px); right: 0; display: grid; width: min(260px, calc(100vw - 36px)); overflow: hidden; padding: 7px; border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--surface-panel); box-shadow: 0 22px 60px rgb(20 18 18 / 18%); }
+.public-account-menu > div { position: absolute; z-index: 90; top: calc(100% + 8px); right: 0; display: grid; width: min(260px, calc(100vw - 36px)); overflow: hidden; padding: 7px; border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--surface-panel); box-shadow: 0 22px 60px rgb(20 18 18 / 18%); }
 .public-account-menu header { display: grid; gap: 2px; padding: 9px 10px 11px; border-bottom: 1px solid var(--border-subtle); }
 .public-account-menu header strong, .public-account-menu header small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .public-account-menu header strong { font-size: 14px; }
