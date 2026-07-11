@@ -3,13 +3,17 @@
 import { Button } from "@ou-image/ui";
 import {
   ArrowRight,
+  BarChart3,
+  CheckCircle2,
   Database,
   FileImage,
   FolderCog,
   HardDrive,
   ImageUp,
   LoaderCircle,
+  Settings,
   ShieldCheck,
+  Sparkles,
   Users
 } from "lucide-react";
 import Link from "next/link";
@@ -23,8 +27,11 @@ import {
 } from "@/lib/api";
 import {
   formatOverviewBytes,
+  overviewAverageImageBytes,
   overviewQuotaPercent,
   overviewRoleLabel,
+  overviewStorageLabel,
+  overviewStorageTone,
   selectOverviewWorkspace,
   type OverviewSummary
 } from "@/lib/overview-model";
@@ -79,6 +86,11 @@ export function OverviewConsole() {
   }, []);
 
   const quotaPercent = data ? overviewQuotaPercent(data.summary) : 0;
+  const storageTone = data ? overviewStorageTone(data.summary) : "calm";
+  const storageLabel = data ? overviewStorageLabel(data.summary) : "";
+  const averageImageBytes = data
+    ? overviewAverageImageBytes(data.summary)
+    : 0;
   const isSiteOwner = data?.user.role === "owner";
 
   return (
@@ -116,6 +128,62 @@ export function OverviewConsole() {
           </section>
         ) : data ? (
           <>
+            <section
+              aria-label="工作区健康状态"
+              className={styles.heroPanel}
+              data-tone={storageTone}
+            >
+              <div className={styles.heroCopy}>
+                <span>
+                  <Sparkles aria-hidden="true" size={16} />
+                  {storageLabel}
+                </span>
+                <h2>
+                  {data.summary.count > 0
+                    ? "图片空间运行正常"
+                    : "工作区已经准备好"}
+                </h2>
+                <p>
+                  {data.summary.count > 0
+                    ? `当前工作区有 ${data.summary.count} 张图片，平均每张约 ${formatOverviewBytes(
+                        averageImageBytes
+                      )}。`
+                    : "上传第一张图片后，这里会展示容量、水位和整理建议。"}
+                </p>
+              </div>
+              <div className={styles.capacityRing}>
+                <svg aria-hidden="true" viewBox="0 0 120 120">
+                  <circle cx="60" cy="60" r="48" />
+                  <circle
+                    cx="60"
+                    cy="60"
+                    r="48"
+                    style={{
+                      strokeDashoffset: `${301.59 - (301.59 * quotaPercent) / 100}`
+                    }}
+                  />
+                </svg>
+                <strong>{quotaPercent}%</strong>
+                <span>容量水位</span>
+              </div>
+              <div className={styles.heroActions}>
+                <Button asChild>
+                  <Link href="/upload">
+                    去上传
+                    <ArrowRight aria-hidden="true" size={16} />
+                  </Link>
+                </Button>
+                {isSiteOwner && (
+                  <Button asChild variant="secondary">
+                    <Link href="/storage">
+                      检查存储
+                      <Settings aria-hidden="true" size={16} />
+                    </Link>
+                  </Button>
+                )}
+              </div>
+            </section>
+
             <section aria-label="工作区摘要" className={styles.metrics}>
               <article className={styles.metric}>
                 <span className={styles.metricIcon}>
@@ -125,6 +193,9 @@ export function OverviewConsole() {
                   <span>现有图片</span>
                   <strong>{data.summary.count}</strong>
                   <p>当前工作区中可用的图片资产。</p>
+                  <div className={styles.metricBars} aria-hidden="true">
+                    <span style={{ transform: `scaleX(${Math.min(1, data.summary.count / 24)})` }} />
+                  </div>
                 </div>
               </article>
 
@@ -136,6 +207,9 @@ export function OverviewConsole() {
                   <span>已用存储</span>
                   <strong>{formatOverviewBytes(data.summary.bytes)}</strong>
                   <p>包含当前工作区实际占用的图片数据。</p>
+                  <small>
+                    平均 {formatOverviewBytes(averageImageBytes)} / 张
+                  </small>
                 </div>
               </article>
 
@@ -157,6 +231,7 @@ export function OverviewConsole() {
                       ? formatOverviewBytes(data.summary.quotaBytes)
                       : "未限额"}
                   </p>
+                  <small>{storageLabel}</small>
                 </div>
               </article>
 
@@ -173,6 +248,7 @@ export function OverviewConsole() {
                       ? ` · ${data.workspace.memberCount} 位成员`
                       : ""}
                   </p>
+                  <small>{data.user.displayName || data.user.email}</small>
                 </div>
               </article>
             </section>
@@ -209,7 +285,7 @@ export function OverviewConsole() {
             </section>
 
             <section aria-label="快捷操作" className={styles.quickGrid}>
-              <Link className={styles.quickLink} href="/">
+              <Link className={styles.quickLink} href="/upload">
                 <span className={styles.quickIcon}>
                   <ImageUp aria-hidden="true" size={20} />
                 </span>
@@ -236,6 +312,26 @@ export function OverviewConsole() {
                 <div>
                   <strong>整理相册</strong>
                   <p>按项目和主题建立清晰的图片集合。</p>
+                </div>
+                <ArrowRight aria-hidden="true" size={17} />
+              </Link>
+              <Link className={styles.quickLink} href="/analytics">
+                <span className={styles.quickIcon}>
+                  <BarChart3 aria-hidden="true" size={20} />
+                </span>
+                <div>
+                  <strong>查看数据统计</strong>
+                  <p>确认上传趋势、分享访问和格式分布。</p>
+                </div>
+                <ArrowRight aria-hidden="true" size={17} />
+              </Link>
+              <Link className={styles.quickLink} href="/settings">
+                <span className={styles.quickIcon}>
+                  <CheckCircle2 aria-hidden="true" size={20} />
+                </span>
+                <div>
+                  <strong>站点与公共上传</strong>
+                  <p>配置首页文案、Logo 和公共图床开关。</p>
                 </div>
                 <ArrowRight aria-hidden="true" size={17} />
               </Link>

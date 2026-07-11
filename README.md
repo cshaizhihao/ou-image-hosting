@@ -16,7 +16,7 @@
   <a href="https://github.com/cshaizhihao/ou-image-hosting/releases">
     <img src="https://img.shields.io/github/v/release/cshaizhihao/ou-image-hosting?style=flat-square&color=ef8f8f" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-v1.3.0-ef8f8f?style=flat-square" alt="Current version v1.3.0" />
+  <img src="https://img.shields.io/badge/version-v1.4.0-ef8f8f?style=flat-square" alt="Current version v1.4.0" />
   <a href="https://github.com/cshaizhihao/ou-image-hosting/actions/workflows/check.yml">
     <img src="https://img.shields.io/github/actions/workflow/status/cshaizhihao/ou-image-hosting/check.yml?branch=main&style=flat-square&label=check" alt="Check" />
   </a>
@@ -234,6 +234,7 @@ curl --fail http://127.0.0.1:3000/api/health/ready
 ### 存储与运维
 
 - 本地原图、缩略图、版本和物理空间统计
+- 更完整的概况面板：容量水位环、健康状态、平均图片大小、快捷入口和存储提醒
 - S3、Cloudflare R2、S3-compatible 配置、迁移与内置分步教程
 - 自定义域名、链接模板、防盗链和签名 URL
 - gzip 完整备份、严格校验、维护模式与原子恢复
