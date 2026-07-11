@@ -85,7 +85,8 @@ type SettingsSection =
   | "notifications"
   | "sessions"
   | "workspace"
-  | "configuration";
+  | "site"
+  | "processing";
 
 const settingsSections: Array<{
   id: SettingsSection;
@@ -97,7 +98,8 @@ const settingsSections: Array<{
   { id: "notifications", label: "通知", icon: BellRing },
   { id: "sessions", label: "活跃会话", icon: MonitorSmartphone },
   { id: "workspace", label: "工作区", icon: Users },
-  { id: "configuration", label: "站点与处理", icon: SlidersHorizontal }
+  { id: "site", label: "站点外观", icon: Globe2 },
+  { id: "processing", label: "图片处理", icon: SlidersHorizontal }
 ];
 
 const supportedFormats = ["jpeg", "png", "webp", "gif", "avif", "heic", "heif"];
@@ -1127,7 +1129,7 @@ export function SettingsConsole() {
               </>
             )}
 
-            {section === "configuration" && (
+            {section === "site" && (
               <>
                 {profile?.siteRole === "owner" && siteSettings && (
                   <section className={styles.settingsCard}>
@@ -1812,6 +1814,11 @@ export function SettingsConsole() {
                   </section>
                 )}
 
+              </>
+            )}
+
+            {section === "processing" && (
+              <>
                 {workspaceConfiguration ? (
                   <>
                     <section className={styles.settingsCard}>
