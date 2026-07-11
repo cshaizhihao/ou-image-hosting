@@ -1596,3 +1596,48 @@
     animation: none;
   }
 }
+
+
+.featureEditorGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.featureEditorCard {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--action-primary) 8%, transparent), transparent 42%),
+    var(--surface-page);
+}
+
+.featureEditorCardHead {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.featureEditorCardHead > span {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--action-primary) 12%, var(--surface-panel));
+  color: var(--action-primary-hover);
+}
+
+.featureEditorCardHead strong {
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+@media (max-width: 980px) {
+  .featureEditorGrid {
+    grid-template-columns: 1fr;
+  }
+}

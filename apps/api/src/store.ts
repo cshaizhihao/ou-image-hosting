@@ -4,6 +4,64 @@ import path from "node:path";
 export type ThemePreference = "light" | "dark" | "system";
 export type AccentPreset = "coral" | "forest" | "ocean" | "amber";
 
+export type PublicFeatureIcon = "image" | "shield" | "check" | "sparkles" | "heart" | "folder";
+
+export type PublicFeatureCard = {
+  icon: PublicFeatureIcon;
+  title: string;
+  description: string;
+};
+
+export const PUBLIC_FEATURE_ICON_VALUES: PublicFeatureIcon[] = [
+  "image",
+  "shield",
+  "check",
+  "sparkles",
+  "heart",
+  "folder"
+];
+
+export const DEFAULT_PUBLIC_FEATURE_CARDS: PublicFeatureCard[] = [
+  {
+    icon: "image",
+    title: "专注图片",
+    description: "围绕高频操作设计，不堆砌无关功能。"
+  },
+  {
+    icon: "shield",
+    title: "数据自持",
+    description: "部署在自己的环境，凭证与数据由你掌握。"
+  },
+  {
+    icon: "check",
+    title: "细节可靠",
+    description: "响应式布局、深色模式与完整状态反馈。"
+  }
+];
+
+export function normalizePublicFeatureCards(value: unknown): PublicFeatureCard[] {
+  if (!Array.isArray(value)) return DEFAULT_PUBLIC_FEATURE_CARDS;
+  const icons = new Set(PUBLIC_FEATURE_ICON_VALUES);
+  const normalized = value.slice(0, 3).map((item, index) => {
+    const source = item && typeof item === "object" ? item as Record<string, unknown> : {};
+    const fallback = DEFAULT_PUBLIC_FEATURE_CARDS[index] ?? DEFAULT_PUBLIC_FEATURE_CARDS[0]!;
+    const icon = icons.has(source.icon as PublicFeatureIcon)
+      ? source.icon as PublicFeatureIcon
+      : fallback.icon;
+    const title = typeof source.title === "string" && source.title.trim()
+      ? source.title.trim().slice(0, 24)
+      : fallback.title;
+    const description = typeof source.description === "string" && source.description.trim()
+      ? source.description.trim().slice(0, 80)
+      : fallback.description;
+    return { icon, title, description };
+  });
+  while (normalized.length < 3) {
+    normalized.push(DEFAULT_PUBLIC_FEATURE_CARDS[normalized.length] ?? DEFAULT_PUBLIC_FEATURE_CARDS[0]!);
+  }
+  return normalized;
+}
+
 export type NotificationPreferences = {
   security: boolean;
   collaboration: boolean;
@@ -53,6 +111,7 @@ export type SiteConfig = {
   publicUploadBlockedIps: string[];
   publicHeroTitle: string;
   publicHeroDescription: string;
+  publicFeatureCards: PublicFeatureCard[];
   loginEyebrow: string;
   loginHeroTitle: string;
   loginHeroDescription: string;
@@ -89,6 +148,7 @@ export function defaultSiteConfig(
     publicHeroTitle: "把图片放进来，剩下的交给队列。",
     publicHeroDescription:
       "拖拽、选择或粘贴图片，即可生成可分享链接。公开展示可以在后台关闭，上传时也能自己决定是否出现在公共图床里。",
+    publicFeatureCards: DEFAULT_PUBLIC_FEATURE_CARDS,
     loginEyebrow: "BEAUTIFUL SELF-HOSTED IMAGE HUB",
     loginHeroTitle: "让图片管理，从第一眼就舒服。",
     loginHeroDescription:
@@ -1370,6 +1430,9 @@ export function migrateAppState(parsed: MigratableAppState): AppState {
               parsed.site.publicHeroDescription.trim()
                 ? parsed.site.publicHeroDescription.trim().slice(0, 260)
                 : undefined,
+            publicFeatureCards: normalizePublicFeatureCards(
+              parsed.site.publicFeatureCards
+            ),
             loginEyebrow:
               typeof parsed.site.loginEyebrow === "string" &&
               parsed.site.loginEyebrow.trim()

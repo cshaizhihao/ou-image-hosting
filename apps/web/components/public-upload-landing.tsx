@@ -11,6 +11,8 @@ import {
   ExternalLink,
   FileType2,
   Flame,
+  FolderHeart,
+  Heart,
   ImageIcon,
   Images,
   LayoutDashboard,
@@ -21,6 +23,7 @@ import {
   Shuffle,
   Sparkles,
   Sun,
+  Trash2,
   UploadCloud,
   UserRound,
   X
@@ -39,11 +42,15 @@ import {
 import { ApiError } from "@/lib/api";
 import { paginationWindow } from "@/lib/pagination";
 import {
+  DEFAULT_PUBLIC_FEATURE_CARDS,
   DEFAULT_SITE_BRANDING,
   bindSiteAppearance,
+  readStoredSiteBranding,
   normalizeSiteBranding,
   storedThemePreference,
   useFallbackLogo,
+  writeStoredSiteBranding,
+  type PublicFeatureCard,
   type AccentPreset,
   type SiteThemePreference
 } from "@/lib/site-branding";
@@ -65,6 +72,7 @@ type PublicConfig = {
     publicUploadLivePhotoEnabled: boolean;
     publicHeroTitle: string;
     publicHeroDescription: string;
+    publicFeatureCards: PublicFeatureCard[];
     theme: SiteThemePreference;
     accentPreset: AccentPreset;
   } | null;
@@ -107,27 +115,42 @@ type UploadQueueItem = UploadResult & {
   uploadedAt: string;
 };
 
-const fallbackConfig: PublicConfig = {
-  setupComplete: false,
-  site: {
-    siteName: DEFAULT_SITE_BRANDING.siteName,
-    siteDescription: DEFAULT_SITE_BRANDING.siteDescription,
-    siteLogoUrl: DEFAULT_SITE_BRANDING.siteLogoUrl,
-    publicUploadEnabled: true,
-    publicUploadRequiresLogin: false,
-    publicGalleryEnabled: true,
-    publicGalleryShowUploader: false,
-    publicGalleryShowFileName: true,
-    publicGalleryShowUploadTime: true,
-    publicUploadDefaultPublic: true,
-    publicUploadHumanVerificationEnabled: false,
-    publicUploadLivePhotoEnabled: false,
-    publicHeroTitle: DEFAULT_SITE_BRANDING.publicHeroTitle,
-    publicHeroDescription: DEFAULT_SITE_BRANDING.publicHeroDescription,
-    theme: DEFAULT_SITE_BRANDING.theme,
-    accentPreset: DEFAULT_SITE_BRANDING.accentPreset
-  }
-};
+const publicFeatureIcons = {
+  image: ImageIcon,
+  shield: ShieldCheck,
+  check: Check,
+  sparkles: Sparkles,
+  heart: Heart,
+  folder: FolderHeart
+} as const;
+
+function makeFallbackConfig(): PublicConfig {
+  const cached = readStoredSiteBranding() ?? DEFAULT_SITE_BRANDING;
+  return {
+    setupComplete: false,
+    site: {
+      siteName: cached.siteName,
+      siteDescription: cached.siteDescription,
+      siteLogoUrl: cached.siteLogoUrl,
+      publicUploadEnabled: true,
+      publicUploadRequiresLogin: false,
+      publicGalleryEnabled: true,
+      publicGalleryShowUploader: false,
+      publicGalleryShowFileName: true,
+      publicGalleryShowUploadTime: true,
+      publicUploadDefaultPublic: true,
+      publicUploadHumanVerificationEnabled: false,
+      publicUploadLivePhotoEnabled: false,
+      publicHeroTitle: cached.publicHeroTitle,
+      publicHeroDescription: cached.publicHeroDescription,
+      publicFeatureCards: DEFAULT_PUBLIC_FEATURE_CARDS,
+      theme: cached.theme,
+      accentPreset: cached.accentPreset
+    }
+  };
+}
+
+const fallbackConfig: PublicConfig = makeFallbackConfig();
 
 type SessionStatus = {
   authenticated: boolean;
@@ -191,6 +214,23 @@ function isLivePhotoVideoFile(file: File) {
   );
 }
 
+function livePhotoBaseName(file: File) {
+  return file.name
+    .toLowerCase()
+    .replace(/\.(jpe?g|heic|heif|mov|mp4)$/i, "")
+    .replace(/[_\-. ]?(livephoto|live)$/i, "")
+    .replace(/[_\-. ]+$/g, "");
+}
+
+function findLivePhotoVideoForImage(image: File, videos: File[]) {
+  if (videos.length === 0) return null;
+  const imageBase = livePhotoBaseName(image);
+  return (
+    videos.find((video) => livePhotoBaseName(video) === imageBase) ??
+    (videos.length === 1 ? videos[0] : null)
+  );
+}
+
 function publicDate(value?: string) {
   if (!value) return "";
   return new Intl.DateTimeFormat("zh-CN", {
@@ -205,7 +245,7 @@ export function PublicUploadLanding() {
   const wheelLockRef = useRef(false);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const [dark, setDark] = useState(false);
-  const [config, setConfig] = useState<PublicConfig>(fallbackConfig);
+  const [config, setConfig] = useState<PublicConfig>(() => makeFallbackConfig());
   const [session, setSession] = useState<SessionStatus>({ authenticated: false });
   const [gallery, setGallery] = useState<PublicImage[]>([]);
   const [galleryPreferences, setGalleryPreferences] = useState<GalleryPreferences>({
@@ -225,6 +265,7 @@ export function PublicUploadLanding() {
     () => new Set()
   );
   const [visibilityBusy, setVisibilityBusy] = useState(false);
+  const [personalPage, setPersonalPage] = useState(1);
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [publicVisible, setPublicVisible] = useState(true);
   const [dragging, setDragging] = useState(false);
@@ -245,6 +286,10 @@ export function PublicUploadLanding() {
   const [humanChallengeLoading, setHumanChallengeLoading] = useState(false);
 
   const site = config.site ?? fallbackConfig.site!;
+  const personalPageSize = 12;
+  const featureCards = site.publicFeatureCards?.length
+    ? site.publicFeatureCards.slice(0, 3)
+    : DEFAULT_PUBLIC_FEATURE_CARDS;
   const galleryItems = gallery;
   const galleryPages = useMemo(
     () => paginationWindow(galleryPage, galleryTotalPages),
@@ -267,6 +312,18 @@ export function PublicUploadLanding() {
   const previewImage =
     previewIndex === null ? null : galleryItems.at(previewIndex) ?? null;
   const selectedPersonalCount = selectedPersonalIds.size;
+  const personalTotalPages = Math.max(
+    1,
+    Math.ceil(personalImages.length / personalPageSize)
+  );
+  const personalPageImages = personalImages.slice(
+    (personalPage - 1) * personalPageSize,
+    personalPage * personalPageSize
+  );
+  const personalPages = useMemo(
+    () => paginationWindow(personalPage, personalTotalPages),
+    [personalPage, personalTotalPages]
+  );
   const originalUrl = result ? publicUrl(result.image.originalUrl) : "";
   const markdown = result
     ? `![${result.image.name}](${originalUrl})`
@@ -574,12 +631,9 @@ export function PublicUploadLanding() {
       }
       setError("");
       setNotice("");
-      const livePhotoVideoFile =
-        site.publicUploadLivePhotoEnabled &&
-        (file.name.toLowerCase().endsWith(".heic") ||
-          file.name.toLowerCase().endsWith(".heif"))
-          ? pendingLivePhotoVideo
-          : undefined;
+      const livePhotoVideoFile = site.publicUploadLivePhotoEnabled
+        ? pendingLivePhotoVideo
+        : undefined;
       const body = new FormData();
       body.append("file", file);
       if (livePhotoVideoFile) {
@@ -704,6 +758,36 @@ export function PublicUploadLanding() {
     ]
   );
 
+  async function deleteSelectedPersonalImages() {
+    const ids = Array.from(selectedPersonalIds);
+    if (ids.length === 0 || visibilityBusy) return;
+    if (!window.confirm(`确定删除选中的 ${ids.length} 张图片吗？删除后会进入回收站。`)) {
+      return;
+    }
+    setVisibilityBusy(true);
+    setError("");
+    try {
+      await apiJson("/uploads/bulk", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ids, action: "trash" })
+      });
+      setPersonalImages((current) =>
+        current.filter((image) => !selectedPersonalIds.has(image.id))
+      );
+      setSelectedPersonalIds(new Set());
+      setNotice("已将选中图片移入回收站。");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "删除失败，请稍后再试。");
+    } finally {
+      setVisibilityBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    if (personalPage > personalTotalPages) setPersonalPage(personalTotalPages);
+  }, [personalPage, personalTotalPages]);
+
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     void uploadFiles(event.target.files ?? undefined);
     event.currentTarget.value = "";
@@ -821,18 +905,16 @@ export function PublicUploadLanding() {
           <h1>{site.publicHeroTitle}</h1>
           <p>{site.publicHeroDescription}</p>
           <div className="public-upload-benefits">
-            <span>
-              <ImageIcon size={17} />
-              缩略图展示，节省流量
-            </span>
-            <span>
-              <ShieldCheck size={17} />
-              文件类型与大小校验
-            </span>
-            <span>
-              <Check size={17} />
-              {site.publicUploadRequiresLogin ? "支持登录后上传" : "访客可直接上传"}
-            </span>
+            {featureCards.map((card, index) => {
+              const Icon = publicFeatureIcons[card.icon] ?? ImageIcon;
+              return (
+                <span key={`${card.title}-${index}`}>
+                  <Icon size={17} />
+                  <strong>{card.title}</strong>
+                  <small>{card.description}</small>
+                </span>
+              );
+            })}
           </div>
         </div>
 
@@ -1059,6 +1141,25 @@ export function PublicUploadLanding() {
             <div className="public-user-library__actions">
               <span>{selectedPersonalCount > 0 ? `已选择 ${selectedPersonalCount} 张` : `${personalImages.length} 张最近上传`}</span>
               <Button
+                disabled={personalPageImages.length === 0 || visibilityBusy}
+                onClick={() => {
+                  const currentIds = personalPageImages.map((image) => image.id);
+                  setSelectedPersonalIds((current) => {
+                    const next = new Set(current);
+                    const allSelected = currentIds.every((id) => next.has(id));
+                    currentIds.forEach((id) => {
+                      if (allSelected) next.delete(id);
+                      else next.add(id);
+                    });
+                    return next;
+                  });
+                }}
+                size="compact"
+                variant="ghost"
+              >
+                本页全选
+              </Button>
+              <Button
                 disabled={selectedPersonalCount === 0 || visibilityBusy}
                 onClick={() => void setSelectedPersonalVisibility(true)}
                 size="compact"
@@ -1074,10 +1175,18 @@ export function PublicUploadLanding() {
               >
                 设为隐藏
               </Button>
+              <Button
+                disabled={selectedPersonalCount === 0 || visibilityBusy}
+                onClick={() => void deleteSelectedPersonalImages()}
+                size="compact"
+                variant="ghost"
+              >
+                <Trash2 size={15} />删除
+              </Button>
             </div>
           </div>
           <div className="public-user-library__grid">
-            {personalImages.map((image) => (
+            {personalPageImages.map((image) => (
               <label
                 className={cn(
                   "public-user-library__card",
@@ -1105,6 +1214,38 @@ export function PublicUploadLanding() {
               </label>
             ))}
           </div>
+          {personalTotalPages > 1 && (
+            <div className="public-user-library__pagination" aria-label="我的上传历史分页">
+              <button
+                disabled={personalPage <= 1}
+                onClick={() => setPersonalPage((page) => Math.max(1, page - 1))}
+                type="button"
+              >
+                上一页
+              </button>
+              <div>
+                {personalPages.map((page) => (
+                  <button
+                    aria-current={page === personalPage ? "page" : undefined}
+                    key={page}
+                    onClick={() => setPersonalPage(page)}
+                    type="button"
+                  >
+                    {page}
+                  </button>
+                ))}
+              </div>
+              <button
+                disabled={personalPage >= personalTotalPages}
+                onClick={() =>
+                  setPersonalPage((page) => Math.min(personalTotalPages, page + 1))
+                }
+                type="button"
+              >
+                下一页
+              </button>
+            </div>
+          )}
         </section>
       )}
 

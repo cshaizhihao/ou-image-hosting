@@ -7,9 +7,11 @@ import { type ReactNode, useEffect, useState } from "react";
 import {
   DEFAULT_SITE_BRANDING,
   bindSiteAppearance,
+  getInitialSiteBranding,
   normalizeSiteBranding,
   storedThemePreference,
   useFallbackLogo,
+  writeStoredSiteBranding,
   type AccentPreset,
   type SiteThemePreference
 } from "@/lib/site-branding";
@@ -61,7 +63,7 @@ export function AuthShell({
   mode?: "auth" | "install";
 }) {
   const [dark, setDark] = useState(false);
-  const [site, setSite] = useState<AuthSite>(fallbackSite);
+  const [site, setSite] = useState<AuthSite>(() => getInitialSiteBranding());
 
   useEffect(() => {
     const explicit = storedThemePreference(
@@ -84,7 +86,9 @@ export function AuthShell({
           site?: Partial<AuthSite> | null;
         };
         if (!alive || !payload.site) return;
-        setSite(normalizeSiteBranding(payload.site));
+        const nextSite = normalizeSiteBranding(payload.site);
+        writeStoredSiteBranding(nextSite);
+        setSite(nextSite);
       } catch {
         // 登录页文案读取失败时保持默认品牌文案。
       }

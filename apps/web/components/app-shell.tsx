@@ -71,9 +71,11 @@ import {
 import {
   DEFAULT_SITE_BRANDING,
   bindSiteAppearance,
+  getInitialSiteBranding,
   normalizeSiteBranding,
   storedThemePreference,
   useFallbackLogo,
+  writeStoredSiteBranding,
   type SiteBranding
 } from "@/lib/site-branding";
 
@@ -409,7 +411,9 @@ export function AppShell({
     apiRequest<{ site?: unknown }>("/setup/status")
       .then((payload) => {
         if (active && payload.site) {
-          setSiteBranding(normalizeSiteBranding(payload.site));
+          const nextBranding = normalizeSiteBranding(payload.site);
+          writeStoredSiteBranding(nextBranding);
+          setSiteBranding(nextBranding);
         }
       })
       .catch(() => undefined);

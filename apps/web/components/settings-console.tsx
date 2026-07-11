@@ -5,10 +5,14 @@ import { Badge, Button, cn } from "@ou-image/ui";
 import QRCode from "qrcode";
 import {
   BellRing,
+  Check,
   Fingerprint,
+  FolderHeart,
   FolderCog,
   Globe2,
+  Heart,
   ImageDown,
+  ImageIcon,
   KeyRound,
   Languages,
   Laptop,
@@ -20,6 +24,7 @@ import {
   Save,
   ShieldCheck,
   SlidersHorizontal,
+  Sparkles,
   Smartphone,
   Trash2,
   UserRound,
@@ -73,10 +78,12 @@ import {
   requestMessage
 } from "./management-ui";
 import {
+  PUBLIC_FEATURE_ICON_VALUES,
   applySiteAppearance,
   storedThemePreference,
   useFallbackLogo,
-  type AccentPreset
+  type AccentPreset,
+  type PublicFeatureIcon
 } from "@/lib/site-branding";
 
 type SettingsSection =
@@ -110,6 +117,32 @@ const accentPresets: Array<{ value: AccentPreset; label: string }> = [
   { value: "ocean", label: "海湾蓝" },
   { value: "amber", label: "暖琥珀" }
 ];
+
+const publicFeatureIconOptions: Array<{
+  value: PublicFeatureIcon;
+  label: string;
+  icon: LucideIcon;
+}> = PUBLIC_FEATURE_ICON_VALUES.map((value) => ({
+  value,
+  label:
+    {
+      image: "图片",
+      shield: "盾牌",
+      check: "勾选",
+      sparkles: "星光",
+      heart: "爱心",
+      folder: "相册"
+    }[value],
+  icon:
+    {
+      image: ImageIcon,
+      shield: ShieldCheck,
+      check: Check,
+      sparkles: Sparkles,
+      heart: Heart,
+      folder: FolderHeart
+    }[value]
+}));
 
 const notificationCategories: Array<{
   key: "security" | "collaboration" | "system";
@@ -1750,6 +1783,115 @@ export function SettingsConsole() {
                           value={siteSettings.publicHeroDescription}
                         />
                       </label>
+                      <div className={cn(styles.field, styles.spanFull)}>
+                        <span>
+                          <strong>公共首页三枚卖点卡片</strong>
+                          <small>对应公共上传页左侧的小图标与说明，可选预置图标，不会重绘 Logo。</small>
+                        </span>
+                        <div className={styles.featureEditorGrid}>
+                          {siteSettings.publicFeatureCards.map((card, index) => {
+                            const CurrentIcon =
+                              publicFeatureIconOptions.find((item) => item.value === card.icon)?.icon ??
+                              ImageIcon;
+                            return (
+                              <article className={styles.featureEditorCard} key={index}>
+                                <div className={styles.featureEditorCardHead}>
+                                  <span>
+                                    <CurrentIcon aria-hidden="true" size={18} />
+                                  </span>
+                                  <strong>卖点 {index + 1}</strong>
+                                </div>
+                                <label className={styles.field}>
+                                  <span>
+                                    <strong>图标</strong>
+                                    <small>从克制的预置图标里选择。</small>
+                                  </span>
+                                  <select
+                                    className={styles.select}
+                                    onChange={(event) =>
+                                      setSiteSettings((current) =>
+                                        current
+                                          ? {
+                                              ...current,
+                                              publicFeatureCards:
+                                                current.publicFeatureCards.map((item, itemIndex) =>
+                                                  itemIndex === index
+                                                    ? {
+                                                        ...item,
+                                                        icon: event.target.value as PublicFeatureIcon
+                                                      }
+                                                    : item
+                                                )
+                                            }
+                                          : current
+                                      )
+                                    }
+                                    value={card.icon}
+                                  >
+                                    {publicFeatureIconOptions.map((item) => (
+                                      <option key={item.value} value={item.value}>
+                                        {item.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+                                <label className={styles.field}>
+                                  <span>
+                                    <strong>标题</strong>
+                                    <small>建议 2-6 个字，保持轻巧。</small>
+                                  </span>
+                                  <input
+                                    className={styles.input}
+                                    maxLength={24}
+                                    onChange={(event) =>
+                                      setSiteSettings((current) =>
+                                        current
+                                          ? {
+                                              ...current,
+                                              publicFeatureCards:
+                                                current.publicFeatureCards.map((item, itemIndex) =>
+                                                  itemIndex === index
+                                                    ? { ...item, title: event.target.value }
+                                                    : item
+                                                )
+                                            }
+                                          : current
+                                      )
+                                    }
+                                    value={card.title}
+                                  />
+                                </label>
+                                <label className={styles.field}>
+                                  <span>
+                                    <strong>说明</strong>
+                                    <small>一句话说明这个站点的体验价值。</small>
+                                  </span>
+                                  <textarea
+                                    className={styles.textarea}
+                                    maxLength={80}
+                                    onChange={(event) =>
+                                      setSiteSettings((current) =>
+                                        current
+                                          ? {
+                                              ...current,
+                                              publicFeatureCards:
+                                                current.publicFeatureCards.map((item, itemIndex) =>
+                                                  itemIndex === index
+                                                    ? { ...item, description: event.target.value }
+                                                    : item
+                                                )
+                                            }
+                                          : current
+                                      )
+                                    }
+                                    value={card.description}
+                                  />
+                                </label>
+                              </article>
+                            );
+                          })}
+                        </div>
+                      </div>
                       <label className={styles.field}>
                         <span>
                           <strong>登录页英文标签</strong>
@@ -1830,6 +1972,9 @@ export function SettingsConsole() {
                           !siteSettings.siteLogoUrl.trim() ||
                           !siteSettings.publicHeroTitle.trim() ||
                           !siteSettings.publicHeroDescription.trim() ||
+                          siteSettings.publicFeatureCards.some(
+                            (card) => !card.title.trim() || !card.description.trim()
+                          ) ||
                           !siteSettings.loginEyebrow.trim() ||
                           !siteSettings.loginHeroTitle.trim() ||
                           !siteSettings.loginHeroDescription.trim()

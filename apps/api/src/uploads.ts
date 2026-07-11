@@ -1281,6 +1281,7 @@ export async function registerUploadRoutes(
         },
         publicHeroTitle: site.publicHeroTitle,
         publicHeroDescription: site.publicHeroDescription,
+        publicFeatureCards: site.publicFeatureCards,
         theme: site.theme,
         accentPreset: site.accentPreset
       }

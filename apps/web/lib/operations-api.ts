@@ -116,6 +116,14 @@ export type SystemStatusData = {
   events: SystemEvent[];
 };
 
+export type PublicFeatureIcon = "image" | "shield" | "check" | "sparkles" | "heart" | "folder";
+
+export type PublicFeatureCard = {
+  icon: PublicFeatureIcon;
+  title: string;
+  description: string;
+};
+
 export type SiteSettingsData = {
   siteName: string;
   siteDescription: string;
@@ -139,6 +147,7 @@ export type SiteSettingsData = {
   publicUploadBlockedIps: string[];
   publicHeroTitle: string;
   publicHeroDescription: string;
+  publicFeatureCards: PublicFeatureCard[];
   loginEyebrow: string;
   loginHeroTitle: string;
   loginHeroDescription: string;
@@ -453,6 +462,14 @@ function parseSiteSettings(payload: unknown): SiteSettingsData {
     !source.publicUploadBlockedIps.every((item) => typeof item === "string") ||
     typeof source.publicHeroTitle !== "string" ||
     typeof source.publicHeroDescription !== "string" ||
+    !Array.isArray(source.publicFeatureCards) ||
+    !source.publicFeatureCards.every((item) =>
+      item &&
+      typeof item === "object" &&
+      typeof (item as Record<string, unknown>).icon === "string" &&
+      typeof (item as Record<string, unknown>).title === "string" &&
+      typeof (item as Record<string, unknown>).description === "string"
+    ) ||
     typeof source.loginEyebrow !== "string" ||
     typeof source.loginHeroTitle !== "string" ||
     typeof source.loginHeroDescription !== "string" ||
@@ -490,6 +507,7 @@ function parseSiteSettings(payload: unknown): SiteSettingsData {
     publicUploadBlockedIps: source.publicUploadBlockedIps,
     publicHeroTitle: source.publicHeroTitle,
     publicHeroDescription: source.publicHeroDescription,
+    publicFeatureCards: source.publicFeatureCards as PublicFeatureCard[],
     loginEyebrow: source.loginEyebrow,
     loginHeroTitle: source.loginHeroTitle,
     loginHeroDescription: source.loginHeroDescription,

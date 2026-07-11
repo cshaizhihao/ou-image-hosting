@@ -1,6 +1,66 @@
 export type SiteThemePreference = "light" | "dark" | "system";
 export type AccentPreset = "coral" | "forest" | "ocean" | "amber";
 
+export type PublicFeatureIcon = "image" | "shield" | "check" | "sparkles" | "heart" | "folder";
+
+export type PublicFeatureCard = {
+  icon: PublicFeatureIcon;
+  title: string;
+  description: string;
+};
+
+export const PUBLIC_FEATURE_ICON_VALUES: PublicFeatureIcon[] = [
+  "image",
+  "shield",
+  "check",
+  "sparkles",
+  "heart",
+  "folder"
+];
+
+export const DEFAULT_PUBLIC_FEATURE_CARDS: PublicFeatureCard[] = [
+  {
+    icon: "image",
+    title: "专注图片",
+    description: "围绕高频操作设计，不堆砌无关功能。"
+  },
+  {
+    icon: "shield",
+    title: "数据自持",
+    description: "部署在自己的环境，凭证与数据由你掌握。"
+  },
+  {
+    icon: "check",
+    title: "细节可靠",
+    description: "响应式布局、深色模式与完整状态反馈。"
+  }
+];
+
+export function normalizePublicFeatureCards(value: unknown): PublicFeatureCard[] {
+  if (!Array.isArray(value)) return DEFAULT_PUBLIC_FEATURE_CARDS;
+  const icons = new Set(PUBLIC_FEATURE_ICON_VALUES);
+  const normalized = value.slice(0, 3).map((item, index) => {
+    const source = item && typeof item === "object" ? item as Record<string, unknown> : {};
+    const fallback = DEFAULT_PUBLIC_FEATURE_CARDS[index] ?? DEFAULT_PUBLIC_FEATURE_CARDS[0]!;
+    const icon = icons.has(source.icon as PublicFeatureIcon)
+      ? source.icon as PublicFeatureIcon
+      : fallback.icon;
+    const title = typeof source.title === "string" && source.title.trim()
+      ? source.title.trim().slice(0, 24)
+      : fallback.title;
+    const description = typeof source.description === "string" && source.description.trim()
+      ? source.description.trim().slice(0, 80)
+      : fallback.description;
+    return { icon, title, description };
+  });
+  while (normalized.length < 3) {
+    normalized.push(DEFAULT_PUBLIC_FEATURE_CARDS[normalized.length] ?? DEFAULT_PUBLIC_FEATURE_CARDS[0]!);
+  }
+  return normalized;
+}
+
+export const SITE_BRANDING_STORAGE_KEY = "ou-site-branding";
+
 export type SiteBranding = {
   siteName: string;
   siteDescription: string;
@@ -91,6 +151,32 @@ export function storedThemePreference(value: string | null) {
     : null;
 }
 
+export function readStoredSiteBranding(): SiteBranding | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(SITE_BRANDING_STORAGE_KEY);
+    return raw ? normalizeSiteBranding(JSON.parse(raw)) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeStoredSiteBranding(value: unknown) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      SITE_BRANDING_STORAGE_KEY,
+      JSON.stringify(normalizeSiteBranding(value))
+    );
+  } catch {
+    // localStorage may be blocked; the server/default branding still renders safely.
+  }
+}
+
+export function getInitialSiteBranding(): SiteBranding {
+  return readStoredSiteBranding() ?? DEFAULT_SITE_BRANDING;
+}
+
 export function applySiteAppearance(
   branding: Pick<SiteBranding, "theme" | "accentPreset">,
   explicitPreference?: SiteThemePreference | null
@@ -102,6 +188,30 @@ export function applySiteAppearance(
   document.documentElement.dataset.accent = branding.accentPreset;
   return effective;
 }
+
+export const siteAppearanceBootScript = `(() => {
+  try {
+    const stored = localStorage.getItem(${JSON.stringify(SITE_BRANDING_STORAGE_KEY)});
+    const branding = stored ? JSON.parse(stored) : {};
+    const themes = new Set(["light", "dark", "system"]);
+    const accents = new Set(["coral", "forest", "ocean", "amber"]);
+    const explicit = localStorage.getItem("ou-theme");
+    const preference = themes.has(explicit)
+      ? explicit
+      : themes.has(branding.theme)
+        ? branding.theme
+        : "system";
+    const accent = accents.has(branding.accentPreset)
+      ? branding.accentPreset
+      : "coral";
+    const prefersDark = matchMedia("(prefers-color-scheme: dark)").matches;
+    const effective = preference === "system" ? (prefersDark ? "dark" : "light") : preference;
+    document.documentElement.dataset.theme = effective;
+    document.documentElement.dataset.accent = accent;
+  } catch {
+    document.documentElement.dataset.theme = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+})();`;
 
 export function bindSiteAppearance(
   branding: Pick<SiteBranding, "theme" | "accentPreset">,

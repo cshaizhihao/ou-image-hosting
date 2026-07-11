@@ -23,6 +23,7 @@ import { requireBackofficeAccess } from "./site-access.js";
 import {
   calculateImageStorageBytes,
   defaultSiteConfig,
+  normalizePublicFeatureCards,
   defaultWorkspaceSettings,
   type AppState,
   type AppStore,
@@ -158,6 +159,7 @@ function publicSiteSettings(site: AppState["site"]) {
     publicUploadBlockedIps: site.publicUploadBlockedIps,
     publicHeroTitle: site.publicHeroTitle,
     publicHeroDescription: site.publicHeroDescription,
+    publicFeatureCards: site.publicFeatureCards,
     loginEyebrow: site.loginEyebrow,
     loginHeroTitle: site.loginHeroTitle,
     loginHeroDescription: site.loginHeroDescription,
@@ -982,6 +984,7 @@ export function registerOperationsRoutes(
       publicUploadLivePhotoEnabled?: boolean;
       publicHeroTitle?: string;
       publicHeroDescription?: string;
+      publicFeatureCards?: unknown;
       loginEyebrow?: string;
       loginHeroTitle?: string;
       loginHeroDescription?: string;
@@ -1018,6 +1021,24 @@ export function registerOperationsRoutes(
             publicUploadLivePhotoEnabled: { type: "boolean" },
             publicHeroTitle: { type: "string", minLength: 1, maxLength: 80 },
             publicHeroDescription: { type: "string", minLength: 1, maxLength: 260 },
+            publicFeatureCards: {
+              type: "array",
+              minItems: 3,
+              maxItems: 3,
+              items: {
+                type: "object",
+                required: ["icon", "title", "description"],
+                additionalProperties: false,
+                properties: {
+                  icon: {
+                    type: "string",
+                    enum: ["image", "shield", "check", "sparkles", "heart", "folder"]
+                  },
+                  title: { type: "string", minLength: 1, maxLength: 24 },
+                  description: { type: "string", minLength: 1, maxLength: 80 }
+                }
+              }
+            },
             loginEyebrow: { type: "string", minLength: 1, maxLength: 80 },
             loginHeroTitle: { type: "string", minLength: 1, maxLength: 80 },
             loginHeroDescription: { type: "string", minLength: 1, maxLength: 260 },
@@ -1103,6 +1124,11 @@ export function registerOperationsRoutes(
         if (request.body.publicHeroDescription !== undefined) {
           site.publicHeroDescription =
             request.body.publicHeroDescription.trim();
+        }
+        if (request.body.publicFeatureCards !== undefined) {
+          site.publicFeatureCards = normalizePublicFeatureCards(
+            request.body.publicFeatureCards
+          );
         }
         if (request.body.loginEyebrow !== undefined) {
           site.loginEyebrow = request.body.loginEyebrow.trim();
@@ -1261,6 +1287,7 @@ export function registerOperationsRoutes(
       site.siteLogoUrl = defaults.siteLogoUrl;
       site.publicHeroTitle = defaults.publicHeroTitle;
       site.publicHeroDescription = defaults.publicHeroDescription;
+      site.publicFeatureCards = defaults.publicFeatureCards;
       site.loginEyebrow = defaults.loginEyebrow;
       site.loginHeroTitle = defaults.loginHeroTitle;
       site.loginHeroDescription = defaults.loginHeroDescription;
