@@ -16,7 +16,7 @@
   <a href="https://github.com/cshaizhihao/ou-image-hosting/releases">
     <img src="https://img.shields.io/github/v/release/cshaizhihao/ou-image-hosting?style=flat-square&color=ef8f8f" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-v1.4.1-ef8f8f?style=flat-square" alt="Current version v1.4.1" />
+  <img src="https://img.shields.io/badge/version-v1.5.0-ef8f8f?style=flat-square" alt="Current version v1.5.0" />
   <a href="https://github.com/cshaizhihao/ou-image-hosting/actions/workflows/check.yml">
     <img src="https://img.shields.io/github/actions/workflow/status/cshaizhihao/ou-image-hosting/check.yml?branch=main&style=flat-square&label=check" alt="Check" />
   </a>
@@ -59,7 +59,7 @@ OU-Image Hosting 不只是一个生成图片外链的上传框。
     </td>
     <td width="50%">
       <strong>⇧ 上传是一条完整工作流</strong><br />
-      支持拖拽、批量选择、剪贴板、URL、队列、暂停、重试、去重、缩略图与上传完成后一键复制链接。
+      支持拖拽、批量选择、剪贴板、URL、队列、暂停、重试、去重、缩略图与上传完成后一键复制链接。公共页可选择访客直传或登录后上传。
     </td>
   </tr>
   <tr>
@@ -69,7 +69,7 @@ OU-Image Hosting 不只是一个生成图片外链的上传框。
     </td>
     <td width="50%">
       <strong>↗ 分享保持可控</strong><br />
-      提供 URL、Markdown、HTML、BBCode、二维码、访问统计、密码、有效期和随时撤销的公开分享。
+      提供 URL、Markdown、HTML、BBCode、二维码、访问统计、密码、有效期、公开图库预览浮窗和随时撤销的公开分享。
     </td>
   </tr>
   <tr>

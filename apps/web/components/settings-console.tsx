@@ -1119,7 +1119,7 @@ export function SettingsConsole() {
                     <div className={styles.preferenceRow}>
                       <div>
                         <strong>公共上传入口</strong>
-                        <span>开启后，访客访问站点根地址即可上传图片。</span>
+                        <span>开启后，访客访问站点根地址即可看到上传入口。</span>
                       </div>
                       <button
                         aria-label={
@@ -1140,6 +1140,39 @@ export function SettingsConsole() {
                                   ...current,
                                   publicUploadEnabled:
                                     !current.publicUploadEnabled
+                                }
+                              : current
+                          )
+                        }
+                        type="button"
+                      >
+                        <span />
+                      </button>
+                    </div>
+                    <div className={styles.preferenceRow}>
+                      <div>
+                        <strong>上传需要登录</strong>
+                        <span>开启后，公共页仍可访问，但未登录访客不能上传图片。</span>
+                      </div>
+                      <button
+                        aria-label={
+                          siteSettings.publicUploadRequiresLogin
+                            ? "关闭上传需要登录"
+                            : "开启上传需要登录"
+                        }
+                        aria-pressed={siteSettings.publicUploadRequiresLogin}
+                        className={cn(
+                          styles.preferenceSwitch,
+                          siteSettings.publicUploadRequiresLogin &&
+                            styles.preferenceSwitchActive
+                        )}
+                        onClick={() =>
+                          setSiteSettings((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  publicUploadRequiresLogin:
+                                    !current.publicUploadRequiresLogin
                                 }
                               : current
                           )

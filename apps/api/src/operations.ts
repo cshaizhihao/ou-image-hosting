@@ -117,6 +117,7 @@ function publicSiteSettings(site: AppState["site"]) {
     siteLogoUrl: site.siteLogoUrl,
     registrationEnabled: site.registrationEnabled,
     publicUploadEnabled: site.publicUploadEnabled,
+    publicUploadRequiresLogin: site.publicUploadRequiresLogin,
     publicGalleryEnabled: site.publicGalleryEnabled,
     publicUploadDefaultPublic: site.publicUploadDefaultPublic,
     publicHeroTitle: site.publicHeroTitle,
@@ -926,6 +927,7 @@ export function registerOperationsRoutes(
       siteLogoUrl?: string;
       registrationEnabled?: boolean;
       publicUploadEnabled?: boolean;
+      publicUploadRequiresLogin?: boolean;
       publicGalleryEnabled?: boolean;
       publicUploadDefaultPublic?: boolean;
       publicHeroTitle?: string;
@@ -948,6 +950,7 @@ export function registerOperationsRoutes(
             siteLogoUrl: { type: "string", minLength: 1, maxLength: 500 },
             registrationEnabled: { type: "boolean" },
             publicUploadEnabled: { type: "boolean" },
+            publicUploadRequiresLogin: { type: "boolean" },
             publicGalleryEnabled: { type: "boolean" },
             publicUploadDefaultPublic: { type: "boolean" },
             publicHeroTitle: { type: "string", minLength: 1, maxLength: 80 },
@@ -978,6 +981,10 @@ export function registerOperationsRoutes(
         }
         if (request.body.publicUploadEnabled !== undefined) {
           site.publicUploadEnabled = request.body.publicUploadEnabled;
+        }
+        if (request.body.publicUploadRequiresLogin !== undefined) {
+          site.publicUploadRequiresLogin =
+            request.body.publicUploadRequiresLogin;
         }
         if (request.body.publicGalleryEnabled !== undefined) {
           site.publicGalleryEnabled = request.body.publicGalleryEnabled;

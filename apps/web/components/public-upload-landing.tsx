@@ -2,6 +2,8 @@
 
 import { Button, cn } from "@ou-image/ui";
 import {
+  ArrowLeft,
+  ArrowRight,
   Check,
   Clipboard,
   ExternalLink,
@@ -35,6 +37,7 @@ type PublicConfig = {
     siteDescription: string;
     siteLogoUrl: string;
     publicUploadEnabled: boolean;
+    publicUploadRequiresLogin: boolean;
     publicGalleryEnabled: boolean;
     publicUploadDefaultPublic: boolean;
     publicHeroTitle: string;
@@ -73,12 +76,17 @@ const fallbackConfig: PublicConfig = {
     siteDescription: "欧记图床",
     siteLogoUrl: "/brand/ou-image-hosting-logo.jpg",
     publicUploadEnabled: true,
+    publicUploadRequiresLogin: false,
     publicGalleryEnabled: true,
     publicUploadDefaultPublic: true,
     publicHeroTitle: "把图片放进来，剩下的交给队列。",
     publicHeroDescription:
       "拖拽、选择或粘贴图片，即可生成可分享链接。公开展示可以在后台关闭，上传时也能自己决定是否出现在公共图床里。"
   }
+};
+
+type SessionStatus = {
+  authenticated: boolean;
 };
 
 async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -107,9 +115,13 @@ function publicUrl(path: string) {
 
 export function PublicUploadLanding() {
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const wheelLockRef = useRef(false);
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const [dark, setDark] = useState(false);
   const [config, setConfig] = useState<PublicConfig>(fallbackConfig);
+  const [session, setSession] = useState<SessionStatus>({ authenticated: false });
   const [gallery, setGallery] = useState<PublicImage[]>([]);
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [publicVisible, setPublicVisible] = useState(true);
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -121,7 +133,20 @@ export function PublicUploadLanding() {
   const [history, setHistory] = useState<UploadQueueItem[]>([]);
 
   const site = config.site ?? fallbackConfig.site!;
-  const uploadEnabled = Boolean(config.setupComplete && site.publicUploadEnabled);
+  const galleryItems = useMemo(() => gallery.slice(0, 12), [gallery]);
+  const uploadEnabled = Boolean(
+    config.setupComplete &&
+      site.publicUploadEnabled &&
+      (!site.publicUploadRequiresLogin || session.authenticated)
+  );
+  const uploadLockedByLogin = Boolean(
+    config.setupComplete &&
+      site.publicUploadEnabled &&
+      site.publicUploadRequiresLogin &&
+      !session.authenticated
+  );
+  const previewImage =
+    previewIndex === null ? null : galleryItems.at(previewIndex) ?? null;
   const originalUrl = result ? publicUrl(result.image.originalUrl) : "";
   const markdown = result
     ? `![${result.image.name}](${originalUrl})`
@@ -158,9 +183,15 @@ export function PublicUploadLanding() {
     let alive = true;
     const load = async () => {
       try {
-        const payload = await apiJson<PublicConfig>("/public/config");
+        const [payload, sessionPayload] = await Promise.all([
+          apiJson<PublicConfig>("/public/config"),
+          apiJson<{ user: unknown }>("/auth/session")
+            .then(() => ({ authenticated: true }))
+            .catch(() => ({ authenticated: false }))
+        ]);
         if (!alive) return;
         setConfig(payload);
+        setSession(sessionPayload);
         setPublicVisible(
           payload.site?.publicUploadDefaultPublic ??
             fallbackConfig.site!.publicUploadDefaultPublic
@@ -184,6 +215,29 @@ export function PublicUploadLanding() {
       alive = false;
     };
   }, []);
+
+  const closePreview = useCallback(() => setPreviewIndex(null), []);
+
+  const movePreview = useCallback(
+    (direction: -1 | 1) => {
+      setPreviewIndex((current) => {
+        if (current === null || galleryItems.length === 0) return current;
+        return (current + direction + galleryItems.length) % galleryItems.length;
+      });
+    },
+    [galleryItems.length]
+  );
+
+  useEffect(() => {
+    if (previewIndex === null) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closePreview();
+      if (event.key === "ArrowLeft") movePreview(-1);
+      if (event.key === "ArrowRight") movePreview(1);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [closePreview, movePreview, previewIndex]);
 
   const toggleTheme = () => {
     const next = !dark;
@@ -261,6 +315,14 @@ export function PublicUploadLanding() {
           setGallery(images.images);
         }
       } catch (requestError) {
+        if (
+          requestError instanceof ApiError &&
+          requestError.code === "LOGIN_REQUIRED_FOR_PUBLIC_UPLOAD"
+        ) {
+          setError("管理员已开启登录后上传，请先登录再上传图片。");
+          setSession({ authenticated: false });
+          return;
+        }
         setError(
           requestError instanceof Error
             ? requestError.message
@@ -320,8 +382,6 @@ export function PublicUploadLanding() {
     void uploadFiles(files);
   };
 
-  const galleryItems = useMemo(() => gallery.slice(0, 12), [gallery]);
-
   return (
     <main
       className="public-upload-page"
@@ -380,7 +440,7 @@ export function PublicUploadLanding() {
             </span>
             <span>
               <Check size={17} />
-              登录入口保持干净
+              {site.publicUploadRequiresLogin ? "支持登录后上传" : "访客可直接上传"}
             </span>
           </div>
         </div>
@@ -416,12 +476,18 @@ export function PublicUploadLanding() {
             公共上传入口
           </span>
           <h2 id="public-upload-title">
-            {uploadEnabled ? "拖入图片，立即生成链接" : "公共上传暂未开放"}
+            {uploadEnabled
+              ? "拖入图片，立即生成链接"
+              : uploadLockedByLogin
+                ? "登录后即可上传图片"
+                : "公共上传暂未开放"}
           </h2>
           <p>
             {uploadEnabled
               ? "支持拖拽、批量选择和直接粘贴图片。JPG、PNG、WebP、GIF 与 AVIF，单张最大 20 MB。"
-              : "管理员可以在后台「设置中心 → 站点与处理」中开启公共上传。"}
+              : uploadLockedByLogin
+                ? "当前站点允许访问公共图床，但管理员要求上传前先登录。"
+                : "管理员可以在后台「设置中心 → 站点与处理」中开启公共上传。"}
           </p>
           <label className="public-upload-checkbox">
             <input
@@ -441,13 +507,27 @@ export function PublicUploadLanding() {
             onClick={() => inputRef.current?.click()}
             type="button"
           >
-            <UploadCloud aria-hidden="true" size={16} />
-            {uploading && uploadCount > 1
-              ? `正在上传 ${uploadIndex}/${uploadCount}`
-              : uploading
-                ? "正在上传..."
-                : "选择图片上传"}
+            {uploadLockedByLogin ? (
+              <LockKeyhole aria-hidden="true" size={16} />
+            ) : (
+              <UploadCloud aria-hidden="true" size={16} />
+            )}
+            {uploadLockedByLogin
+              ? "请先登录"
+              : uploading && uploadCount > 1
+                ? `正在上传 ${uploadIndex}/${uploadCount}`
+                : uploading
+                  ? "正在上传..."
+                  : "选择图片上传"}
           </Button>
+          {uploadLockedByLogin && (
+            <Button asChild size="compact" variant="secondary">
+              <Link href="/login">
+                <LockKeyhole aria-hidden="true" size={15} />
+                登录后上传
+              </Link>
+            </Button>
+          )}
           <small className="public-upload-card__hint">
             也可以按 Ctrl/⌘ + V 粘贴剪贴板里的图片。
           </small>
@@ -549,13 +629,93 @@ export function PublicUploadLanding() {
           </div>
           <div className="public-gallery__grid">
             {galleryItems.map((image) => (
-              <a href={image.originalUrl} key={image.id} rel="noreferrer" target="_blank">
+              <button
+                aria-label={`预览 ${image.name}`}
+                key={image.id}
+                onClick={() => setPreviewIndex(galleryItems.indexOf(image))}
+                type="button"
+              >
                 <img alt={image.name} loading="lazy" src={image.thumbnailUrl} />
                 <span>{image.name}</span>
-              </a>
+              </button>
             ))}
           </div>
         </section>
+      )}
+
+      {previewImage && (
+        <div
+          aria-label="公共图床图片预览"
+          aria-modal="true"
+          className="public-gallery-preview"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closePreview();
+          }}
+          onTouchEnd={(event) => {
+            const start = touchStartRef.current;
+            touchStartRef.current = null;
+            const touch = event.changedTouches[0];
+            if (!start || !touch) return;
+            const deltaX = touch.clientX - start.x;
+            const deltaY = touch.clientY - start.y;
+            if (Math.abs(deltaX) < 42 || Math.abs(deltaX) < Math.abs(deltaY)) {
+              return;
+            }
+            movePreview(deltaX > 0 ? -1 : 1);
+          }}
+          onTouchStart={(event) => {
+            const touch = event.touches[0];
+            if (!touch) return;
+            touchStartRef.current = { x: touch.clientX, y: touch.clientY };
+          }}
+          onWheel={(event) => {
+            if (Math.abs(event.deltaY) < 20 || wheelLockRef.current) return;
+            wheelLockRef.current = true;
+            movePreview(event.deltaY > 0 ? 1 : -1);
+            window.setTimeout(() => {
+              wheelLockRef.current = false;
+            }, 260);
+          }}
+          role="dialog"
+        >
+          <section className="public-gallery-preview__panel">
+            <button
+              aria-label="关闭预览"
+              className="public-gallery-preview__close"
+              onClick={closePreview}
+              type="button"
+            >
+              <X aria-hidden="true" size={18} />
+            </button>
+            <button
+              aria-label="上一张图片"
+              className="public-gallery-preview__nav is-left"
+              onClick={() => movePreview(-1)}
+              type="button"
+            >
+              <ArrowLeft aria-hidden="true" size={22} />
+            </button>
+            <figure>
+              <img alt={previewImage.name} src={previewImage.originalUrl} />
+              <figcaption>
+                <strong>{previewImage.name}</strong>
+                <span>
+                  {previewImage.width} × {previewImage.height}
+                  {galleryItems.length > 1 &&
+                    ` · ${(previewIndex ?? 0) + 1}/${galleryItems.length}`}
+                </span>
+              </figcaption>
+            </figure>
+            <button
+              aria-label="下一张图片"
+              className="public-gallery-preview__nav is-right"
+              onClick={() => movePreview(1)}
+              type="button"
+            >
+              <ArrowRight aria-hidden="true" size={22} />
+            </button>
+          </section>
+        </div>
       )}
     </main>
   );

@@ -35,6 +35,7 @@ export type SiteConfig = {
   siteLogoUrl: string;
   registrationEnabled: boolean;
   publicUploadEnabled: boolean;
+  publicUploadRequiresLogin: boolean;
   publicGalleryEnabled: boolean;
   publicUploadDefaultPublic: boolean;
   publicHeroTitle: string;
@@ -56,6 +57,7 @@ export function defaultSiteConfig(
     siteLogoUrl: "/brand/ou-image-hosting-logo.jpg",
     registrationEnabled: false,
     publicUploadEnabled: true,
+    publicUploadRequiresLogin: false,
     publicGalleryEnabled: true,
     publicUploadDefaultPublic: true,
     publicHeroTitle: "把图片放进来，剩下的交给队列。",
@@ -1234,6 +1236,8 @@ export function migrateAppState(parsed: MigratableAppState): AppState {
                 : undefined,
             registrationEnabled: parsed.site.registrationEnabled === true,
             publicUploadEnabled: parsed.site.publicUploadEnabled !== false,
+            publicUploadRequiresLogin:
+              parsed.site.publicUploadRequiresLogin === true,
             publicGalleryEnabled: parsed.site.publicGalleryEnabled !== false,
             publicUploadDefaultPublic:
               parsed.site.publicUploadDefaultPublic !== false,

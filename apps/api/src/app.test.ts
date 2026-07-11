@@ -141,11 +141,11 @@ describe("OU-Image API", () => {
     expect(health.statusCode).toBe(200);
     expect(health.json()).toMatchObject({
       status: "ok",
-      version: "1.4.1"
+      version: "1.5.0"
     });
     expect(live.json()).toMatchObject({
       status: "ok",
-      version: "1.4.1"
+      version: "1.5.0"
     });
     expect(ready.statusCode).toBe(200);
     expect(ready.json()).toMatchObject({
@@ -2847,6 +2847,7 @@ describe("OU-Image API", () => {
       siteLogoUrl: "/brand/ou-image-hosting-logo.jpg",
       registrationEnabled: true,
       publicUploadEnabled: true,
+      publicUploadRequiresLogin: false,
       publicGalleryEnabled: true,
       publicUploadDefaultPublic: true,
       publicHeroTitle: "把图片放进来，剩下的交给队列。",
@@ -2859,6 +2860,57 @@ describe("OU-Image API", () => {
       cookies: { ou_session: "settings-viewer-session" }
     });
     expect(viewerSite.statusCode).toBe(403);
+
+    const gated = await app.inject({
+      method: "PATCH",
+      url: "/site/settings",
+      cookies: { ou_session: cookie },
+      payload: {
+        publicUploadRequiresLogin: true
+      }
+    });
+    expect(gated.json().settings).toMatchObject({
+      publicUploadEnabled: true,
+      publicUploadRequiresLogin: true
+    });
+    const publicConfig = await app.inject({
+      method: "GET",
+      url: "/public/config"
+    });
+    expect(publicConfig.json().site).toMatchObject({
+      publicUploadEnabled: true,
+      publicUploadRequiresLogin: true
+    });
+
+    const gatedForm = new FormData();
+    gatedForm.append("file", jpeg, {
+      filename: "visitor-blocked.jpg",
+      contentType: "image/jpeg"
+    });
+    const blockedVisitorUpload = await app.inject({
+      method: "POST",
+      url: "/public/uploads",
+      headers: gatedForm.getHeaders(),
+      payload: gatedForm.getBuffer()
+    });
+    expect(blockedVisitorUpload.statusCode).toBe(401);
+    expect(blockedVisitorUpload.json().error.code).toBe(
+      "LOGIN_REQUIRED_FOR_PUBLIC_UPLOAD"
+    );
+
+    const loggedInForm = new FormData();
+    loggedInForm.append("file", jpeg, {
+      filename: "logged-in-public.jpg",
+      contentType: "image/jpeg"
+    });
+    const loggedInPublicUpload = await app.inject({
+      method: "POST",
+      url: "/public/uploads?publicVisible=false",
+      headers: loggedInForm.getHeaders(),
+      cookies: { ou_session: cookie },
+      payload: loggedInForm.getBuffer()
+    });
+    expect(loggedInPublicUpload.statusCode).toBeLessThan(300);
   });
 
   it("returns workspace-isolated analytics from real uploads and daily share aggregates", async () => {

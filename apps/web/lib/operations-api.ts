@@ -122,6 +122,7 @@ export type SiteSettingsData = {
   siteLogoUrl: string;
   registrationEnabled: boolean;
   publicUploadEnabled: boolean;
+  publicUploadRequiresLogin: boolean;
   publicGalleryEnabled: boolean;
   publicUploadDefaultPublic: boolean;
   publicHeroTitle: string;
@@ -420,6 +421,7 @@ function parseSiteSettings(payload: unknown): SiteSettingsData {
     typeof source.siteLogoUrl !== "string" ||
     typeof source.registrationEnabled !== "boolean" ||
     typeof source.publicUploadEnabled !== "boolean" ||
+    typeof source.publicUploadRequiresLogin !== "boolean" ||
     typeof source.publicGalleryEnabled !== "boolean" ||
     typeof source.publicUploadDefaultPublic !== "boolean" ||
     typeof source.publicHeroTitle !== "string" ||
@@ -436,6 +438,7 @@ function parseSiteSettings(payload: unknown): SiteSettingsData {
     siteLogoUrl: source.siteLogoUrl,
     registrationEnabled: source.registrationEnabled,
     publicUploadEnabled: source.publicUploadEnabled,
+    publicUploadRequiresLogin: source.publicUploadRequiresLogin,
     publicGalleryEnabled: source.publicGalleryEnabled,
     publicUploadDefaultPublic: source.publicUploadDefaultPublic,
     publicHeroTitle: source.publicHeroTitle,

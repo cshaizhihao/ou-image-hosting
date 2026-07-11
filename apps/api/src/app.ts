@@ -97,6 +97,7 @@ function publicSiteStatus(site: AppState["site"]) {
         siteLogoUrl: site.siteLogoUrl,
         registrationEnabled: site.registrationEnabled,
         publicUploadEnabled: site.publicUploadEnabled,
+        publicUploadRequiresLogin: site.publicUploadRequiresLogin,
         publicGalleryEnabled: site.publicGalleryEnabled,
         publicUploadDefaultPublic: site.publicUploadDefaultPublic,
         publicHeroTitle: site.publicHeroTitle,
@@ -601,13 +602,13 @@ export async function buildApp(options: BuildAppOptions = {}) {
   app.get("/health", async () => ({
     status: "ok",
     service: "ou-image-api",
-    version: "1.4.1"
+    version: "1.5.0"
   }));
 
   app.get("/health/live", async () => ({
     status: "ok",
     service: "ou-image-api",
-    version: "1.4.1"
+    version: "1.5.0"
   }));
 
   const probeDirectory = async (directory: string, label: string) => {

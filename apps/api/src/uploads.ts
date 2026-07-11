@@ -241,7 +241,7 @@ async function readRemoteImage(rawUrl: string, maximumBytes: number) {
       signal: AbortSignal.timeout(10_000),
       headers: {
         accept: "image/avif,image/webp,image/png,image/jpeg,image/gif",
-        "user-agent": "OU-Image-Hosting/1.4.1"
+        "user-agent": "OU-Image-Hosting/1.5.0"
       }
     });
   } catch {
@@ -738,6 +738,7 @@ export async function registerUploadRoutes(
         siteDescription: site.siteDescription,
         siteLogoUrl: site.siteLogoUrl,
         publicUploadEnabled: site.publicUploadEnabled,
+        publicUploadRequiresLogin: site.publicUploadRequiresLogin,
         publicGalleryEnabled: site.publicGalleryEnabled,
         publicUploadDefaultPublic: site.publicUploadDefaultPublic,
         publicHeroTitle: site.publicHeroTitle,
@@ -783,7 +784,25 @@ export async function registerUploadRoutes(
       if (!state.site?.publicUploadEnabled) {
         throw new PublicError(403, "PUBLIC_UPLOAD_DISABLED", "公共上传入口已关闭");
       }
-      const principal = publicUploadPrincipal(state);
+      let principal: Principal | null = null;
+      try {
+        principal = authenticate(request);
+      } catch (error) {
+        if (
+          !(error instanceof PublicError) ||
+          error.code !== "UNAUTHENTICATED"
+        ) {
+          throw error;
+        }
+      }
+      if (!principal && state.site.publicUploadRequiresLogin) {
+        throw new PublicError(
+          401,
+          "LOGIN_REQUIRED_FOR_PUBLIC_UPLOAD",
+          "管理员已开启登录后上传，请先登录再上传图片"
+        );
+      }
+      principal ??= publicUploadPrincipal(state);
       let part;
       try {
         part = await request.file();
