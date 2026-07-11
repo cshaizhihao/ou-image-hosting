@@ -602,13 +602,13 @@ export async function buildApp(options: BuildAppOptions = {}) {
   app.get("/health", async () => ({
     status: "ok",
     service: "ou-image-api",
-    version: "1.7.0"
+    version: "1.8.0"
   }));
 
   app.get("/health/live", async () => ({
     status: "ok",
     service: "ou-image-api",
-    version: "1.7.0"
+    version: "1.8.0"
   }));
 
   const probeDirectory = async (directory: string, label: string) => {

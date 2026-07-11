@@ -16,7 +16,7 @@
   <a href="https://github.com/cshaizhihao/ou-image-hosting/releases">
     <img src="https://img.shields.io/github/v/release/cshaizhihao/ou-image-hosting?style=flat-square&color=ef8f8f" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-v1.7.0-ef8f8f?style=flat-square" alt="Current version v1.7.0" />
+  <img src="https://img.shields.io/badge/version-v1.8.0-ef8f8f?style=flat-square" alt="Current version v1.8.0" />
   <a href="https://github.com/cshaizhihao/ou-image-hosting/actions/workflows/check.yml">
     <img src="https://img.shields.io/github/actions/workflow/status/cshaizhihao/ou-image-hosting/check.yml?branch=main&style=flat-square&label=check" alt="Check" />
   </a>
@@ -55,7 +55,7 @@ OU-Image Hosting 不只是一个生成图片外链的上传框。
   <tr>
     <td width="50%">
       <strong>✦ 视觉不是装饰</strong><br />
-      浅色、深色、桌面与移动端使用同一套设计语言。界面强调内容、状态和操作反馈，不堆叠廉价渐变与无意义卡片。
+      浅色、深色、桌面与移动端使用同一套设计语言。后台 100% 浏览器缩放下保持更舒服的字号、间距和操作反馈。
     </td>
     <td width="50%">
       <strong>⇧ 上传是一条完整工作流</strong><br />

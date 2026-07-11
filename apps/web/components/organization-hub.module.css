@@ -13,7 +13,7 @@
 
 .header > div > span {
   color: var(--action-primary-hover);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 780;
   letter-spacing: 0.15em;
 }
@@ -42,7 +42,7 @@
   border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--status-success) 8%, var(--surface-panel));
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .notice button {
@@ -88,8 +88,8 @@
 
 .createPanel {
   display: grid;
-  gap: 11px;
-  padding: 14px;
+  gap: 13px;
+  padding: 16px;
 }
 
 .createPanel > div:first-child,
@@ -111,13 +111,13 @@
 
 .createPanel strong,
 .collectionHead strong {
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .createPanel small,
 .collectionHead small {
   color: var(--text-tertiary);
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .createPanel label,
@@ -125,7 +125,7 @@
   display: grid;
   gap: 5px;
   color: var(--text-secondary);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 650;
 }
 
@@ -146,8 +146,8 @@
 .editFields input,
 .editFields select,
 .mergeRow select {
-  height: 40px;
-  padding: 0 10px;
+  height: 46px;
+  padding: 0 12px;
 }
 
 .createPanel textarea {
@@ -201,7 +201,7 @@
 .resourceList > button {
   display: grid;
   grid-template-columns: 40px minmax(0, 1fr);
-  min-height: 58px;
+  min-height: 64px;
   align-items: center;
   gap: 9px;
   padding: 8px 10px;
@@ -233,14 +233,14 @@
 
 .resourceList strong {
   overflow: hidden;
-  font-size: 11px;
+  font-size: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .resourceList small {
   color: var(--text-tertiary);
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .resourceList > p {
@@ -307,12 +307,12 @@
 }
 
 .editHeading strong {
-  font-size: 13px;
+  font-size: 15px;
 }
 
 .editHeading small {
   color: var(--text-tertiary);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .editFields {
@@ -438,7 +438,7 @@
 
 .imageGrid strong {
   overflow: hidden;
-  font-size: 13px;
+  font-size: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

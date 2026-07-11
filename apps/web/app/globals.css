@@ -60,13 +60,13 @@
   --shadow-overlay: 0 18px 60px rgb(25 20 20 / 18%);
   --shadow-drag: 0 14px 36px rgb(239 143 143 / 18%);
 
-  --motion-fast: 120ms;
-  --motion-standard: 180ms;
-  --motion-slow: 220ms;
-  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --motion-fast: 140ms;
+  --motion-standard: 200ms;
+  --motion-slow: 260ms;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
 
-  --sidebar-width: 272px;
-  --topbar-height: 72px;
+  --sidebar-width: 292px;
+  --topbar-height: 76px;
 }
 
 :root[data-theme="dark"] {
@@ -219,9 +219,9 @@ img {
 
 .brand__logo-frame {
   display: grid;
-  width: 42px;
-  height: 42px;
-  flex: 0 0 42px;
+  width: 46px;
+  height: 46px;
+  flex: 0 0 46px;
   place-items: center;
   overflow: hidden;
   border: 1px solid #e6e3df;
@@ -230,8 +230,8 @@ img {
 }
 
 .brand__logo {
-  width: 38px;
-  height: 38px;
+  width: 42px;
+  height: 42px;
   object-fit: contain;
 }
 
@@ -245,7 +245,7 @@ img {
   overflow: hidden;
   color: var(--text-primary);
   font-family: var(--font-display);
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 900;
   font-synthesis: none;
   text-overflow: ellipsis;
@@ -266,12 +266,12 @@ img {
 .workspace-switcher {
   display: grid;
   width: calc(100% - 28px);
-  grid-template-columns: 36px 1fr auto;
+  grid-template-columns: 40px 1fr auto;
   align-items: center;
   gap: 10px;
-  min-height: 60px;
-  margin: 14px;
-  padding: 9px 11px;
+  min-height: 66px;
+  margin: 16px;
+  padding: 11px 13px;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   background: var(--surface-panel);
@@ -290,14 +290,14 @@ img {
 
 .workspace-switcher__avatar {
   display: grid;
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   place-items: center;
   border-radius: var(--radius-sm);
   background: var(--primitive-charcoal);
   color: #fff;
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 13px;
+  font-weight: 760;
 }
 
 .workspace-switcher > span:nth-child(2) {
@@ -305,13 +305,13 @@ img {
 }
 
 .workspace-switcher strong {
-  font-size: 15px;
-  font-weight: 650;
+  font-size: 16px;
+  font-weight: 680;
 }
 
 .workspace-switcher small {
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .workspace-switcher--mobile {
@@ -402,31 +402,31 @@ img {
 .sidebar-nav {
   flex: 1;
   overflow-y: auto;
-  padding: 3px 12px 18px;
+  padding: 6px 14px 20px;
 }
 
 .sidebar-nav__group + .sidebar-nav__group {
-  margin-top: 16px;
+  margin-top: 18px;
 }
 
 .sidebar-nav__label {
   display: block;
   padding: 0 11px 7px;
   color: var(--text-tertiary);
-  font-size: 13px;
-  font-weight: 650;
+  font-size: 14px;
+  font-weight: 700;
 }
 
 .sidebar-nav__item {
   display: flex;
-  min-height: 44px;
+  min-height: 50px;
   align-items: center;
-  gap: 12px;
-  padding: 9px 11px;
+  gap: 13px;
+  padding: 10px 12px;
   border-radius: var(--radius-sm);
   color: var(--text-secondary);
-  font-size: 15px;
-  font-weight: 520;
+  font-size: 16px;
+  font-weight: 560;
   transition:
     color var(--motion-fast),
     background var(--motion-fast);
@@ -496,8 +496,8 @@ img {
   height: var(--topbar-height);
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
-  padding: 0 28px;
+  gap: 22px;
+  padding: 0 32px;
   border-bottom: 1px solid var(--border-default);
   background: color-mix(in srgb, var(--surface-page) 94%, transparent);
   backdrop-filter: blur(6px);
@@ -510,7 +510,7 @@ img {
 .command-trigger {
   display: flex;
   width: min(480px, 46vw);
-  min-height: 44px;
+  min-height: 48px;
   align-items: center;
   gap: 9px;
   padding: 0 10px 0 13px;
@@ -558,9 +558,9 @@ kbd {
 .icon-button {
   position: relative;
   display: inline-grid;
-  width: 42px;
-  height: 42px;
-  flex: 0 0 42px;
+  width: 46px;
+  height: 46px;
+  flex: 0 0 46px;
   place-items: center;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
@@ -582,7 +582,7 @@ kbd {
 .user-trigger {
   display: flex;
   min-width: 68px;
-  height: 42px;
+  height: 46px;
   align-items: center;
   justify-content: center;
   gap: 6px;
@@ -644,7 +644,7 @@ kbd {
 .workspace-page {
   width: min(1480px, 100%);
   margin: 0 auto;
-  padding: 40px clamp(28px, 3vw, 48px) 72px;
+  padding: 44px clamp(34px, 3.4vw, 58px) 80px;
 }
 
 .page-heading {
@@ -699,19 +699,19 @@ kbd {
 }
 
 .ou-button--default {
-  min-height: 44px;
-  padding: 0 16px;
+  min-height: 48px;
+  padding: 0 18px;
 }
 
 .ou-button--compact {
-  min-height: 38px;
-  padding: 0 13px;
-  font-size: 14px;
+  min-height: 40px;
+  padding: 0 14px;
+  font-size: 15px;
 }
 
 .ou-button--icon {
-  width: 44px;
-  height: 44px;
+  width: 48px;
+  height: 48px;
   padding: 0;
 }
 
