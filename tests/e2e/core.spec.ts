@@ -7,7 +7,7 @@ test("键盘上传、图库、详情与公开分享核心流程", async ({
   browser,
   page
 }) => {
-  await page.goto("/");
+  await page.goto("/upload");
   const dropZone = page.locator(".upload-drop");
   await dropZone.focus();
   await expectVisibleFocus(page);
@@ -89,7 +89,7 @@ test("设置、统计与系统状态核心 smoke", async ({ page }) => {
 });
 
 test("命令面板可完全使用键盘导航", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/overview");
   await page.keyboard.press("Control+k");
   const search = page.getByRole("textbox", { name: "搜索页面" });
   await expect(search).toBeFocused();
