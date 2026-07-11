@@ -5,20 +5,45 @@ import { Check, ImageIcon, Moon, ShieldCheck, Sun } from "lucide-react";
 import Link from "next/link";
 import { type ReactNode, useEffect, useState } from "react";
 
-export function BrandLockup({ compact = false }: { compact?: boolean }) {
+type AuthSite = {
+  siteName: string;
+  siteDescription: string;
+  siteLogoUrl: string;
+  loginEyebrow: string;
+  loginHeroTitle: string;
+  loginHeroDescription: string;
+};
+
+const fallbackSite: AuthSite = {
+  siteName: "OU-Image Hosting",
+  siteDescription: "欧记图床",
+  siteLogoUrl: "/brand/ou-image-hosting-logo.jpg",
+  loginEyebrow: "BEAUTIFUL SELF-HOSTED IMAGE HUB",
+  loginHeroTitle: "让图片管理，从第一眼就舒服。",
+  loginHeroDescription:
+    "上传、整理、分享和维护图片资产。清晰的操作路径，加上克制、耐看的界面。"
+};
+
+export function BrandLockup({
+  compact = false,
+  site = fallbackSite
+}: {
+  compact?: boolean;
+  site?: Pick<AuthSite, "siteName" | "siteDescription" | "siteLogoUrl">;
+}) {
   return (
     <Link className={cn("auth-brand", compact && "auth-brand--compact")} href="/">
       <span className="auth-brand__mark">
         <img
-          alt="OU-Image Hosting 官方 Logo"
+          alt={`${site.siteName} Logo`}
           height={62}
-          src="/brand/ou-image-hosting-logo.jpg"
+          src={site.siteLogoUrl || fallbackSite.siteLogoUrl}
           width={62}
         />
       </span>
       <span>
-        <strong>OU-Image Hosting</strong>
-        <small>欧记图床</small>
+        <strong>{site.siteName}</strong>
+        <small>{site.siteDescription || "欧记图床"}</small>
       </span>
     </Link>
   );
@@ -32,6 +57,7 @@ export function AuthShell({
   mode?: "auth" | "install";
 }) {
   const [dark, setDark] = useState(false);
+  const [site, setSite] = useState<AuthSite>(fallbackSite);
 
   useEffect(() => {
     const saved = window.localStorage.getItem("ou-theme");
@@ -41,6 +67,32 @@ export function AuthShell({
         window.matchMedia("(prefers-color-scheme: dark)").matches);
     setDark(nextDark);
     document.documentElement.dataset.theme = nextDark ? "dark" : "light";
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      try {
+        const response = await fetch("/api/setup/status", {
+          credentials: "same-origin"
+        });
+        if (!response.ok) return;
+        const payload = (await response.json()) as {
+          site?: Partial<AuthSite> | null;
+        };
+        if (!alive || !payload.site) return;
+        setSite({
+          ...fallbackSite,
+          ...payload.site
+        });
+      } catch {
+        // 登录页文案读取失败时保持默认品牌文案。
+      }
+    };
+    void load();
+    return () => {
+      alive = false;
+    };
   }, []);
 
   const toggleTheme = () => {
@@ -61,7 +113,7 @@ export function AuthShell({
       </a>
       <section className="auth-story" aria-label="产品介绍">
         <div className="auth-story__top">
-          <BrandLockup />
+          <BrandLockup site={site} />
           <button
             aria-label={dark ? "切换浅色模式" : "切换深色模式"}
             className="auth-theme-toggle"
@@ -73,11 +125,9 @@ export function AuthShell({
         </div>
 
         <div className="auth-story__content">
-          <span className="auth-eyebrow">BEAUTIFUL SELF-HOSTED IMAGE HUB</span>
-          <h1>让图片管理，<br />从第一眼就舒服。</h1>
-          <p>
-            上传、整理、分享和维护图片资产。清晰的操作路径，加上克制、耐看的界面。
-          </p>
+          <span className="auth-eyebrow">{site.loginEyebrow}</span>
+          <h1>{site.loginHeroTitle}</h1>
+          <p>{site.loginHeroDescription}</p>
           <div className="auth-benefits">
             <div>
               <span><ImageIcon size={17} /></span>
@@ -94,12 +144,12 @@ export function AuthShell({
           </div>
         </div>
 
-        <p className="auth-story__footer">OU-Image Hosting · Built for your own space</p>
+        <p className="auth-story__footer">{site.siteName} · Built for your own space</p>
       </section>
 
       <section className="auth-panel">
         <div className="auth-panel__mobile-head">
-          <BrandLockup compact />
+          <BrandLockup compact site={site} />
           <button
             aria-label={dark ? "切换浅色模式" : "切换深色模式"}
             className="auth-theme-toggle"

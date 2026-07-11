@@ -16,7 +16,7 @@
   <a href="https://github.com/cshaizhihao/ou-image-hosting/releases">
     <img src="https://img.shields.io/github/v/release/cshaizhihao/ou-image-hosting?style=flat-square&color=ef8f8f" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-v1.0.8-ef8f8f?style=flat-square" alt="Current version v1.0.8" />
+  <img src="https://img.shields.io/badge/version-v1.1.0-ef8f8f?style=flat-square" alt="Current version v1.1.0" />
   <a href="https://github.com/cshaizhihao/ou-image-hosting/actions/workflows/check.yml">
     <img src="https://img.shields.io/github/actions/workflow/status/cshaizhihao/ou-image-hosting/check.yml?branch=main&style=flat-square&label=check" alt="Check" />
   </a>
@@ -65,7 +65,7 @@ OU-Image Hosting 不只是一个生成图片外链的上传框。
   <tr>
     <td width="50%">
       <strong>⌘ 图片真正可管理</strong><br />
-      网格与列表、搜索、格式筛选、相册、标签、收藏、回收站、批量操作和滚动位置恢复都围绕高频整理场景设计。
+      网格与列表、搜索、格式筛选、相册卡片、标签、收藏、回收站、批量操作和滚动位置恢复都围绕高频整理场景设计。
     </td>
     <td width="50%">
       <strong>↗ 分享保持可控</strong><br />
@@ -205,6 +205,7 @@ curl --fail http://127.0.0.1:3000/api/health/ready
 
 ### 图片工作流
 
+- 公共上传首页、访客上传、公开展示勾选和缩略图公共图库
 - 本地选择、拖拽、剪贴板粘贴、URL 与批量上传
 - 队列进度、暂停、继续、取消、失败重试与内容去重
 - JPEG、PNG、WebP、GIF、AVIF 内容识别和尺寸限制
@@ -214,14 +215,16 @@ curl --fail http://127.0.0.1:3000/api/health/ready
 ### 组织与分享
 
 - 响应式网格/列表、搜索、格式筛选、排序和分页
-- 相册、标签、收藏、回收站与批量管理
+- 相册主分类卡片、新建相册浮窗、图片库批量加入一个或多个相册
 - URL、Markdown、HTML、BBCode 与二维码
-- 密码保护、有效期、访问统计和分享撤销
+- 密码保护、有效期、访问统计、分享撤销和创建成功浮窗
 
 ### 团队与管理
 
 - 多工作区与四级角色权限
 - 真实工作区概况面板：图片数量、容量比例、存储状态和快捷入口
+- 可自定义站点名称、描述、Logo、公共首页文案和登录页文案
+- 可控制公共上传、公共图库和访客上传时的默认公开状态
 - 页面切换时保持完整权限导航，不再闪退管理与系统菜单
 - 精确 Scope 的 API Token、有效期与 IP/CIDR 白名单
 - TOTP 双因素认证、恢复代码和活跃会话管理

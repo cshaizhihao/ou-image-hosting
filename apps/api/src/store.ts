@@ -32,10 +32,51 @@ export function defaultNotificationPreferences(): NotificationPreferences {
 export type SiteConfig = {
   siteName: string;
   siteDescription: string;
+  siteLogoUrl: string;
   registrationEnabled: boolean;
+  publicUploadEnabled: boolean;
+  publicGalleryEnabled: boolean;
+  publicUploadDefaultPublic: boolean;
+  publicHeroTitle: string;
+  publicHeroDescription: string;
+  loginEyebrow: string;
+  loginHeroTitle: string;
+  loginHeroDescription: string;
   defaultStorage: "local";
   theme: ThemePreference;
 };
+
+export function defaultSiteConfig(
+  siteName = "OU-Image Hosting",
+  overrides: Partial<SiteConfig> = {}
+): SiteConfig {
+  const base: SiteConfig = {
+    siteName,
+    siteDescription: "",
+    siteLogoUrl: "/brand/ou-image-hosting-logo.jpg",
+    registrationEnabled: false,
+    publicUploadEnabled: true,
+    publicGalleryEnabled: true,
+    publicUploadDefaultPublic: true,
+    publicHeroTitle: "把图片放进来，剩下的交给队列。",
+    publicHeroDescription:
+      "拖拽、选择或粘贴图片，即可生成可分享链接。公开展示可以在后台关闭，上传时也能自己决定是否出现在公共图床里。",
+    loginEyebrow: "BEAUTIFUL SELF-HOSTED IMAGE HUB",
+    loginHeroTitle: "让图片管理，从第一眼就舒服。",
+    loginHeroDescription:
+      "上传、整理、分享和维护图片资产。清晰的操作路径，加上克制、耐看的界面。",
+    defaultStorage: "local",
+    theme: "system"
+  };
+  for (const [key, value] of Object.entries(overrides) as Array<
+    [keyof SiteConfig, SiteConfig[keyof SiteConfig] | undefined]
+  >) {
+    if (value !== undefined) {
+      (base[key] as SiteConfig[keyof SiteConfig]) = value;
+    }
+  }
+  return base;
+}
 
 export type StoredUser = {
   id: string;
@@ -95,6 +136,7 @@ export type StoredImage = {
   versions: StoredImageVersion[];
   favorite: boolean;
   favoriteUserIds: string[];
+  publicVisible: boolean;
   albumIds: string[];
   tagIds: string[];
   createdAt: string;
@@ -486,6 +528,7 @@ type MigratableImage = Omit<
   | "updatedAt"
   | "favorite"
   | "favoriteUserIds"
+  | "publicVisible"
   | "workspaceId"
   | "albumIds"
   | "tagIds"
@@ -498,6 +541,7 @@ type MigratableImage = Omit<
       | "updatedAt"
       | "favorite"
       | "favoriteUserIds"
+      | "publicVisible"
       | "workspaceId"
       | "albumIds"
       | "tagIds"
@@ -537,6 +581,7 @@ function migrateImage(image: MigratableImage): StoredImage {
     favoriteUserIds:
       image.favoriteUserIds ??
       (image.favorite ? [image.userId] : []),
+    publicVisible: image.publicVisible ?? false,
     workspaceId: image.workspaceId ?? `personal-${image.userId}`,
     albumIds: image.albumIds ?? [],
     tagIds: image.tagIds ?? [],
@@ -1172,20 +1217,60 @@ export function migrateAppState(parsed: MigratableAppState): AppState {
     ...parsed,
     schemaVersion: 7,
     site: parsed.site
-      ? {
-          ...parsed.site,
-          siteName:
-            typeof parsed.site.siteName === "string" &&
+      ? defaultSiteConfig(
+          typeof parsed.site.siteName === "string" &&
             parsed.site.siteName.trim().length >= 2
-              ? parsed.site.siteName.trim().slice(0, 60)
-              : "OU-Image Hosting",
-          siteDescription:
-            typeof parsed.site.siteDescription === "string"
-              ? parsed.site.siteDescription.trim().slice(0, 500)
-              : "",
-          registrationEnabled:
-            parsed.site.registrationEnabled === true
-        }
+            ? parsed.site.siteName.trim().slice(0, 60)
+            : "OU-Image Hosting",
+          {
+            siteDescription:
+              typeof parsed.site.siteDescription === "string"
+                ? parsed.site.siteDescription.trim().slice(0, 500)
+                : "",
+            siteLogoUrl:
+              typeof parsed.site.siteLogoUrl === "string" &&
+              parsed.site.siteLogoUrl.trim()
+                ? parsed.site.siteLogoUrl.trim().slice(0, 500)
+                : undefined,
+            registrationEnabled: parsed.site.registrationEnabled === true,
+            publicUploadEnabled: parsed.site.publicUploadEnabled !== false,
+            publicGalleryEnabled: parsed.site.publicGalleryEnabled !== false,
+            publicUploadDefaultPublic:
+              parsed.site.publicUploadDefaultPublic !== false,
+            publicHeroTitle:
+              typeof parsed.site.publicHeroTitle === "string" &&
+              parsed.site.publicHeroTitle.trim()
+                ? parsed.site.publicHeroTitle.trim().slice(0, 80)
+                : undefined,
+            publicHeroDescription:
+              typeof parsed.site.publicHeroDescription === "string" &&
+              parsed.site.publicHeroDescription.trim()
+                ? parsed.site.publicHeroDescription.trim().slice(0, 260)
+                : undefined,
+            loginEyebrow:
+              typeof parsed.site.loginEyebrow === "string" &&
+              parsed.site.loginEyebrow.trim()
+                ? parsed.site.loginEyebrow.trim().slice(0, 80)
+                : undefined,
+            loginHeroTitle:
+              typeof parsed.site.loginHeroTitle === "string" &&
+              parsed.site.loginHeroTitle.trim()
+                ? parsed.site.loginHeroTitle.trim().slice(0, 80)
+                : undefined,
+            loginHeroDescription:
+              typeof parsed.site.loginHeroDescription === "string" &&
+              parsed.site.loginHeroDescription.trim()
+                ? parsed.site.loginHeroDescription.trim().slice(0, 260)
+                : undefined,
+            defaultStorage: "local",
+            theme:
+              parsed.site.theme === "light" ||
+              parsed.site.theme === "dark" ||
+              parsed.site.theme === "system"
+                ? parsed.site.theme
+                : "system"
+          }
+        )
       : undefined,
     users: (parsed.users ?? []).map((user) => ({
       ...user,

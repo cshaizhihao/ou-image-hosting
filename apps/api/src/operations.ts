@@ -107,6 +107,26 @@ function publicWorkspaceSettings(state: AppState, workspaceId: string) {
   };
 }
 
+function publicSiteSettings(site: AppState["site"]) {
+  if (!site) {
+    throw new PublicError(503, "SITE_NOT_READY", "站点尚未完成初始化");
+  }
+  return {
+    siteName: site.siteName,
+    siteDescription: site.siteDescription,
+    siteLogoUrl: site.siteLogoUrl,
+    registrationEnabled: site.registrationEnabled,
+    publicUploadEnabled: site.publicUploadEnabled,
+    publicGalleryEnabled: site.publicGalleryEnabled,
+    publicUploadDefaultPublic: site.publicUploadDefaultPublic,
+    publicHeroTitle: site.publicHeroTitle,
+    publicHeroDescription: site.publicHeroDescription,
+    loginEyebrow: site.loginEyebrow,
+    loginHeroTitle: site.loginHeroTitle,
+    loginHeroDescription: site.loginHeroDescription
+  };
+}
+
 function dateKey(timestamp: Date, timezone: string) {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: timezone,
@@ -895,11 +915,7 @@ export function registerOperationsRoutes(
       });
     });
     return {
-      settings: {
-        siteName: site.siteName,
-        siteDescription: site.siteDescription,
-        registrationEnabled: site.registrationEnabled
-      }
+      settings: publicSiteSettings(site)
     };
   });
 
@@ -907,7 +923,16 @@ export function registerOperationsRoutes(
     Body: {
       siteName?: string;
       siteDescription?: string;
+      siteLogoUrl?: string;
       registrationEnabled?: boolean;
+      publicUploadEnabled?: boolean;
+      publicGalleryEnabled?: boolean;
+      publicUploadDefaultPublic?: boolean;
+      publicHeroTitle?: string;
+      publicHeroDescription?: string;
+      loginEyebrow?: string;
+      loginHeroTitle?: string;
+      loginHeroDescription?: string;
     };
   }>(
     "/site/settings",
@@ -920,7 +945,16 @@ export function registerOperationsRoutes(
           properties: {
             siteName: { type: "string", minLength: 2, maxLength: 60 },
             siteDescription: { type: "string", maxLength: 500 },
-            registrationEnabled: { type: "boolean" }
+            siteLogoUrl: { type: "string", minLength: 1, maxLength: 500 },
+            registrationEnabled: { type: "boolean" },
+            publicUploadEnabled: { type: "boolean" },
+            publicGalleryEnabled: { type: "boolean" },
+            publicUploadDefaultPublic: { type: "boolean" },
+            publicHeroTitle: { type: "string", minLength: 1, maxLength: 80 },
+            publicHeroDescription: { type: "string", minLength: 1, maxLength: 260 },
+            loginEyebrow: { type: "string", minLength: 1, maxLength: 80 },
+            loginHeroTitle: { type: "string", minLength: 1, maxLength: 80 },
+            loginHeroDescription: { type: "string", minLength: 1, maxLength: 260 }
           }
         }
       }
@@ -936,8 +970,38 @@ export function registerOperationsRoutes(
         if (request.body.siteDescription !== undefined) {
           site.siteDescription = request.body.siteDescription.trim();
         }
+        if (request.body.siteLogoUrl !== undefined) {
+          site.siteLogoUrl = request.body.siteLogoUrl.trim();
+        }
         if (request.body.registrationEnabled !== undefined) {
           site.registrationEnabled = request.body.registrationEnabled;
+        }
+        if (request.body.publicUploadEnabled !== undefined) {
+          site.publicUploadEnabled = request.body.publicUploadEnabled;
+        }
+        if (request.body.publicGalleryEnabled !== undefined) {
+          site.publicGalleryEnabled = request.body.publicGalleryEnabled;
+        }
+        if (request.body.publicUploadDefaultPublic !== undefined) {
+          site.publicUploadDefaultPublic =
+            request.body.publicUploadDefaultPublic;
+        }
+        if (request.body.publicHeroTitle !== undefined) {
+          site.publicHeroTitle = request.body.publicHeroTitle.trim();
+        }
+        if (request.body.publicHeroDescription !== undefined) {
+          site.publicHeroDescription =
+            request.body.publicHeroDescription.trim();
+        }
+        if (request.body.loginEyebrow !== undefined) {
+          site.loginEyebrow = request.body.loginEyebrow.trim();
+        }
+        if (request.body.loginHeroTitle !== undefined) {
+          site.loginHeroTitle = request.body.loginHeroTitle.trim();
+        }
+        if (request.body.loginHeroDescription !== undefined) {
+          site.loginHeroDescription =
+            request.body.loginHeroDescription.trim();
         }
         addAuditEvent(state, {
           principal,
@@ -951,11 +1015,7 @@ export function registerOperationsRoutes(
       });
       const site = store.snapshot().site!;
       return {
-        settings: {
-          siteName: site.siteName,
-          siteDescription: site.siteDescription,
-          registrationEnabled: site.registrationEnabled
-        }
+        settings: publicSiteSettings(site)
       };
     }
   );

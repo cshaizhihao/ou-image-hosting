@@ -28,6 +28,7 @@ import {
   ShieldCheck,
   Tags,
   Trash2,
+  X,
   type LucideIcon
 } from "lucide-react";
 import Link from "next/link";
@@ -792,35 +793,6 @@ export function ImageDetailView({ imageId }: { imageId: string }) {
                       创建分享链接
                     </Button>
                   </div>
-                  {createdShareUrl && (
-                    <div className={styles.createdShare}>
-                      <div>
-                        <ShieldCheck size={17} />
-                        <span><strong>分享已就绪</strong><small>请立即复制，令牌之后不会再次显示</small></span>
-                      </div>
-                      <code>{createdShareUrl}</code>
-                      <div className={styles.createdActions}>
-                        <Button
-                          onClick={() => void copy(createdShareUrl, "分享链接已复制。")}
-                          size="compact"
-                          variant="secondary"
-                        >
-                          <Clipboard size={15} />
-                          复制链接
-                        </Button>
-                        <Button asChild size="compact" variant="ghost">
-                          <a href={createdShareUrl} rel="noreferrer" target="_blank">
-                            <ExternalLink size={15} />
-                            预览
-                          </a>
-                        </Button>
-                      </div>
-                      <div className={styles.qr}>
-                        <QrCode size={16} />
-                        <ShareQrCode value={createdShareUrl} />
-                      </div>
-                    </div>
-                  )}
                 </section>
 
                 <section className={styles.panel}>
@@ -887,6 +859,51 @@ export function ImageDetailView({ imageId }: { imageId: string }) {
                 {busy.startsWith("restore-") ? <LoaderCircle className={styles.spin} size={16} /> : <History size={16} />}
                 确认恢复
               </Button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {createdShareUrl && (
+        <div className={styles.dialogBackdrop}>
+          <section
+            aria-labelledby="share-ready-title"
+            aria-modal="true"
+            className={cn(styles.dialog, styles.shareDialog)}
+            role="dialog"
+          >
+            <button
+              aria-label="关闭分享链接浮窗"
+              className={styles.dialogClose}
+              onClick={() => setCreatedShareUrl("")}
+              type="button"
+            >
+              <X size={16} />
+            </button>
+            <span>
+              <ShieldCheck size={22} />
+            </span>
+            <h2 id="share-ready-title">分享已就绪</h2>
+            <p>请立即复制链接；出于安全考虑，令牌之后不会再次显示。</p>
+            <code className={styles.shareUrl}>{createdShareUrl}</code>
+            <div className={styles.shareDialogActions}>
+              <Button
+                onClick={() => void copy(createdShareUrl, "分享链接已复制。")}
+                variant="secondary"
+              >
+                <Clipboard size={16} />
+                复制链接
+              </Button>
+              <Button asChild variant="ghost">
+                <a href={createdShareUrl} rel="noreferrer" target="_blank">
+                  <ExternalLink size={16} />
+                  预览
+                </a>
+              </Button>
+            </div>
+            <div className={styles.shareDialogQr}>
+              <QrCode size={16} />
+              <ShareQrCode value={createdShareUrl} />
             </div>
           </section>
         </div>

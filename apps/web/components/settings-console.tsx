@@ -1061,6 +1061,27 @@ export function SettingsConsole() {
                           value={siteSettings.siteDescription}
                         />
                       </label>
+                      <label className={cn(styles.field, styles.spanFull)}>
+                        <span>
+                          <strong>站点 Logo 地址</strong>
+                          <small>支持站内路径或完整 HTTPS 图片地址。</small>
+                        </span>
+                        <input
+                          className={styles.input}
+                          maxLength={500}
+                          onChange={(event) =>
+                            setSiteSettings((current) =>
+                              current
+                                ? {
+                                    ...current,
+                                    siteLogoUrl: event.target.value
+                                  }
+                                : current
+                            )
+                          }
+                          value={siteSettings.siteLogoUrl}
+                        />
+                      </label>
                     </div>
                     <div className={styles.preferenceRow}>
                       <div>
@@ -1095,11 +1116,223 @@ export function SettingsConsole() {
                         <span />
                       </button>
                     </div>
+                    <div className={styles.preferenceRow}>
+                      <div>
+                        <strong>公共上传入口</strong>
+                        <span>开启后，访客访问站点根地址即可上传图片。</span>
+                      </div>
+                      <button
+                        aria-label={
+                          siteSettings.publicUploadEnabled
+                            ? "关闭公共上传入口"
+                            : "开启公共上传入口"
+                        }
+                        aria-pressed={siteSettings.publicUploadEnabled}
+                        className={cn(
+                          styles.preferenceSwitch,
+                          siteSettings.publicUploadEnabled &&
+                            styles.preferenceSwitchActive
+                        )}
+                        onClick={() =>
+                          setSiteSettings((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  publicUploadEnabled:
+                                    !current.publicUploadEnabled
+                                }
+                              : current
+                          )
+                        }
+                        type="button"
+                      >
+                        <span />
+                      </button>
+                    </div>
+                    <div className={styles.preferenceRow}>
+                      <div>
+                        <strong>公共图片展示</strong>
+                        <span>开启后，公开上传的图片会以缩略图瀑布流展示。</span>
+                      </div>
+                      <button
+                        aria-label={
+                          siteSettings.publicGalleryEnabled
+                            ? "关闭公共图片展示"
+                            : "开启公共图片展示"
+                        }
+                        aria-pressed={siteSettings.publicGalleryEnabled}
+                        className={cn(
+                          styles.preferenceSwitch,
+                          siteSettings.publicGalleryEnabled &&
+                            styles.preferenceSwitchActive
+                        )}
+                        onClick={() =>
+                          setSiteSettings((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  publicGalleryEnabled:
+                                    !current.publicGalleryEnabled
+                                }
+                              : current
+                          )
+                        }
+                        type="button"
+                      >
+                        <span />
+                      </button>
+                    </div>
+                    <div className={styles.preferenceRow}>
+                      <div>
+                        <strong>默认公开展示</strong>
+                        <span>访客上传时默认勾选“公开展示”，仍可手动取消。</span>
+                      </div>
+                      <button
+                        aria-label={
+                          siteSettings.publicUploadDefaultPublic
+                            ? "关闭默认公开展示"
+                            : "开启默认公开展示"
+                        }
+                        aria-pressed={siteSettings.publicUploadDefaultPublic}
+                        className={cn(
+                          styles.preferenceSwitch,
+                          siteSettings.publicUploadDefaultPublic &&
+                            styles.preferenceSwitchActive
+                        )}
+                        onClick={() =>
+                          setSiteSettings((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  publicUploadDefaultPublic:
+                                    !current.publicUploadDefaultPublic
+                                }
+                              : current
+                          )
+                        }
+                        type="button"
+                      >
+                        <span />
+                      </button>
+                    </div>
+                    <div className={styles.formGrid}>
+                      <label className={styles.field}>
+                        <span>
+                          <strong>公共首页标题</strong>
+                          <small>显示在访客上传页的主视觉区域。</small>
+                        </span>
+                        <input
+                          className={styles.input}
+                          maxLength={80}
+                          onChange={(event) =>
+                            setSiteSettings((current) =>
+                              current
+                                ? {
+                                    ...current,
+                                    publicHeroTitle: event.target.value
+                                  }
+                                : current
+                            )
+                          }
+                          value={siteSettings.publicHeroTitle}
+                        />
+                      </label>
+                      <label className={cn(styles.field, styles.spanFull)}>
+                        <span>
+                          <strong>公共首页说明</strong>
+                          <small>建议写清楚上传方式、公开展示和文件限制。</small>
+                        </span>
+                        <textarea
+                          className={styles.textarea}
+                          maxLength={260}
+                          onChange={(event) =>
+                            setSiteSettings((current) =>
+                              current
+                                ? {
+                                    ...current,
+                                    publicHeroDescription: event.target.value
+                                  }
+                                : current
+                            )
+                          }
+                          value={siteSettings.publicHeroDescription}
+                        />
+                      </label>
+                      <label className={styles.field}>
+                        <span>
+                          <strong>登录页英文标签</strong>
+                          <small>用于登录页左侧上方小标题。</small>
+                        </span>
+                        <input
+                          className={styles.input}
+                          maxLength={80}
+                          onChange={(event) =>
+                            setSiteSettings((current) =>
+                              current
+                                ? {
+                                    ...current,
+                                    loginEyebrow: event.target.value
+                                  }
+                                : current
+                            )
+                          }
+                          value={siteSettings.loginEyebrow}
+                        />
+                      </label>
+                      <label className={styles.field}>
+                        <span>
+                          <strong>登录页标题</strong>
+                          <small>换行会自动由页面排版处理。</small>
+                        </span>
+                        <input
+                          className={styles.input}
+                          maxLength={80}
+                          onChange={(event) =>
+                            setSiteSettings((current) =>
+                              current
+                                ? {
+                                    ...current,
+                                    loginHeroTitle: event.target.value
+                                  }
+                                : current
+                            )
+                          }
+                          value={siteSettings.loginHeroTitle}
+                        />
+                      </label>
+                      <label className={cn(styles.field, styles.spanFull)}>
+                        <span>
+                          <strong>登录页说明</strong>
+                          <small>用于描述站点价值和管理体验。</small>
+                        </span>
+                        <textarea
+                          className={styles.textarea}
+                          maxLength={260}
+                          onChange={(event) =>
+                            setSiteSettings((current) =>
+                              current
+                                ? {
+                                    ...current,
+                                    loginHeroDescription: event.target.value
+                                  }
+                                : current
+                            )
+                          }
+                          value={siteSettings.loginHeroDescription}
+                        />
+                      </label>
+                    </div>
                     <div className={styles.cardActions}>
                       <Button
                         disabled={
                           busy === "site-configuration" ||
-                          !siteSettings.siteName.trim()
+                          !siteSettings.siteName.trim() ||
+                          !siteSettings.siteLogoUrl.trim() ||
+                          !siteSettings.publicHeroTitle.trim() ||
+                          !siteSettings.publicHeroDescription.trim() ||
+                          !siteSettings.loginEyebrow.trim() ||
+                          !siteSettings.loginHeroTitle.trim() ||
+                          !siteSettings.loginHeroDescription.trim()
                         }
                         onClick={() => void saveSiteConfiguration()}
                       >

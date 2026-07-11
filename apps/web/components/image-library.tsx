@@ -2,6 +2,7 @@
 
 import { Button, cn } from "@ou-image/ui";
 import {
+  Album,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -48,6 +49,13 @@ type LibraryResponse = {
   limit: number;
   total: number;
   totalPages: number;
+};
+
+type AlbumOption = {
+  id: string;
+  name: string;
+  description: string;
+  imageCount: number;
 };
 
 type ViewMode = "grid" | "list";
@@ -100,6 +108,12 @@ export function ImageLibrary() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [albumPickerOpen, setAlbumPickerOpen] = useState(false);
+  const [albums, setAlbums] = useState<AlbumOption[]>([]);
+  const [albumSelection, setAlbumSelection] = useState<Set<string>>(new Set());
+  const [albumQuery, setAlbumQuery] = useState("");
+  const [albumsLoading, setAlbumsLoading] = useState(false);
+  const [assigningAlbums, setAssigningAlbums] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
@@ -230,6 +244,102 @@ export function ImageLibrary() {
     );
   };
 
+  const loadAlbums = useCallback(async () => {
+    setAlbumsLoading(true);
+    try {
+      const response = await fetch("/api/albums", {
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: workspaceHeaders()
+      });
+      const payload = (await response.json()) as { albums?: AlbumOption[] };
+      if (!response.ok) {
+        throw new Error(responseMessage(payload, "相册列表加载失败"));
+      }
+      setAlbums(payload.albums ?? []);
+    } catch (requestError) {
+      setNotice(
+        requestError instanceof Error ? requestError.message : "相册列表加载失败"
+      );
+    } finally {
+      setAlbumsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!albumPickerOpen) return;
+    void loadAlbums();
+  }, [albumPickerOpen, loadAlbums]);
+
+  useEffect(() => {
+    if (!albumPickerOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setAlbumPickerOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [albumPickerOpen]);
+
+  const openAlbumPicker = () => {
+    if (selected.size === 0) return;
+    setAlbumSelection(new Set());
+    setAlbumQuery("");
+    setAlbumPickerOpen(true);
+  };
+
+  const toggleAlbumSelection = (albumId: string) => {
+    setAlbumSelection((current) => {
+      const next = new Set(current);
+      if (next.has(albumId)) next.delete(albumId);
+      else next.add(albumId);
+      return next;
+    });
+  };
+
+  const filteredAlbums = useMemo(() => {
+    const keyword = albumQuery.trim().toLocaleLowerCase();
+    if (!keyword) return albums;
+    return albums.filter(
+      (album) =>
+        album.name.toLocaleLowerCase().includes(keyword) ||
+        album.description.toLocaleLowerCase().includes(keyword)
+    );
+  }, [albumQuery, albums]);
+
+  const addSelectedToAlbums = async () => {
+    if (selected.size === 0 || albumSelection.size === 0) return;
+    setAssigningAlbums(true);
+    try {
+      const response = await fetch("/api/uploads/bulk", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: workspaceHeaders({ "content-type": "application/json" }),
+        body: JSON.stringify({
+          ids: Array.from(selected),
+          action: "add-to-albums",
+          albumIds: Array.from(albumSelection)
+        })
+      });
+      const payload = (await response.json()) as { updated?: number };
+      if (!response.ok) {
+        throw new Error(responseMessage(payload, "加入相册失败"));
+      }
+      setNotice(
+        `已将 ${payload.updated ?? selected.size} 张图片加入 ${albumSelection.size} 个相册。`
+      );
+      setSelected(new Set());
+      setAlbumSelection(new Set());
+      setAlbumPickerOpen(false);
+      setReloadKey((value) => value + 1);
+    } catch (requestError) {
+      setNotice(
+        requestError instanceof Error ? requestError.message : "加入相册失败"
+      );
+    } finally {
+      setAssigningAlbums(false);
+    }
+  };
+
   const trashSelected = async () => {
     if (selected.size === 0) return;
     setDeleting(true);
@@ -275,7 +385,7 @@ export function ImageLibrary() {
             <p>搜索、筛选和批量管理工作区中的图片资产。</p>
           </div>
           <Button asChild>
-            <Link href="/">
+            <Link href="/upload">
               <ImagePlus aria-hidden="true" size={17} />
               上传图片
             </Link>
@@ -373,14 +483,20 @@ export function ImageLibrary() {
           </button>
           <span>{selectionLabel}</span>
           {selected.size > 0 && (
-            <Button
-              onClick={() => setConfirmOpen(true)}
-              size="compact"
-              variant="danger"
-            >
-              <Trash2 size={15} />
-              移入回收站
-            </Button>
+            <>
+              <Button onClick={openAlbumPicker} size="compact" variant="secondary">
+                <Album size={15} />
+                加入相册
+              </Button>
+              <Button
+                onClick={() => setConfirmOpen(true)}
+                size="compact"
+                variant="danger"
+              >
+                <Trash2 size={15} />
+                移入回收站
+              </Button>
+            </>
           )}
         </div>
 
@@ -415,7 +531,7 @@ export function ImageLibrary() {
                 : "上传第一张图片后，它会出现在这里。"}
             </p>
             <Button asChild variant="secondary">
-              <Link href="/">打开上传工作台</Link>
+              <Link href="/upload">打开上传工作台</Link>
             </Button>
           </div>
         ) : (
@@ -519,6 +635,94 @@ export function ImageLibrary() {
               <Button disabled={deleting} onClick={() => void trashSelected()} variant="danger">
                 {deleting ? <LoaderCircle className="spin" size={16} /> : <Trash2 size={16} />}
                 确认移入
+              </Button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {albumPickerOpen && (
+        <div
+          className="library-confirm-backdrop"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) setAlbumPickerOpen(false);
+          }}
+        >
+          <section
+            aria-describedby="library-album-description"
+            aria-labelledby="library-album-title"
+            aria-modal="true"
+            className="library-confirm library-album-dialog"
+            role="dialog"
+          >
+            <span>
+              <Album size={22} />
+            </span>
+            <h2 id="library-album-title">加入相册</h2>
+            <p id="library-album-description">
+              已选择 {selected.size} 张图片。图片会继续保留在图片库，也可以同时出现在多个相册中。
+            </p>
+            <label className="library-album-search">
+              <Search aria-hidden="true" size={16} />
+              <input
+                autoFocus
+                onChange={(event) => setAlbumQuery(event.target.value)}
+                placeholder="搜索相册"
+                type="search"
+                value={albumQuery}
+              />
+            </label>
+            <div className="library-album-list">
+              {albumsLoading ? (
+                <div className="library-album-empty">
+                  <LoaderCircle className="spin" size={18} />
+                  正在读取相册
+                </div>
+              ) : filteredAlbums.length === 0 ? (
+                <div className="library-album-empty">
+                  {albums.length === 0
+                    ? "还没有相册，先去相册页创建一个。"
+                    : "没有匹配的相册。"}
+                </div>
+              ) : (
+                filteredAlbums.map((album) => {
+                  const checked = albumSelection.has(album.id);
+                  return (
+                    <button
+                      aria-pressed={checked}
+                      className={checked ? "is-selected" : ""}
+                      key={album.id}
+                      onClick={() => toggleAlbumSelection(album.id)}
+                      type="button"
+                    >
+                      <span>{checked && <Check size={13} />}</span>
+                      <strong>{album.name}</strong>
+                      <small>{album.imageCount} 张图片</small>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+            <div>
+              <Button
+                disabled={assigningAlbums}
+                onClick={() => setAlbumPickerOpen(false)}
+                variant="ghost"
+              >
+                取消
+              </Button>
+              <Button
+                disabled={
+                  assigningAlbums || selected.size === 0 || albumSelection.size === 0
+                }
+                onClick={() => void addSelectedToAlbums()}
+              >
+                {assigningAlbums ? (
+                  <LoaderCircle className="spin" size={16} />
+                ) : (
+                  <Album size={16} />
+                )}
+                确认加入
               </Button>
             </div>
           </section>

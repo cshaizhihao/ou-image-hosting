@@ -632,64 +632,6 @@
   font-weight: 400;
 }
 
-.createdShare {
-  display: grid;
-  gap: 10px;
-  margin: 0 14px 14px;
-  padding: 12px;
-  border: 1px solid color-mix(in srgb, var(--status-success) 44%, var(--border-default));
-  border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--status-success) 8%, var(--surface-panel));
-}
-
-.createdShare > div:first-child {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.createdShare > div:first-child > svg {
-  color: var(--status-success);
-}
-
-.createdShare span {
-  display: grid;
-}
-
-.createdShare strong {
-  font-size: 12px;
-}
-
-.createdShare small {
-  color: var(--text-tertiary);
-  font-size: 9px;
-}
-
-.createdShare code {
-  overflow: hidden;
-  padding: 8px;
-  border-radius: var(--radius-sm);
-  background: var(--surface-page);
-  color: var(--text-secondary);
-  font-size: 9px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.createdActions {
-  display: flex;
-  gap: 6px;
-}
-
-.qr {
-  display: grid;
-  justify-items: center;
-  gap: 8px;
-  padding-top: 10px;
-  border-top: 1px solid var(--border-default);
-  color: var(--text-tertiary);
-}
-
 .shareEmpty {
   display: grid;
   min-height: 118px;
@@ -794,6 +736,7 @@
   border-radius: 16px;
   background: var(--surface-raised);
   box-shadow: var(--shadow-overlay);
+  animation: dialogIn var(--motion-standard) var(--ease-out);
 }
 
 .dialog > span {
@@ -824,12 +767,74 @@
   margin-top: 22px;
 }
 
+.dialogClose {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+
+.dialogClose:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.shareDialog {
+  position: relative;
+  width: min(520px, 100%);
+}
+
+.shareUrl {
+  display: block;
+  overflow: hidden;
+  margin-top: 16px;
+  padding: 11px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-page);
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shareDialogActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.shareDialogQr {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-default);
+  color: var(--text-tertiary);
+}
+
 .spin {
   animation: spin 0.85s linear infinite;
 }
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+@keyframes dialogIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
 }
 
 @media (max-width: 1120px) {

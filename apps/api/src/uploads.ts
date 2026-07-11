@@ -78,9 +78,13 @@ type UploadQuery = {
   limit?: string;
   sort?: "newest" | "oldest" | "name" | "size";
 };
+type PublicUploadQuery = {
+  publicVisible?: "true" | "false" | "1" | "0";
+};
 type BulkBody = {
   ids: string[];
-  action: "trash";
+  action: "trash" | "add-to-albums";
+  albumIds?: string[];
 };
 
 function publicImage(
@@ -108,11 +112,53 @@ function publicImage(
     favorite: userId
       ? image.favoriteUserIds.includes(userId)
       : image.favorite,
+    publicVisible: image.publicVisible,
     albumIds: image.albumIds,
     tagIds: image.tagIds,
     createdAt: image.createdAt,
     updatedAt: image.updatedAt,
     deletedAt: image.deletedAt
+  };
+}
+
+function publicImageCard(
+  image: StoredImage,
+  state: AppState,
+  timestamp: Date
+) {
+  return {
+    id: image.id,
+    name: image.name,
+    size: image.size,
+    mime: image.mime,
+    format: image.format,
+    width: image.width,
+    height: image.height,
+    thumbnailUrl: buildDeliveryUrl(state, image.id, "thumbnail", timestamp),
+    originalUrl: buildDeliveryUrl(state, image.id, "original", timestamp),
+    createdAt: image.createdAt
+  };
+}
+
+function publicUploadPrincipal(state: AppState): Principal {
+  const owner = state.users.find((user) => user.role === "owner") ?? state.users[0];
+  if (!owner) {
+    throw new PublicError(503, "SITE_NOT_READY", "站点尚未完成初始化");
+  }
+  const workspaceId = `personal-${owner.id}`;
+  const workspace =
+    state.workspaces.find((item) => item.id === workspaceId) ??
+    state.workspaces.find((item) => item.ownerUserId === owner.id);
+  if (!workspace) {
+    throw new PublicError(503, "WORKSPACE_NOT_READY", "默认工作区不可用");
+  }
+  return {
+    kind: "session",
+    user: owner,
+    workspace,
+    workspaceId: workspace.id,
+    role: "owner",
+    scopes: []
   };
 }
 
@@ -195,7 +241,7 @@ async function readRemoteImage(rawUrl: string, maximumBytes: number) {
       signal: AbortSignal.timeout(10_000),
       headers: {
         accept: "image/avif,image/webp,image/png,image/jpeg,image/gif",
-        "user-agent": "OU-Image-Hosting/1.0.8"
+        "user-agent": "OU-Image-Hosting/1.1.0"
       }
     });
   } catch {
@@ -256,12 +302,14 @@ export async function registerUploadRoutes(
     buffer,
     filename,
     mime,
-    principal
+    principal,
+    publicVisible = false
   }: {
     buffer: Buffer;
     filename: string;
     mime: string;
     principal: Principal;
+    publicVisible?: boolean;
   }) => {
     const state = store.snapshot();
     const settings =
@@ -327,9 +375,18 @@ export async function registerUploadRoutes(
           if (current) delete current.deletedAt;
         });
       }
+      if (publicVisible && !existing.publicVisible) {
+        await store.update((state) => {
+          const current = state.images.find((image) => image.id === existing.id);
+          if (current && current.workspaceId === principal.workspaceId) {
+            current.publicVisible = true;
+            current.updatedAt = now().toISOString();
+          }
+        });
+      }
       return {
         image: publicImage(
-          { ...existing, deletedAt: undefined },
+          { ...existing, deletedAt: undefined, publicVisible: publicVisible || existing.publicVisible },
           store.snapshot(),
           now(),
           principal.user.id
@@ -401,6 +458,7 @@ export async function registerUploadRoutes(
       versions: [originalVersion],
       favorite: false,
       favoriteUserIds: [],
+      publicVisible,
       albumIds: [],
       tagIds: [],
       createdAt: timestamp,
@@ -550,32 +608,83 @@ export async function registerUploadRoutes(
               uniqueItems: true,
               items: { type: "string", minLength: 1, maxLength: 80 }
             },
-            action: { type: "string", enum: ["trash"] }
+            action: { type: "string", enum: ["trash", "add-to-albums"] },
+            albumIds: {
+              type: "array",
+              maxItems: 50,
+              uniqueItems: true,
+              items: { type: "string", minLength: 1, maxLength: 80 }
+            }
           }
         }
       }
     },
     async (request) => {
       const principal = authenticate(request);
-      requireCapability(principal, "write", ["images:delete"]);
+      requireCapability(
+        principal,
+        "write",
+        request.body.action === "trash"
+          ? ["images:delete"]
+          : ["images:write", "organization:write"]
+      );
       const ids = new Set(request.body.ids);
+      const albumIds = new Set(request.body.albumIds ?? []);
       const timestamp = now().toISOString();
       const updated = await store.update((state) => {
         let count = 0;
+        if (request.body.action === "add-to-albums") {
+          if (albumIds.size === 0) {
+            throw new PublicError(
+              400,
+              "ALBUM_REQUIRED",
+              "请选择至少一个相册"
+            );
+          }
+          const validAlbumIds = new Set(
+            state.albums
+              .filter((album) => album.workspaceId === principal.workspaceId)
+              .map((album) => album.id)
+          );
+          if ([...albumIds].some((albumId) => !validAlbumIds.has(albumId))) {
+            throw new PublicError(
+              400,
+              "INVALID_ALBUM_IDS",
+              "包含不存在或无权访问的相册"
+            );
+          }
+        }
         state.images.forEach((image) => {
           if (
             ids.has(image.id) &&
             image.workspaceId === principal.workspaceId &&
             !image.deletedAt
           ) {
-            image.deletedAt = timestamp;
-            image.updatedAt = timestamp;
-            count += 1;
+            if (request.body.action === "trash") {
+              image.deletedAt = timestamp;
+              image.updatedAt = timestamp;
+              count += 1;
+            } else {
+              const nextAlbumIds = new Set(image.albumIds);
+              const before = nextAlbumIds.size;
+              albumIds.forEach((albumId) => nextAlbumIds.add(albumId));
+              if (nextAlbumIds.size !== before) {
+                image.albumIds = [...nextAlbumIds];
+                image.updatedAt = timestamp;
+              }
+              count += 1;
+            }
           }
         });
         return count;
       });
-      return { updated };
+      return {
+        updated,
+        albumIds:
+          request.body.action === "add-to-albums"
+            ? [...albumIds]
+            : undefined
+      };
     }
   );
 
@@ -608,6 +717,99 @@ export async function registerUploadRoutes(
         filename: part.filename,
         mime: part.mimetype,
         principal
+      });
+      return reply.status(result.duplicate ? 200 : 201).send(result);
+    }
+  );
+
+  app.get("/public/config", async () => {
+    const state = store.snapshot();
+    const site = state.site;
+    if (!state.setupComplete || !site) {
+      return {
+        setupComplete: false,
+        site: null
+      };
+    }
+    return {
+      setupComplete: true,
+      site: {
+        siteName: site.siteName,
+        siteDescription: site.siteDescription,
+        siteLogoUrl: site.siteLogoUrl,
+        publicUploadEnabled: site.publicUploadEnabled,
+        publicGalleryEnabled: site.publicGalleryEnabled,
+        publicUploadDefaultPublic: site.publicUploadDefaultPublic,
+        publicHeroTitle: site.publicHeroTitle,
+        publicHeroDescription: site.publicHeroDescription
+      }
+    };
+  });
+
+  app.get("/public/images", async () => {
+    const state = store.snapshot();
+    if (!state.site?.publicGalleryEnabled) {
+      return { images: [] };
+    }
+    return {
+      images: state.images
+        .filter((image) => image.publicVisible && !image.deletedAt)
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+        .slice(0, 60)
+        .map((image) => publicImageCard(image, state, now()))
+    };
+  });
+
+  app.post<{ Querystring: PublicUploadQuery }>(
+    "/public/uploads",
+    {
+      config: { rateLimit: { max: 20, timeWindow: "1 minute" } },
+      bodyLimit: MAX_FILE_SIZE + 1024 * 1024,
+      schema: {
+        querystring: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            publicVisible: {
+              type: "string",
+              enum: ["true", "false", "1", "0"]
+            }
+          }
+        }
+      }
+    },
+    async (request, reply) => {
+      const state = store.snapshot();
+      if (!state.site?.publicUploadEnabled) {
+        throw new PublicError(403, "PUBLIC_UPLOAD_DISABLED", "公共上传入口已关闭");
+      }
+      const principal = publicUploadPrincipal(state);
+      let part;
+      try {
+        part = await request.file();
+      } catch {
+        throw new PublicError(413, "FILE_TOO_LARGE", "图片不能超过 20 MB");
+      }
+      if (!part || part.fieldname !== "file") {
+        throw new PublicError(400, "FILE_REQUIRED", "请选择需要上传的图片");
+      }
+      let buffer: Buffer;
+      try {
+        buffer = await part.toBuffer();
+      } catch {
+        throw new PublicError(413, "FILE_TOO_LARGE", "图片不能超过 20 MB");
+      }
+      const publicVisible =
+        request.query.publicVisible === undefined
+          ? state.site.publicUploadDefaultPublic
+          : request.query.publicVisible === "true" ||
+            request.query.publicVisible === "1";
+      const result = await ingest({
+        buffer,
+        filename: part.filename,
+        mime: part.mimetype,
+        principal,
+        publicVisible
       });
       return reply.status(result.duplicate ? 200 : 201).send(result);
     }

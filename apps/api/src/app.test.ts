@@ -141,11 +141,11 @@ describe("OU-Image API", () => {
     expect(health.statusCode).toBe(200);
     expect(health.json()).toMatchObject({
       status: "ok",
-      version: "1.0.8"
+      version: "1.1.0"
     });
     expect(live.json()).toMatchObject({
       status: "ok",
-      version: "1.0.8"
+      version: "1.1.0"
     });
     expect(ready.statusCode).toBe(200);
     expect(ready.json()).toMatchObject({
@@ -2841,10 +2841,16 @@ describe("OU-Image API", () => {
         registrationEnabled: true
       }
     });
-    expect(site.json().settings).toEqual({
+    expect(site.json().settings).toMatchObject({
       siteName: "OU Gallery",
       siteDescription: "A private image service",
-      registrationEnabled: true
+      siteLogoUrl: "/brand/ou-image-hosting-logo.jpg",
+      registrationEnabled: true,
+      publicUploadEnabled: true,
+      publicGalleryEnabled: true,
+      publicUploadDefaultPublic: true,
+      publicHeroTitle: "把图片放进来，剩下的交给队列。",
+      loginHeroTitle: "让图片管理，从第一眼就舒服。"
     });
     const viewerSite = await app.inject({
       method: "GET",

@@ -124,12 +124,18 @@ function requestMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
 }
 
-export function OrganizationHub({ mode }: { mode: OrganizationMode }) {
+export function OrganizationHub({
+  mode,
+  initialResourceId = ""
+}: {
+  mode: OrganizationMode;
+  initialResourceId?: string;
+}) {
   const copy = modeCopy[mode];
   const [albums, setAlbums] = useState<Album[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
   const [images, setImages] = useState<OrganizedImage[]>([]);
-  const [selectedResourceId, setSelectedResourceId] = useState("");
+  const [selectedResourceId, setSelectedResourceId] = useState(initialResourceId);
   const [selectedImages, setSelectedImages] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
@@ -161,7 +167,10 @@ export function OrganizationHub({ mode }: { mode: OrganizationMode }) {
         setSelectedResourceId((current) =>
           payload.albums.some((album) => album.id === current)
             ? current
-            : (payload.albums[0]?.id ?? "")
+            : initialResourceId &&
+                payload.albums.some((album) => album.id === initialResourceId)
+              ? initialResourceId
+              : (payload.albums[0]?.id ?? "")
         );
       } else {
         const payload = await apiRequest<{ tags: Tag[] }>("/tags");
@@ -177,7 +186,7 @@ export function OrganizationHub({ mode }: { mode: OrganizationMode }) {
     } finally {
       setLoading(false);
     }
-  }, [copy.title, mode]);
+  }, [copy.title, initialResourceId, mode]);
 
   const loadImages = useCallback(async () => {
     let endpoint = "";

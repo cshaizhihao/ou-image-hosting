@@ -1,5 +1,5 @@
 .page {
-  width: min(1440px, 100%);
+  width: min(1480px, 100%);
   padding-bottom: 110px;
 }
 
@@ -15,7 +15,7 @@
 .panelHeading > span,
 .sectionTitle > span {
   color: var(--text-accent);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 780;
   letter-spacing: 0.14em;
 }
@@ -23,7 +23,7 @@
 .header h1 {
   margin: 5px 0 3px;
   font-family: var(--font-display);
-  font-size: clamp(30px, 4vw, 44px);
+  font-size: clamp(34px, 4vw, 50px);
   font-weight: 900;
   font-synthesis: none;
   letter-spacing: -0.045em;
@@ -53,7 +53,7 @@
   padding: 7px 8px 7px 12px;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .notice_success {
@@ -107,7 +107,7 @@
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 620;
 }
 
@@ -133,7 +133,7 @@
   border-radius: 999px;
   background: var(--surface-muted);
   color: var(--text-secondary);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .panel,
@@ -170,12 +170,12 @@
 .panelHeading h2,
 .sectionTitle h2 {
   margin: 0;
-  font-size: 15px;
+  font-size: 18px;
 }
 
 .panelHeading p,
 .sectionTitle p {
-  font-size: 10px;
+  font-size: 13px;
 }
 
 .loading,
@@ -197,14 +197,14 @@
 .loading strong,
 .empty strong {
   margin-top: 12px;
-  font-size: 13px;
+  font-size: 16px;
 }
 
 .loading span,
 .empty p {
   margin: 2px 0 14px;
   color: var(--text-secondary);
-  font-size: 10px;
+  font-size: 13px;
 }
 
 .empty > span {
@@ -333,12 +333,12 @@
 
 .field > span strong {
   color: var(--text-secondary);
-  font-size: 10px;
+  font-size: 13px;
 }
 
 .field > span small {
   color: var(--text-tertiary);
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .input,
@@ -351,13 +351,13 @@
   outline: 0;
   background: var(--surface-page);
   color: var(--text-primary);
-  font-size: 11px;
+  font-size: 14px;
 }
 
 .input,
 .select {
-  height: 40px;
-  padding: 0 10px;
+  height: 46px;
+  padding: 0 12px;
 }
 
 .inlineSelect {
@@ -514,8 +514,8 @@
 }
 
 .textarea {
-  min-height: 88px;
-  padding: 9px 10px;
+  min-height: 104px;
+  padding: 11px 12px;
   resize: vertical;
 }
 
@@ -980,7 +980,7 @@
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
-  font-size: 10px;
+  font-size: 14px;
   text-align: left;
 }
 
@@ -1022,12 +1022,12 @@
 }
 
 .settingsCardHead strong {
-  font-size: 12px;
+  font-size: 16px;
 }
 
 .settingsCardHead span {
   color: var(--text-secondary);
-  font-size: 9px;
+  font-size: 13px;
 }
 
 .cardActions {
@@ -1074,12 +1074,12 @@
 
 .preferenceRow strong {
   color: var(--text-primary);
-  font-size: 10px;
+  font-size: 14px;
 }
 
 .preferenceRow span {
   color: var(--text-secondary);
-  font-size: 9px;
+  font-size: 13px;
 }
 
 .preferenceSwitch {

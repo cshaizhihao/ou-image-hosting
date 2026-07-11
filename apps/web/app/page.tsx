@@ -1,5 +1,5 @@
-import { UploadWorkbench } from "@/components/upload-workbench";
+import { PublicUploadLanding } from "@/components/public-upload-landing";
 
 export default function HomePage() {
-  return <UploadWorkbench />;
+  return <PublicUploadLanding />;
 }

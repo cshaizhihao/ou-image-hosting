@@ -11,7 +11,7 @@ export const navigationItems: NavigationItem[] = [
   {
     key: "upload",
     label: "上传",
-    href: "/",
+    href: "/upload",
     group: "workspace",
     access: "editor"
   },

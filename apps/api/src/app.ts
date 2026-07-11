@@ -33,6 +33,7 @@ import {
 import { PublicError } from "./errors.js";
 import {
   AppStore,
+  defaultSiteConfig,
   defaultNotificationPreferences,
   defaultWorkspaceSettings,
   type AppState,
@@ -86,6 +87,27 @@ export function redactCapabilityUrl(value: string) {
   return value
     .replace(/(\/shares\/)[^/?#]+/g, "$1[REDACTED]")
     .replace(/(\/invites\/)[^/?#]+/g, "$1[REDACTED]");
+}
+
+function publicSiteStatus(site: AppState["site"]) {
+  return site
+    ? {
+        siteName: site.siteName,
+        siteDescription: site.siteDescription,
+        siteLogoUrl: site.siteLogoUrl,
+        registrationEnabled: site.registrationEnabled,
+        publicUploadEnabled: site.publicUploadEnabled,
+        publicGalleryEnabled: site.publicGalleryEnabled,
+        publicUploadDefaultPublic: site.publicUploadDefaultPublic,
+        publicHeroTitle: site.publicHeroTitle,
+        publicHeroDescription: site.publicHeroDescription,
+        loginEyebrow: site.loginEyebrow,
+        loginHeroTitle: site.loginHeroTitle,
+        loginHeroDescription: site.loginHeroDescription,
+        defaultStorage: site.defaultStorage,
+        theme: site.theme
+      }
+    : null;
 }
 
 function normalizeOrigin(value: string) {
@@ -579,13 +601,13 @@ export async function buildApp(options: BuildAppOptions = {}) {
   app.get("/health", async () => ({
     status: "ok",
     service: "ou-image-api",
-    version: "1.0.8"
+    version: "1.1.0"
   }));
 
   app.get("/health/live", async () => ({
     status: "ok",
     service: "ou-image-api",
-    version: "1.0.8"
+    version: "1.1.0"
   }));
 
   const probeDirectory = async (directory: string, label: string) => {
@@ -638,14 +660,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     const state = store.snapshot();
     return {
       setupComplete: state.setupComplete,
-      site: state.site
-        ? {
-            siteName: state.site.siteName,
-            registrationEnabled: state.site.registrationEnabled,
-            defaultStorage: state.site.defaultStorage,
-            theme: state.site.theme
-          }
-        : null
+      site: publicSiteStatus(state.site)
     };
   });
 
@@ -718,13 +733,10 @@ export async function buildApp(options: BuildAppOptions = {}) {
           throw new PublicError(409, "ALREADY_CONFIGURED", "站点已经完成初始化");
         }
         state.setupComplete = true;
-        state.site = {
-          siteName,
-          siteDescription: "",
+        state.site = defaultSiteConfig(siteName, {
           registrationEnabled: request.body.registrationEnabled ?? false,
-          defaultStorage: "local",
           theme: request.body.theme ?? "system"
-        };
+        });
         const user: StoredUser = {
           id: userId,
           email,

@@ -119,7 +119,16 @@ export type SystemStatusData = {
 export type SiteSettingsData = {
   siteName: string;
   siteDescription: string;
+  siteLogoUrl: string;
   registrationEnabled: boolean;
+  publicUploadEnabled: boolean;
+  publicGalleryEnabled: boolean;
+  publicUploadDefaultPublic: boolean;
+  publicHeroTitle: string;
+  publicHeroDescription: string;
+  loginEyebrow: string;
+  loginHeroTitle: string;
+  loginHeroDescription: string;
 };
 
 export type WorkspaceConfiguration = {
@@ -408,14 +417,32 @@ function parseSiteSettings(payload: unknown): SiteSettingsData {
   if (
     typeof source.siteName !== "string" ||
     typeof source.siteDescription !== "string" ||
-    typeof source.registrationEnabled !== "boolean"
+    typeof source.siteLogoUrl !== "string" ||
+    typeof source.registrationEnabled !== "boolean" ||
+    typeof source.publicUploadEnabled !== "boolean" ||
+    typeof source.publicGalleryEnabled !== "boolean" ||
+    typeof source.publicUploadDefaultPublic !== "boolean" ||
+    typeof source.publicHeroTitle !== "string" ||
+    typeof source.publicHeroDescription !== "string" ||
+    typeof source.loginEyebrow !== "string" ||
+    typeof source.loginHeroTitle !== "string" ||
+    typeof source.loginHeroDescription !== "string"
   ) {
     throw new Error("站点设置数据契约无效");
   }
   return {
     siteName: source.siteName,
     siteDescription: source.siteDescription,
-    registrationEnabled: source.registrationEnabled
+    siteLogoUrl: source.siteLogoUrl,
+    registrationEnabled: source.registrationEnabled,
+    publicUploadEnabled: source.publicUploadEnabled,
+    publicGalleryEnabled: source.publicGalleryEnabled,
+    publicUploadDefaultPublic: source.publicUploadDefaultPublic,
+    publicHeroTitle: source.publicHeroTitle,
+    publicHeroDescription: source.publicHeroDescription,
+    loginEyebrow: source.loginEyebrow,
+    loginHeroTitle: source.loginHeroTitle,
+    loginHeroDescription: source.loginHeroDescription
   };
 }
 

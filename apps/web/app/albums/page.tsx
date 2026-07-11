@@ -1,5 +1,5 @@
-import { OrganizationHub } from "@/components/organization-hub";
+import { AlbumsConsole } from "@/components/albums-console";
 
 export default function AlbumsPage() {
-  return <OrganizationHub mode="albums" />;
+  return <AlbumsConsole />;
 }
