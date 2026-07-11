@@ -4849,10 +4849,14 @@ describe("OU-Image API", () => {
       cookies: { ou_session: cookie },
       payload: { all: true }
     });
-    expect(bounded.json().readEventIds).toHaveLength(500);
+    expect(bounded.json().readEventIds).toEqual([
+      "collaboration",
+      "system",
+      "second-workspace-read"
+    ]);
     expect(
       store.snapshot().users[0]!.notificationReadEventIds
-    ).toHaveLength(500);
+    ).toHaveLength(3);
 
     const token = await app.inject({
       method: "POST",

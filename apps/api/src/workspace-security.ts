@@ -99,6 +99,21 @@ function notificationCategory(action: string): NotificationCategory {
   return "system";
 }
 
+const ignoredNotificationActions = new Set([
+  "analytics.read",
+  "workspace.settings.read",
+  "session.revoke_others"
+]);
+
+function isNotifiableEvent(event: StoredAuditEvent) {
+  if (ignoredNotificationActions.has(event.action)) return false;
+  if (/\.(read|list|export)$/.test(event.action)) return false;
+  if (event.result === "failure") return true;
+  return /^(mfa\.|password\.|api_token\.|auth\.|member\.|invitation\.|backup\.|storage\.|public_upload\.|site\.public_upload|workspace\.(update|settings\.update))/.test(
+    event.action
+  );
+}
+
 function preferencesFor(user: StoredUser): NotificationPreferences {
   const defaults = defaultNotificationPreferences();
   return {
@@ -119,6 +134,7 @@ function visibleNotificationEvents(
   const preferences = preferencesFor(user);
   return state.auditEvents
     .filter((event) => event.workspaceId === principal.workspaceId)
+    .filter(isNotifiableEvent)
     .filter((event) => {
       const category = notificationCategory(event.action);
       return (
@@ -138,6 +154,7 @@ function legalReadEventIdsForUser(state: AppState, userId: string) {
   );
   return new Set(
     state.auditEvents
+      .filter(isNotifiableEvent)
       .filter(
         (event) =>
           Boolean(event.workspaceId && workspaceIds.has(event.workspaceId)) &&

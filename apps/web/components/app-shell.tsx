@@ -322,6 +322,9 @@ export function AppShell({
   const pathname = usePathname();
   const router = useRouter();
   const cachedSession = useMemo(() => readShellSessionSnapshot(), []);
+  const hasCachedShell = Boolean(
+    cachedSession?.user && cachedSession.currentWorkspace
+  );
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [siteBranding, setSiteBranding] = useState<SiteBranding>(
     DEFAULT_SITE_BRANDING
@@ -336,7 +339,7 @@ export function AppShell({
   const [notificationError, setNotificationError] = useState("");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [online, setOnline] = useState(true);
-  const [accessChecked, setAccessChecked] = useState(false);
+  const [accessChecked, setAccessChecked] = useState(hasCachedShell);
   const [query, setQuery] = useState("");
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(
     cachedSession?.user ?? null

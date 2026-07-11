@@ -1398,11 +1398,28 @@
 .qrFrame {
   display: grid;
   width: fit-content;
+  min-width: 204px;
+  min-height: 204px;
+  place-items: center;
   margin: 0 auto;
   padding: 9px;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
   background: #fff;
+}
+
+.qrFrame img {
+  display: block;
+  width: 184px;
+  height: 184px;
+}
+
+.qrHint {
+  margin: -2px 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: center;
 }
 
 .manualKey {

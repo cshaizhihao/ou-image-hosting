@@ -143,12 +143,6 @@ export function OverviewConsole() {
             <h1>概览</h1>
             <p>从这里确认工作区状态、存储容量并继续日常操作。</p>
           </div>
-          <Button asChild>
-            <Link href="/">
-              前往上传
-              <ArrowRight aria-hidden="true" size={17} />
-            </Link>
-          </Button>
         </header>
 
         {error && (
@@ -210,12 +204,6 @@ export function OverviewConsole() {
                 </div>
               </div>
               <div className={styles.heroActions}>
-                <Button asChild>
-                  <Link href="/upload">
-                    去上传
-                    <ArrowRight aria-hidden="true" size={16} />
-                  </Link>
-                </Button>
                 {isSiteOwner && (
                   <Button asChild variant="secondary">
                     <Link href="/storage">
@@ -389,16 +377,6 @@ export function OverviewConsole() {
             </section>
 
             <section aria-label="快捷操作" className={styles.quickGrid}>
-              <Link className={styles.quickLink} href="/upload">
-                <span className={styles.quickIcon}>
-                  <ImageUp aria-hidden="true" size={20} />
-                </span>
-                <div>
-                  <strong>上传图片</strong>
-                  <p>拖入文件或从剪贴板快速添加图片。</p>
-                </div>
-                <ArrowRight aria-hidden="true" size={17} />
-              </Link>
               <Link className={styles.quickLink} href="/library">
                 <span className={styles.quickIcon}>
                   <FileImage aria-hidden="true" size={20} />

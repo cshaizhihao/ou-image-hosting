@@ -1462,11 +1462,28 @@ kbd {
 
 .page-loading {
   min-height: 100dvh;
-  padding: 100px 32px 40px calc(var(--sidebar-width) + 32px);
+  background: var(--surface-canvas);
 }
 
-.page-loading__line,
-.page-loading__tile {
+.page-loading--shell {
+  display: grid;
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+}
+
+.page-loading__sidebar {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  min-height: 100dvh;
+  padding: 18px 14px;
+  border-right: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--surface-panel) 86%, transparent);
+}
+
+.page-loading__brand,
+.page-loading__nav,
+.page-loading__fake-progress {
+  overflow: hidden;
   background: linear-gradient(
     90deg,
     var(--surface-muted),
@@ -1477,22 +1494,67 @@ kbd {
   animation: skeleton 1.5s infinite linear;
 }
 
-.page-loading__line {
-  width: 280px;
-  height: 36px;
-  margin-bottom: 26px;
+.page-loading__brand {
+  height: 48px;
+  margin-bottom: 22px;
   border-radius: var(--radius-md);
 }
 
-.page-loading__grid {
+.page-loading__nav {
+  height: 42px;
+  border-radius: var(--radius-sm);
+}
+
+.page-loading__main {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 14px;
+  min-height: 100dvh;
+  place-content: center;
+  justify-items: center;
+  gap: 10px;
+  padding: 32px;
+  color: var(--text-secondary);
+  text-align: center;
 }
 
-.page-loading__tile {
-  aspect-ratio: 4 / 3;
-  border-radius: var(--radius-md);
+.page-loading__main strong {
+  color: var(--text-primary);
+  font-size: 16px;
+}
+
+.page-loading__main span {
+  max-width: 340px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.page-loading__ring {
+  width: 46px;
+  height: 46px;
+  border: 4px solid color-mix(in srgb, var(--action-primary) 15%, var(--border-default));
+  border-top-color: var(--action-primary);
+  border-radius: 999px;
+  animation: spin 850ms linear infinite;
+}
+
+.page-loading__fake-progress {
+  width: min(260px, 64vw);
+  height: 6px;
+  margin-top: 6px;
+  border-radius: 999px;
+}
+
+.page-loading__fake-progress i {
+  display: block;
+  width: 55%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--action-primary);
+  animation: fake-progress 1100ms var(--ease-out) infinite;
+}
+
+@keyframes fake-progress {
+  0% { transform: translateX(-120%); }
+  70%, 100% { transform: translateX(190%); }
 }
 
 .ou-progress {

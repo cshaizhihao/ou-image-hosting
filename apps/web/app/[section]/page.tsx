@@ -5,6 +5,7 @@ import { SectionPageContent } from "@/components/section-page-content";
 export function generateStaticParams() {
   const dedicatedSections = new Set([
     "overview",
+    "upload",
     "library",
     "albums",
     "tags",

@@ -2,6 +2,7 @@
 
 import * as Dialog from "@radix-ui/react-dialog";
 import { Badge, Button, cn } from "@ou-image/ui";
+import QRCode from "qrcode";
 import {
   BellRing,
   Fingerprint,
@@ -167,6 +168,8 @@ export function SettingsConsole() {
   const [twoFactorPassword, setTwoFactorPassword] = useState("");
   const [twoFactorChallenge, setTwoFactorChallenge] = useState("");
   const [twoFactorSecret, setTwoFactorSecret] = useState("");
+  const [twoFactorOtpAuthUri, setTwoFactorOtpAuthUri] = useState("");
+  const [twoFactorQrCode, setTwoFactorQrCode] = useState("");
   const [twoFactorCode, setTwoFactorCode] = useState("");
   const [recoveryCodes, setRecoveryCodes] = useState("");
   const [passwordDialog, setPasswordDialog] = useState<
@@ -301,6 +304,7 @@ export function SettingsConsole() {
       const payload = await beginTwoFactorSetup(twoFactorPassword);
       setTwoFactorChallenge(payload.challengeToken);
       setTwoFactorSecret(payload.manualKey);
+      setTwoFactorOtpAuthUri(payload.otpauthUri);
       setTwoFactorPassword("");
       setTwoFactorCode("");
     } catch (requestError) {
@@ -309,6 +313,29 @@ export function SettingsConsole() {
       setBusy("");
     }
   };
+
+  useEffect(() => {
+    if (!twoFactorOtpAuthUri) {
+      setTwoFactorQrCode("");
+      return;
+    }
+    let active = true;
+    void QRCode.toDataURL(twoFactorOtpAuthUri, {
+      margin: 1,
+      width: 184,
+      color: {
+        dark: "#111111",
+        light: "#ffffff"
+      }
+    }).then((url) => {
+      if (active) setTwoFactorQrCode(url);
+    }).catch(() => {
+      if (active) setTwoFactorQrCode("");
+    });
+    return () => {
+      active = false;
+    };
+  }, [twoFactorOtpAuthUri]);
 
   const confirmTwoFactor = async () => {
     if (!twoFactorChallenge || !twoFactorCode.trim()) return;
@@ -328,6 +355,8 @@ export function SettingsConsole() {
       setTwoFactorPassword("");
       setTwoFactorChallenge("");
       setTwoFactorSecret("");
+      setTwoFactorOtpAuthUri("");
+      setTwoFactorQrCode("");
       setTwoFactorCode("");
       setRecoveryCodes(payload.recoveryCodes.join("\n"));
       setNotice("双重验证已启用。");
@@ -536,6 +565,8 @@ export function SettingsConsole() {
       setTwoFactorPassword("");
       setTwoFactorChallenge("");
       setTwoFactorSecret("");
+      setTwoFactorOtpAuthUri("");
+      setTwoFactorQrCode("");
       setTwoFactorCode("");
     }
   };
@@ -2100,6 +2131,14 @@ export function SettingsConsole() {
             <div className={styles.twoFactorSetup}>
               {twoFactorChallenge ? (
                 <>
+                  <div className={styles.qrFrame}>
+                    {twoFactorQrCode ? (
+                      <img alt="双重验证二维码" height={184} src={twoFactorQrCode} width={184} />
+                    ) : (
+                      <LoaderCircle className={styles.spin} size={24} />
+                    )}
+                  </div>
+                  <p className={styles.qrHint}>用 Google Authenticator、1Password、Microsoft Authenticator 等验证器扫描二维码；如果无法扫码，也可以手动输入下方密钥。</p>
                   <div className={styles.manualKey}>
                     <span>手动设置密钥</span>
                     <code>{twoFactorSecret}</code>
