@@ -5384,7 +5384,8 @@ kbd {
   min-height: 0;
 }
 
-.public-gallery-preview figure > img {
+.public-gallery-preview figure > img,
+.public-gallery-preview__live {
   width: 100%;
   max-height: calc(100dvh - 150px);
   object-fit: contain;

@@ -62,6 +62,7 @@ type PublicConfig = {
     publicGalleryShowUploadTime: boolean;
     publicUploadDefaultPublic: boolean;
     publicUploadHumanVerificationEnabled: boolean;
+    publicUploadLivePhotoEnabled: boolean;
     publicHeroTitle: string;
     publicHeroDescription: string;
     theme: SiteThemePreference;
@@ -74,6 +75,7 @@ type PublicImage = {
   name?: string;
   thumbnailUrl: string;
   originalUrl: string;
+  liveVideoUrl?: string;
   width: number;
   height: number;
   format?: string;
@@ -119,6 +121,7 @@ const fallbackConfig: PublicConfig = {
     publicGalleryShowUploadTime: true,
     publicUploadDefaultPublic: true,
     publicUploadHumanVerificationEnabled: false,
+    publicUploadLivePhotoEnabled: false,
     publicHeroTitle: DEFAULT_SITE_BRANDING.publicHeroTitle,
     publicHeroDescription: DEFAULT_SITE_BRANDING.publicHeroDescription,
     theme: DEFAULT_SITE_BRANDING.theme,
@@ -169,6 +172,25 @@ function publicUrl(path: string) {
   return `${window.location.origin}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
+function isPublicUploadImageFile(file: File) {
+  const name = file.name.toLowerCase();
+  return (
+    file.type.startsWith("image/") ||
+    name.endsWith(".heic") ||
+    name.endsWith(".heif")
+  );
+}
+
+function isLivePhotoVideoFile(file: File) {
+  const name = file.name.toLowerCase();
+  return (
+    file.type === "video/quicktime" ||
+    file.type === "video/mp4" ||
+    name.endsWith(".mov") ||
+    name.endsWith(".mp4")
+  );
+}
+
 function publicDate(value?: string) {
   if (!value) return "";
   return new Intl.DateTimeFormat("zh-CN", {
@@ -209,6 +231,7 @@ export function PublicUploadLanding() {
   const [uploading, setUploading] = useState(false);
   const [uploadCount, setUploadCount] = useState(0);
   const [uploadIndex, setUploadIndex] = useState(0);
+  const [pendingLivePhotoVideo, setPendingLivePhotoVideo] = useState<File | null>(null);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [result, setResult] = useState<UploadResult | null>(null);
@@ -551,8 +574,17 @@ export function PublicUploadLanding() {
       }
       setError("");
       setNotice("");
+      const livePhotoVideoFile =
+        site.publicUploadLivePhotoEnabled &&
+        (file.name.toLowerCase().endsWith(".heic") ||
+          file.name.toLowerCase().endsWith(".heif"))
+          ? pendingLivePhotoVideo
+          : undefined;
       const body = new FormData();
       body.append("file", file);
+      if (livePhotoVideoFile) {
+        body.append("livePhotoVideo", livePhotoVideoFile);
+      }
       let payload: UploadResult;
       try {
         payload = await apiJson<UploadResult>(
@@ -590,6 +622,8 @@ export function PublicUploadLanding() {
       refreshHumanChallenge,
       requiresHumanChallenge,
       uploadEnabled,
+      pendingLivePhotoVideo,
+      site.publicUploadLivePhotoEnabled,
       uploading
     ]
   );
@@ -597,9 +631,10 @@ export function PublicUploadLanding() {
   const uploadFiles = useCallback(
     async (files: File[] | FileList | undefined) => {
       if (!files || uploading || !uploadEnabled) return;
-      const imageFiles = Array.from(files).filter((file) =>
-        file.type.startsWith("image/")
-      );
+      const selectedFiles = Array.from(files);
+      const imageFiles = selectedFiles.filter(isPublicUploadImageFile);
+      const liveVideo = selectedFiles.find(isLivePhotoVideoFile);
+      if (liveVideo) setPendingLivePhotoVideo(liveVideo);
       if (imageFiles.length === 0) {
         setError("没有发现可上传的图片文件。");
         return;
@@ -817,7 +852,7 @@ export function PublicUploadLanding() {
           onDrop={onDrop}
         >
           <input
-            accept="image/jpeg,image/png,image/webp,image/gif,image/avif,image/heic,image/heif,.heic,.heif"
+            accept="image/jpeg,image/png,image/webp,image/gif,image/avif,image/heic,image/heif,.heic,.heif,video/quicktime,video/mp4,.mov,.mp4"
             hidden
             onChange={handleFileChange}
             multiple
@@ -1275,7 +1310,16 @@ export function PublicUploadLanding() {
               <ArrowLeft aria-hidden="true" size={22} />
             </button>
             <figure>
-              <img alt={previewImage.name || "公共图片"} src={previewImage.originalUrl} />
+              {previewImage.liveVideoUrl ? (
+                <video
+                  className="public-gallery-preview__live"
+                  controls
+                  poster={previewImage.originalUrl}
+                  src={previewImage.liveVideoUrl}
+                />
+              ) : (
+                <img alt={previewImage.name || "公共图片"} src={previewImage.originalUrl} />
+              )}
               <figcaption>
                 <div>
                   <strong>{previewImage.name || "公共图片"}</strong>

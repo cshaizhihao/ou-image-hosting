@@ -154,6 +154,7 @@ function publicSiteSettings(site: AppState["site"]) {
     publicUploadAuthenticatedPerDay: site.publicUploadAuthenticatedPerDay,
     publicUploadAuthenticatedDailyBytes: site.publicUploadAuthenticatedDailyBytes,
     publicUploadHumanVerificationEnabled: site.publicUploadHumanVerificationEnabled,
+    publicUploadLivePhotoEnabled: site.publicUploadLivePhotoEnabled,
     publicUploadBlockedIps: site.publicUploadBlockedIps,
     publicHeroTitle: site.publicHeroTitle,
     publicHeroDescription: site.publicHeroDescription,
@@ -978,6 +979,7 @@ export function registerOperationsRoutes(
       publicUploadAuthenticatedPerDay?: number;
       publicUploadAuthenticatedDailyBytes?: number;
       publicUploadHumanVerificationEnabled?: boolean;
+      publicUploadLivePhotoEnabled?: boolean;
       publicHeroTitle?: string;
       publicHeroDescription?: string;
       loginEyebrow?: string;
@@ -1013,6 +1015,7 @@ export function registerOperationsRoutes(
             publicUploadAuthenticatedPerDay: { type: "integer", minimum: 1, maximum: 10000 },
             publicUploadAuthenticatedDailyBytes: { type: "integer", minimum: 1048576, maximum: 1099511627776 },
             publicUploadHumanVerificationEnabled: { type: "boolean" },
+            publicUploadLivePhotoEnabled: { type: "boolean" },
             publicHeroTitle: { type: "string", minLength: 1, maxLength: 80 },
             publicHeroDescription: { type: "string", minLength: 1, maxLength: 260 },
             loginEyebrow: { type: "string", minLength: 1, maxLength: 80 },
@@ -1090,6 +1093,9 @@ export function registerOperationsRoutes(
         }
         if (request.body.publicUploadHumanVerificationEnabled !== undefined) {
           site.publicUploadHumanVerificationEnabled = request.body.publicUploadHumanVerificationEnabled;
+        }
+        if (request.body.publicUploadLivePhotoEnabled !== undefined) {
+          site.publicUploadLivePhotoEnabled = request.body.publicUploadLivePhotoEnabled;
         }
         if (request.body.publicHeroTitle !== undefined) {
           site.publicHeroTitle = request.body.publicHeroTitle.trim();

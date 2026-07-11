@@ -135,6 +135,7 @@ export type SiteSettingsData = {
   publicUploadAuthenticatedPerDay: number;
   publicUploadAuthenticatedDailyBytes: number;
   publicUploadHumanVerificationEnabled: boolean;
+  publicUploadLivePhotoEnabled: boolean;
   publicUploadBlockedIps: string[];
   publicHeroTitle: string;
   publicHeroDescription: string;
@@ -447,6 +448,7 @@ function parseSiteSettings(payload: unknown): SiteSettingsData {
     typeof source.publicUploadAuthenticatedPerDay !== "number" ||
     typeof source.publicUploadAuthenticatedDailyBytes !== "number" ||
     typeof source.publicUploadHumanVerificationEnabled !== "boolean" ||
+    typeof source.publicUploadLivePhotoEnabled !== "boolean" ||
     !Array.isArray(source.publicUploadBlockedIps) ||
     !source.publicUploadBlockedIps.every((item) => typeof item === "string") ||
     typeof source.publicHeroTitle !== "string" ||
@@ -484,6 +486,7 @@ function parseSiteSettings(payload: unknown): SiteSettingsData {
     publicUploadAuthenticatedDailyBytes: source.publicUploadAuthenticatedDailyBytes,
     publicUploadHumanVerificationEnabled:
       source.publicUploadHumanVerificationEnabled,
+    publicUploadLivePhotoEnabled: source.publicUploadLivePhotoEnabled,
     publicUploadBlockedIps: source.publicUploadBlockedIps,
     publicHeroTitle: source.publicHeroTitle,
     publicHeroDescription: source.publicHeroDescription,

@@ -49,6 +49,7 @@ export type SiteConfig = {
   publicUploadAuthenticatedPerDay: number;
   publicUploadAuthenticatedDailyBytes: number;
   publicUploadHumanVerificationEnabled: boolean;
+  publicUploadLivePhotoEnabled: boolean;
   publicUploadBlockedIps: string[];
   publicHeroTitle: string;
   publicHeroDescription: string;
@@ -83,6 +84,7 @@ export function defaultSiteConfig(
     publicUploadAuthenticatedPerDay: 500,
     publicUploadAuthenticatedDailyBytes: 5 * 1024 * 1024 * 1024,
     publicUploadHumanVerificationEnabled: false,
+    publicUploadLivePhotoEnabled: false,
     publicUploadBlockedIps: [],
     publicHeroTitle: "把图片放进来，剩下的交给队列。",
     publicHeroDescription:
@@ -168,6 +170,10 @@ export type StoredImage = {
   publicVisible: boolean;
   albumIds: string[];
   tagIds: string[];
+  publicUploadGuest: boolean;
+  livePhotoVideoKey?: string;
+  livePhotoVideoSize?: number;
+  livePhotoVideoMime?: string;
   createdAt: string;
   updatedAt: string;
   deletedAt?: string;
@@ -596,6 +602,10 @@ type MigratableImage = Omit<
   | "workspaceId"
   | "albumIds"
   | "tagIds"
+  | "publicUploadGuest"
+  | "livePhotoVideoKey"
+  | "livePhotoVideoSize"
+  | "livePhotoVideoMime"
 > &
   Partial<
     Pick<
@@ -609,6 +619,10 @@ type MigratableImage = Omit<
       | "workspaceId"
       | "albumIds"
       | "tagIds"
+      | "publicUploadGuest"
+      | "livePhotoVideoKey"
+      | "livePhotoVideoSize"
+      | "livePhotoVideoMime"
     >
   >;
 
@@ -649,6 +663,10 @@ function migrateImage(image: MigratableImage): StoredImage {
     workspaceId: image.workspaceId ?? `personal-${image.userId}`,
     albumIds: image.albumIds ?? [],
     tagIds: image.tagIds ?? [],
+    publicUploadGuest: image.publicUploadGuest ?? false,
+    livePhotoVideoKey: image.livePhotoVideoKey,
+    livePhotoVideoSize: image.livePhotoVideoSize,
+    livePhotoVideoMime: image.livePhotoVideoMime,
     updatedAt: image.updatedAt ?? image.createdAt
   };
 }

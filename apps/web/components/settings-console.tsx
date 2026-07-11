@@ -1401,6 +1401,39 @@ export function SettingsConsole() {
                         <span />
                       </button>
                     </div>
+                    <div className={styles.preferenceRow}>
+                      <div>
+                        <strong>Live Photo 动态片段</strong>
+                        <span>开启后，公共上传可同时选择 iPhone 实况照片的 MOV 动态片段；默认关闭，避免额外流量。</span>
+                      </div>
+                      <button
+                        aria-label={
+                          siteSettings.publicUploadLivePhotoEnabled
+                            ? "关闭 Live Photo 动态片段"
+                            : "开启 Live Photo 动态片段"
+                        }
+                        aria-pressed={siteSettings.publicUploadLivePhotoEnabled}
+                        className={cn(
+                          styles.preferenceSwitch,
+                          siteSettings.publicUploadLivePhotoEnabled &&
+                            styles.preferenceSwitchActive
+                        )}
+                        onClick={() =>
+                          setSiteSettings((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  publicUploadLivePhotoEnabled:
+                                    !current.publicUploadLivePhotoEnabled
+                                }
+                              : current
+                          )
+                        }
+                        type="button"
+                      >
+                        <span />
+                      </button>
+                    </div>
                     <div className={styles.formGrid}>
                       {([
                         ["访客每分钟", "publicUploadAnonymousPerMinute", 1, 1000],

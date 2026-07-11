@@ -45,6 +45,7 @@ import {
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
 const MAX_REMOTE_SIZE = 20 * 1024 * 1024;
+const MAX_LIVE_PHOTO_VIDEO_SIZE = 60 * 1024 * 1024;
 const MAX_PIXELS = 80_000_000;
 const REMOTE_UPLOAD_TIMEOUT_MS = 10_000;
 const remoteAddressBlockList = new BlockList();
@@ -91,6 +92,11 @@ const mimeByFormat = {
   heic: "image/heic",
   heif: "image/heif"
 } as const;
+const livePhotoVideoMimeTypes = new Set([
+  "video/quicktime",
+  "video/mp4",
+  "application/octet-stream"
+]);
 
 type UploadRouteOptions = {
   store: AppStore;
@@ -239,6 +245,9 @@ function publicImage(
       timestamp
     ),
     originalUrl: buildDeliveryUrl(state, image.id, "original", timestamp),
+    liveVideoUrl: image.livePhotoVideoKey
+      ? buildDeliveryUrl(state, image.id, "live", timestamp)
+      : undefined,
     favorite: userId
       ? image.favoriteUserIds.includes(userId)
       : image.favorite,
@@ -313,6 +322,16 @@ function publicUploadPrincipal(state: AppState): Principal {
     role: "owner",
     scopes: []
   };
+}
+
+function isLivePhotoVideoPart(filename: string, mime: string) {
+  const lowerName = filename.toLowerCase();
+  const lowerMime = mime.toLowerCase();
+  return (
+    lowerName.endsWith(".mov") ||
+    lowerName.endsWith(".mp4") ||
+    livePhotoVideoMimeTypes.has(lowerMime)
+  );
 }
 
 function sanitizeFilename(value: string) {
@@ -496,10 +515,10 @@ export async function registerUploadRoutes(
   await mkdir(thumbnailsDirectory, { recursive: true });
   await app.register(multipart, {
     limits: {
-      files: 1,
+      files: 2,
       fields: 4,
-      fileSize: MAX_FILE_SIZE,
-      parts: 5
+      fileSize: MAX_LIVE_PHOTO_VIDEO_SIZE,
+      parts: 6
     }
   });
 
@@ -690,13 +709,21 @@ export async function registerUploadRoutes(
     filename,
     mime,
     principal,
-    publicVisible = false
+    publicVisible = false,
+    publicUploadGuest = false,
+    livePhotoVideo
   }: {
     buffer: Buffer;
     filename: string;
     mime: string;
     principal: Principal;
     publicVisible?: boolean;
+    publicUploadGuest?: boolean;
+    livePhotoVideo?: {
+      key: string;
+      size: number;
+      mime: string;
+    };
   }) => {
     const state = store.snapshot();
     const settings =
@@ -850,6 +877,10 @@ export async function registerUploadRoutes(
       publicVisible,
       albumIds: [],
       tagIds: [],
+      publicUploadGuest,
+      livePhotoVideoKey: livePhotoVideo?.key,
+      livePhotoVideoSize: livePhotoVideo?.size,
+      livePhotoVideoMime: livePhotoVideo?.mime,
       createdAt: timestamp,
       updatedAt: timestamp
     };
@@ -903,7 +934,8 @@ export async function registerUploadRoutes(
     const images = store
       .snapshot()
       .images.filter(
-        (image) => image.workspaceId === principal.workspaceId
+        (image) =>
+          image.workspaceId === principal.workspaceId && !image.publicUploadGuest
       );
     return {
       count: images.filter((image) => !image.deletedAt).length,
@@ -923,7 +955,7 @@ export async function registerUploadRoutes(
             q: { type: "string", maxLength: 120 },
             format: {
               type: "string",
-              enum: ["all", "jpeg", "png", "webp", "gif", "avif"]
+              enum: ["all", "jpeg", "png", "webp", "gif", "avif", "heic", "heif"]
             },
             page: { type: "string", pattern: "^[0-9]+$" },
             limit: { type: "string", pattern: "^[0-9]+$" },
@@ -950,7 +982,8 @@ export async function registerUploadRoutes(
       const images = state.images
         .filter((image) => !image.deletedAt)
         .filter(
-          (image) => image.workspaceId === principal.workspaceId
+          (image) =>
+            image.workspaceId === principal.workspaceId && !image.publicUploadGuest
         )
         .filter(
           (image) =>
@@ -1202,7 +1235,8 @@ export async function registerUploadRoutes(
         buffer,
         filename: part.filename,
         mime: part.mimetype,
-        principal
+        principal,
+        publicUploadGuest: false
       });
       return reply.status(result.duplicate ? 200 : 201).send(result);
     }
@@ -1232,6 +1266,7 @@ export async function registerUploadRoutes(
         publicUploadDefaultPublic: site.publicUploadDefaultPublic,
         publicUploadHumanVerificationEnabled:
           site.publicUploadHumanVerificationEnabled,
+        publicUploadLivePhotoEnabled: site.publicUploadLivePhotoEnabled,
         publicUploadLimits: {
           anonymous: {
             perMinute: site.publicUploadAnonymousPerMinute,
@@ -1263,7 +1298,7 @@ export async function registerUploadRoutes(
             sort: { type: "string", enum: ["latest", "hot", "random"] },
             format: {
               type: "string",
-              enum: ["all", "jpeg", "png", "webp", "gif", "avif"]
+              enum: ["all", "jpeg", "png", "webp", "gif", "avif", "heic", "heif"]
             },
             page: { type: "string", pattern: "^[0-9]+$" },
             limit: { type: "string", pattern: "^[0-9]+$" }
@@ -1423,7 +1458,7 @@ export async function registerUploadRoutes(
     "/public/uploads",
     {
       config: { rateLimit: { max: 1_000, timeWindow: "1 minute" } },
-      bodyLimit: MAX_FILE_SIZE + 1024 * 1024,
+      bodyLimit: MAX_FILE_SIZE + MAX_LIVE_PHOTO_VIDEO_SIZE + 2 * 1024 * 1024,
       schema: {
         querystring: {
           type: "object",
@@ -1478,21 +1513,65 @@ export async function registerUploadRoutes(
         actorUserId,
         publicVisible
       });
-      let part;
+      let imageFile:
+        | { buffer: Buffer; filename: string; mimetype: string }
+        | undefined;
+      let liveVideoFile:
+        | { buffer: Buffer; filename: string; mimetype: string }
+        | undefined;
       try {
-        part = await request.file();
-      } catch {
+        for await (const currentPart of request.parts()) {
+          if (currentPart.type !== "file") continue;
+          if (currentPart.fieldname === "file" && !imageFile) {
+            imageFile = {
+              buffer: await currentPart.toBuffer(),
+              filename: currentPart.filename,
+              mimetype: currentPart.mimetype
+            };
+          } else if (currentPart.fieldname === "livePhotoVideo" && !liveVideoFile) {
+            if (!state.site.publicUploadLivePhotoEnabled) {
+              throw new PublicError(
+                403,
+                "LIVE_PHOTO_DISABLED",
+                "管理员尚未开启 Live Photo 动态片段上传"
+              );
+            }
+            if (!isLivePhotoVideoPart(currentPart.filename, currentPart.mimetype)) {
+              throw new PublicError(
+                415,
+                "LIVE_PHOTO_VIDEO_UNSUPPORTED",
+                "Live Photo 动态片段仅支持 MOV 或 MP4"
+              );
+            }
+            const videoBuffer = await currentPart.toBuffer();
+            if (videoBuffer.byteLength > MAX_LIVE_PHOTO_VIDEO_SIZE) {
+              throw new PublicError(
+                413,
+                "LIVE_PHOTO_VIDEO_TOO_LARGE",
+                "Live Photo 动态片段不能超过 60 MB"
+              );
+            }
+            liveVideoFile = {
+              buffer: videoBuffer,
+              filename: currentPart.filename,
+              mimetype: currentPart.mimetype
+            };
+          }
+        }
+      } catch (error) {
         await finishPublicUpload({
           ...reservation,
           sourceIp,
           authenticated,
           bytes: 0,
-          failureCode: "FILE_TOO_LARGE",
+          failureCode:
+            error instanceof PublicError ? error.code : "FILE_TOO_LARGE",
           quotaReserved: false
         });
+        if (error instanceof PublicError) throw error;
         throw new PublicError(413, "FILE_TOO_LARGE", "图片不能超过 20 MB");
       }
-      if (!part || part.fieldname !== "file") {
+      if (!imageFile) {
         await finishPublicUpload({
           ...reservation,
           sourceIp,
@@ -1503,20 +1582,7 @@ export async function registerUploadRoutes(
         });
         throw new PublicError(400, "FILE_REQUIRED", "请选择需要上传的图片");
       }
-      let buffer: Buffer;
-      try {
-        buffer = await part.toBuffer();
-      } catch {
-        await finishPublicUpload({
-          ...reservation,
-          sourceIp,
-          authenticated,
-          bytes: 0,
-          failureCode: "FILE_TOO_LARGE",
-          quotaReserved: false
-        });
-        throw new PublicError(413, "FILE_TOO_LARGE", "图片不能超过 20 MB");
-      }
+      const { buffer } = imageFile;
       let quotaReserved = false;
       try {
         await reservePublicUploadQuota({
@@ -1526,12 +1592,32 @@ export async function registerUploadRoutes(
           bytes: buffer.byteLength
         });
         quotaReserved = true;
+        let livePhotoVideo:
+          | { key: string; size: number; mime: string }
+          | undefined;
+        if (liveVideoFile) {
+          const videoHash = createHash("sha256").update(liveVideoFile.buffer).digest("hex");
+          const extension = liveVideoFile.filename.toLowerCase().endsWith(".mp4")
+            ? "mp4"
+            : "mov";
+          const key = `live/${videoHash}.${extension}`;
+          await writeFile(path.join(storageRoot, key), liveVideoFile.buffer, {
+            mode: 0o600
+          });
+          livePhotoVideo = {
+            key,
+            size: liveVideoFile.buffer.byteLength,
+            mime: liveVideoFile.mimetype || "video/quicktime"
+          };
+        }
         const result = await ingest({
           buffer,
-          filename: part.filename,
-          mime: part.mimetype,
+          filename: imageFile.filename,
+          mime: imageFile.mimetype,
           principal,
-          publicVisible
+          publicVisible,
+          publicUploadGuest: !authenticated,
+          livePhotoVideo
         });
         await finishPublicUpload({
           ...reservation,

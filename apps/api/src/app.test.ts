@@ -3202,7 +3202,8 @@ describe("OU-Image API", () => {
       payload: {
         siteName: "OU Gallery",
         siteDescription: "A private image service",
-        registrationEnabled: true
+        registrationEnabled: true,
+        publicUploadLivePhotoEnabled: true
       }
     });
     expect(site.json().settings).toMatchObject({
@@ -3214,6 +3215,7 @@ describe("OU-Image API", () => {
       publicUploadRequiresLogin: false,
       publicGalleryEnabled: true,
       publicUploadDefaultPublic: true,
+      publicUploadLivePhotoEnabled: true,
       publicHeroTitle: "把图片放进来，剩下的交给队列。",
       loginHeroTitle: "让图片管理，从第一眼就舒服。"
     });
@@ -3235,7 +3237,8 @@ describe("OU-Image API", () => {
     });
     expect(gated.json().settings).toMatchObject({
       publicUploadEnabled: true,
-      publicUploadRequiresLogin: true
+      publicUploadRequiresLogin: true,
+      publicUploadLivePhotoEnabled: true
     });
     const publicConfig = await app.inject({
       method: "GET",
@@ -3275,7 +3278,114 @@ describe("OU-Image API", () => {
       payload: loggedInForm.getBuffer()
     });
     expect(loggedInPublicUpload.statusCode).toBeLessThan(300);
-  });
+
+    const loggedInHistory = await app.inject({
+      method: "GET",
+      url: "/uploads",
+      cookies: { ou_session: cookie }
+    });
+    expect(loggedInHistory.json().images.map((image: { id: string }) => image.id)).toContain(
+      loggedInPublicUpload.json().image.id
+    );
+  }, 30000);
+
+  it("keeps anonymous public uploads out of personal upload history", async () => {
+    const store = new AppStore(null);
+    const app = await createTestApp({ store });
+    const setup = await app.inject({
+      method: "POST",
+      url: "/setup",
+      payload: owner
+    });
+    const ownerCookie = setup.cookies.find(
+      (item) => item.name === "ou_session"
+    )!.value;
+    const png = await sharp({
+      create: {
+        width: 24,
+        height: 16,
+        channels: 3,
+        background: "#ef8f8f"
+      }
+    }).png().toBuffer();
+    const form = new FormData();
+    form.append("file", png, {
+      filename: "guest-public.png",
+      contentType: "image/png"
+    });
+    const guestUpload = await app.inject({
+      method: "POST",
+      url: "/public/uploads?publicVisible=true",
+      headers: form.getHeaders(),
+      payload: form.getBuffer()
+    });
+    expect(guestUpload.statusCode).toBe(201);
+    const ownerHistory = await app.inject({
+      method: "GET",
+      url: "/uploads",
+      cookies: { ou_session: ownerCookie }
+    });
+    expect(ownerHistory.statusCode).toBe(200);
+    expect(ownerHistory.json().images.map((image: { id: string }) => image.id)).not.toContain(
+      guestUpload.json().image.id
+    );
+    const summary = await app.inject({
+      method: "GET",
+      url: "/uploads/summary",
+      cookies: { ou_session: ownerCookie }
+    });
+    expect(summary.statusCode).toBe(200);
+    expect(summary.json().count).toBe(0);
+  }, 30000);
+
+  it("rejects Live Photo video segments until the public option is enabled", async () => {
+    const store = new AppStore(null);
+    const app = await createTestApp({ store });
+    const setup = await app.inject({
+      method: "POST",
+      url: "/setup",
+      payload: owner
+    });
+    const ownerCookie = setup.cookies.find(
+      (item) => item.name === "ou_session"
+    )!.value;
+    const png = await sharp({
+      create: {
+        width: 20,
+        height: 20,
+        channels: 3,
+        background: "#222b45"
+      }
+    }).png().toBuffer();
+    const disabledForm = new FormData();
+    disabledForm.append("file", png, {
+      filename: "live-still.png",
+      contentType: "image/png"
+    });
+    disabledForm.append("livePhotoVideo", Buffer.from("fake-live-video"), {
+      filename: "live.mov",
+      contentType: "video/quicktime"
+    });
+    const disabled = await app.inject({
+      method: "POST",
+      url: "/public/uploads",
+      headers: disabledForm.getHeaders(),
+      payload: disabledForm.getBuffer()
+    });
+    expect(disabled.statusCode).toBe(403);
+    expect(disabled.json().error.code).toBe("LIVE_PHOTO_DISABLED");
+
+    const enabled = await app.inject({
+      method: "PATCH",
+      url: "/site/settings",
+      cookies: { ou_session: ownerCookie },
+      payload: { publicUploadLivePhotoEnabled: true }
+    });
+    expect(enabled.statusCode).toBe(200);
+    expect(enabled.json().settings.publicUploadLivePhotoEnabled).toBe(true);
+    const publicConfig = await app.inject({ method: "GET", url: "/public/config" });
+    expect(publicConfig.json().site.publicUploadLivePhotoEnabled).toBe(true);
+  }, 30000);
 
   it("filters public gallery metadata and lets only moderators hide public images", async () => {
     const store = new AppStore(null);
@@ -3610,7 +3720,7 @@ describe("OU-Image API", () => {
     });
     expect(unblocked.statusCode).toBe(200);
     expect(unblocked.json().blockedIps).not.toContain("127.0.0.1");
-  });
+  }, 30000);
 
   it("returns workspace-isolated analytics from real uploads and daily share aggregates", async () => {
     const timestamp = new Date("2026-07-11T12:00:00.000Z");
