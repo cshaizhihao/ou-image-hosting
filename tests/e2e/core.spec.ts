@@ -71,8 +71,9 @@ test("键盘上传、图库、详情与公开分享核心流程", async ({
 test("设置、统计与系统状态核心 smoke", async ({ page }) => {
   await page.goto("/settings");
   await expect(page.getByRole("heading", { name: "设置中心" })).toBeVisible();
-  await page.getByRole("button", { name: "站点与处理" }).click();
+  await page.getByRole("button", { name: "站点外观" }).click();
   await expect(page.getByText("站点公开信息")).toBeVisible();
+  await page.getByRole("button", { name: "图片处理" }).click();
   await expect(page.getByText("上传规则")).toBeVisible();
 
   await page.goto("/analytics");
