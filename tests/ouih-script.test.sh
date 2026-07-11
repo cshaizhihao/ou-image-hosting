@@ -248,7 +248,7 @@ format=ouih-volume-backup-v1
 product=OU-Image Hosting
 created_at=20260101T000000Z
 reason=test
-version=1.12.0
+version=1.0.0
 revision=test-revision
 EOF
 printf '{"schemaVersion":8}\n' > "$restore_source/data/ou-image.json"

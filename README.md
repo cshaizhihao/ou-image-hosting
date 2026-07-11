@@ -1,22 +1,21 @@
 <p align="center">
-  <img src="./docs/assets/logo/ou-image-hosting-logo.jpg" width="148" alt="OU-Image Hosting Logo" />
+  <img src="./docs/assets/logo/ou-image-hosting-logo.jpg" width="150" alt="OU-Image Hosting Logo" />
 </p>
 
 <h1 align="center">OU-Image Hosting</h1>
 
 <p align="center">
-  <strong>欧记图床</strong> · 好看的图片，也值得被好好管理。
+  <strong>欧记图床</strong> · 把图片放进来，剩下的交给队列 🐾
 </p>
 
 <p align="center">
-  一个重视视觉、效率与安全边界的现代自托管图床。
+  一个好看、有温度、现代、适合长期自托管的图片资产管理工具。
 </p>
 
 <p align="center">
-  <a href="https://github.com/cshaizhihao/ou-image-hosting/releases">
-    <img src="https://img.shields.io/github/v/release/cshaizhihao/ou-image-hosting?style=flat-square&color=ef8f8f" alt="Release" />
+  <a href="https://github.com/cshaizhihao/ou-image-hosting/releases/latest">
+    <img src="https://img.shields.io/badge/version-v1.0.0-ef8f8f?style=flat-square" alt="Current version v1.0.0" />
   </a>
-  <img src="https://img.shields.io/badge/version-v1.12.0-ef8f8f?style=flat-square" alt="Current version v1.12.0" />
   <a href="https://github.com/cshaizhihao/ou-image-hosting/actions/workflows/check.yml">
     <img src="https://img.shields.io/github/actions/workflow/status/cshaizhihao/ou-image-hosting/check.yml?branch=main&style=flat-square&label=check" alt="Check" />
   </a>
@@ -28,9 +27,11 @@
 </p>
 
 <p align="center">
-  <a href="#一键安装">一键安装</a>
+  <a href="#-一键安装">一键安装</a>
   ·
-  <a href="#功能一览">功能一览</a>
+  <a href="#-功能亮点">功能亮点</a>
+  ·
+  <a href="#-运维命令">运维命令</a>
   ·
   <a href="./docs/deployment.md">部署文档</a>
   ·
@@ -43,117 +44,66 @@
   <img src="./docs/screenshots/ou-image-hosting-main.png" width="100%" alt="OU-Image Hosting 主界面" />
 </p>
 
-## 这是什么
+## ✨ 这是什么
 
-OU-Image Hosting 不只是一个生成图片外链的上传框。
+OU-Image Hosting / 欧记图床，是一个面向个人创作者、开发者和小团队的自托管图床。
 
-它把上传、整理、编辑、版本、分享、团队权限、数据统计、备份恢复与系统状态放进同一个清晰、克制、好看的工作台，适合个人创作者、开发者与小型团队部署在自己的服务器上。
+它不是一个冷冰冰的上传框，而是一个认真对待“图片管理体验”的小型图片资产工作台：上传、整理、相册、公共图床、分享、权限、统计、备份、恢复和服务器运维，都放在一个清晰、可爱但克制的界面里。
 
-## 为什么选择它
+如果你想要一个自己掌控数据、界面顺眼、安装不折腾、后期也好维护的图床，它就是为这个场景做的。
 
-<table>
-  <tr>
-    <td width="50%">
-      <strong>✦ 视觉不是装饰</strong><br />
-      浅色、深色、桌面与移动端使用同一套设计语言。后台 100% 浏览器缩放下保持更舒服的字号、间距和操作反馈。
-    </td>
-    <td width="50%">
-      <strong>⇧ 上传是一条完整工作流</strong><br />
-      支持拖拽、批量选择、剪贴板、URL、队列、暂停、重试、去重、缩略图与上传完成后一键复制链接。公共页可选择访客直传或登录后上传，登录用户还能回看自己的上传历史。
-    </td>
-  </tr>
-  <tr>
-    <td width="50%">
-      <strong>⌘ 图片真正可管理</strong><br />
-      网格与列表、搜索、格式筛选、状态标签、相册卡片、标签、收藏、回收站、批量公开/隐藏/收藏/加入相册和滚动位置恢复都围绕高频整理场景设计。
-    </td>
-    <td width="50%">
-      <strong>↗ 分享保持可控</strong><br />
-      提供 URL、Markdown、HTML、BBCode、二维码、访问统计、密码、有效期、公开图库预览浮窗，以及批量公开/隐藏和相册归档管理。
-    </td>
-  </tr>
-  <tr>
-    <td width="50%">
-      <strong>◎ 团队与安全边界明确</strong><br />
-      未登录访客、注册用户、子管理员与唯一站点所有者职责分明。自助注册账号只使用公共图床，只有所有者明确授权的子管理员才能进入后台。
-    </td>
-    <td width="50%">
-      <strong>◉ 部署后仍然好维护</strong><br />
-      Docker Compose 三服务、健康检查、系统状态、原子备份恢复、资源限制、优雅关闭和完整运维文档。
-    </td>
-  </tr>
-</table>
+## 🌷 设计气质
 
-## 一键安装
+- 🐱 **可爱但不幼稚**：猫咪 Logo、柔和品牌色、温暖文案，但不堆装饰。
+- 🧭 **清楚比炫技重要**：上传、整理、分享、设置都尽量少绕路。
+- 🪄 **动效只服务反馈**：弹窗、菜单、预览和状态切换更丝滑，但不抢戏。
+- 🖥️ **100% 缩放也好读**：后台字号、间距和桌面布局按真实使用场景调过。
+- 🔒 **边界分明**：访客、注册用户、子管理员、站点所有者权限明确，不混在一起。
 
-### 环境要求
+## 🚀 一键安装
 
-- Linux 服务器，具有 root 或 sudo 权限
-- 使用 apt、dnf、yum、pacman、zypper 或 apk 之一
-- 能用 curl 下载一键安装脚本
-- 公网 HTTPS 部署需要域名解析到服务器，并放行 TCP 80/443
-
-Git、OpenSSL、coreutils、CA 证书、Docker Engine 与 Docker Compose v2
-无需预先安装。安装器会检测缺失项，显示将执行的操作并自动补齐：
-apt/dnf/yum 系统使用 Docker 官方安装程序，pacman/zypper/apk 系统使用
-发行版原生 Docker 软件包。macOS 仍需安装并启动 Docker Desktop。
-
-### 交互式安装
-
-复制下面这一行到终端：
+> 推荐系统：Debian / Ubuntu / CentOS / Rocky Linux / AlmaLinux / Fedora / Arch / openSUSE / Alpine。
+>
+> 安装器会自动检测并补齐常见依赖，包括 Git、curl、OpenSSL、Docker Engine 和 Docker Compose v2。
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/cshaizhihao/ou-image-hosting/main/install.sh | bash
 ```
 
-安装器使用品牌色和猫咪艺术字，并通过交互问答完成配置：
+安装器会用交互式向导完成这些事：
 
-```text
-       /\_/\
-      ( o.o )      ██████╗ ██╗   ██╗
-       > ^ <      ██╔═══██╗██║   ██║
-                  ██║   ██║██║   ██║
-                  ╚██████╔╝╚██████╔╝
-                   ╚═════╝  ╚═════╝
-              IMAGE HOSTING · 欧记图床
-```
+- 🧩 检测系统、包管理器和缺失依赖
+- 🐳 安装或检查 Docker / Compose
+- 🌐 选择本地访问、公网 HTTPS 域名或 Cloudflare 小黄云模式
+- 🔐 生成生产密钥和 `.env.production`
+- 🧱 顺序构建 API 与 Web，降低小机器 CPU 压力
+- 🪪 安装全局管理命令 `ouih`
+- ✅ 启动服务并检查访问地址、反向代理、HTTPS 和健康状态
 
-它会依次完成：
+安装完成后，打开安装器给出的地址，创建第一个管理员账号即可开始使用。
 
-1. 识别操作系统和包管理器，自动补齐 Git、curl、OpenSSL、coreutils。
-2. 缺少 Docker Engine 或 Compose v2 时，按发行版选择官方脚本或原生软件包安装并启动服务。
-3. 询问安装目录、访问地址、HTTPS 接入方式、监听端口和存储配额。
-4. 克隆项目；重复执行时安全更新已有安装。
-5. 生成权限为 `600` 的生产配置和 256-bit 随机密钥。
-6. 升级时保留原加密密钥，并备份现有 `.env.production`。
-7. HTTPS 域名默认部署 Caddy，自动申请并续期证书。
-8. 顺序构建 API 与 Web，避免两个镜像同时构建。
-9. 安装全局 `ouih` 管理命令。
-10. 启动容器，依次验证 readiness、TLS 证书、HTTPS 反向代理与公网跳转地址，拒绝泄露内部 `:3000` 端口。
+## ☁️ Cloudflare 小黄云部署
 
-安装完成后，打开安装器显示的地址，跟随页面向导创建站点和第一个管理员。
+如果你希望用 Cloudflare 代理访问：
 
-### Cloudflare 域名
+1. 在 Cloudflare DNS 中添加指向服务器公网 IP 的 `A` 记录。
+2. 打开代理状态，也就是小黄云。
+3. SSL/TLS 模式选择 **Full (strict)**。
+4. 云厂商安全组与服务器防火墙放行 TCP `80` / `443`。
+5. 运行一键安装，访问方式选择 **Cloudflare 小黄云**。
 
-1. 在 Cloudflare DNS 中添加指向服务器公网 IP 的 `A` 记录；存在 IPv6 时再添加 `AAAA`。
-2. 开启该记录的小黄云代理，并把 Cloudflare SSL/TLS 模式设为 `Full (strict)`。
-3. 在云厂商安全组和服务器防火墙中放行 TCP `80`、`443`。
-4. 首次签发证书期间关闭 Cloudflare `Always Use HTTPS` 和自定义强制 HTTPS 重定向规则，安装成功后可以重新开启。
-5. 运行一键安装，选择「公网 HTTPS 域名」和「Cloudflare 小黄云」。
-6. 安装器会先验证 Caddy 公共源站证书，再验证 Cloudflare 边缘响应；不要使用 `Flexible`。
+安装器会自动部署 Caddy 源站证书，并检查 Cloudflare 边缘访问结果，避免页面暴露内部 `:3000` 端口。
 
-如果服务器已有 Nginx、Caddy、宝塔或 1Panel 反向代理，安装时选择「使用现有反向代理」，或传入 `--proxy external`，然后把域名转发到安装器显示的 `127.0.0.1:<端口>`。
+## 🧰 无人值守安装
 
-### 无人值守安装
-
-使用默认配置安装到 `~/ou-image-hosting`：
+使用默认配置：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/cshaizhihao/ou-image-hosting/main/install.sh \
   | bash -s -- --yes
 ```
 
-指定公网域名、端口和空间配额：
+指定域名、端口和空间配额：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/cshaizhihao/ou-image-hosting/main/install.sh \
@@ -172,177 +122,117 @@ curl -fsSL https://raw.githubusercontent.com/cshaizhihao/ou-image-hosting/main/i
   | bash -s -- --help
 ```
 
-如果服务器由你自行维护、不希望安装器修改系统软件：
+## 🖼️ 功能亮点
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/cshaizhihao/ou-image-hosting/main/install.sh \
-  | bash -s -- --no-install-deps
-```
+### 上传与公共图床
 
-<details>
-<summary><strong>手动使用 Docker Compose 安装</strong></summary>
+- 拖拽、选择文件、剪贴板粘贴和 URL 上传
+- 上传前队列预览，单张图片可改名
+- 上传后批量复制 URL、Markdown、HTML、BBCode
+- 可直接加入相册、标签，并选择是否公开展示
+- 公共上传首页支持访客直传或登录后上传
+- 登录用户可在公共页查看自己的上传历史
+- 公共图库支持最新、最热、随机、格式筛选
+- 缩略图点击后站内浮窗预览，不跳出新页面
+- 预览支持左右按钮、键盘方向键、鼠标滚轮和移动端滑动
 
-```bash
-git clone https://github.com/cshaizhihao/ou-image-hosting.git
-cd ou-image-hosting
+### 图片管理
 
-cp .env.production.example .env.production
-openssl rand -hex 32
-```
+- 图片库支持搜索、格式筛选、分页、网格/列表切换
+- 多选后可批量公开、隐藏、收藏、加入多个相册、移入回收站
+- 图片卡片显示公开状态、相册数量和收藏状态
+- 相册可创建、排序、描述、封面自定义、批量补图和批量移出
+- 回收站支持恢复和永久删除
+- 分享链接支持复制、撤销、访问统计、密码和有效期
 
-将随机值写入 `.env.production` 的 `OU_SECRET_KEY`，配置实际 `APP_ORIGIN`、`OU_PUBLIC_HOST` 和 `OU_PROXY_MODE=caddy`，然后：
+### 账号与权限
 
-```bash
-COMPOSE_PARALLEL_LIMIT=1 docker compose --env-file .env.production build api
-COMPOSE_PARALLEL_LIMIT=1 docker compose --env-file .env.production build web
-docker compose --env-file .env.production --profile https up -d
-curl --fail http://127.0.0.1:3000/api/health/ready
-```
+- 唯一站点所有者负责最高权限
+- 普通注册用户只能使用公共图床和自己的上传历史
+- 子管理员只能由站点所有者在后台手动授权
+- 后台可查看注册账号、停用账号、授权/撤销子管理员
+- 可生成一次性密码重置链接，但不会显示或读取用户密码
+- API Token 支持作用域、有效期和 IP/CIDR 白名单
+- 支持 TOTP 双因素认证、恢复代码和活跃会话管理
 
-</details>
+### 品牌与外观
 
-## 功能一览
-
-### 图片工作流
-
-- 公共上传首页、访客批量上传、剪贴板粘贴、公开展示勾选、最近上传结果和缩略图公共图库
-- 访客直传 / 登录后上传开关、登录用户上传历史、批量公开或隐藏自己的图片
-- 公共图库支持最新、最热、随机与格式筛选；站内预览支持键盘、滚轮、按钮和移动端滑动
-- 预览浮窗可复制 URL/Markdown、下载或查看原图，管理员可原位隐藏不适合公开展示的图片
-- 本地选择、拖拽、剪贴板粘贴、URL 与批量上传；上传前可预览队列并修改文件名
-- 队列进度、暂停、继续、取消、失败重试与内容去重，完成后可自动加入相册、标签或公开展示
-- 上传完成项支持批量复制 URL、Markdown、HTML 与 BBCode
-- JPEG、PNG、WebP、GIF、AVIF 内容识别和尺寸限制
-- EXIF 自动旋转、缩略图、格式转换、旋转与翻转
-- 图片版本历史、恢复、重命名和原图访问
-
-### 组织与分享
-
-- 响应式网格/列表、搜索、格式筛选、排序、稳定分页、每页数量偏好和图片状态标签
-- 图片库多选工具栏支持批量公开、隐藏、收藏、取消收藏、加入相册和移入回收站
-- 相册主分类卡片、搜索与多种排序，集中式管理浮窗展示描述、时间和图片数量
-- 相册可从图片库搜索并批量补图，也可在图片库中一次加入一个或多个相册
-- 相册封面支持自动第一张、自定义相册内图片或留空；封面失效后自动回退
-- 相册详情支持批量移出图片，空相册提供清晰的内容添加引导
-- 大图库缩略图按需加载并固定占位，批量操作局部更新，减少滚动抖动和重复请求
-- URL、Markdown、HTML、BBCode 与二维码
-- 密码保护、有效期、访问统计、分享撤销和创建成功浮窗
-
-### 团队与管理
-
-- 唯一站点所有者、手动授权的子管理员、普通注册用户和未登录访客四级权限边界
-- 用户与权限页面支持账号搜索、停用、子管理员授权和一次性密码重置链接，全程不暴露用户密码
-- 真实工作区概况面板：图片数量、容量比例、存储状态和快捷入口
-- 可自定义站点名称、描述、Logo、公共首页文案和登录页文案，并控制公共图库上传者、文件名与时间字段
-- 概览和设置中心共享公共上传配置，可快速控制未登录访客上传、公共图库和默认公开状态
-- 公共图床登录后显示当前账号、上传历史与退出入口，管理员可从公共页进入后台，也可从后台快捷返回公共图床
-- 公共上传支持匿名/登录用户独立的每 IP 频率、每日张数与每日流量限制
-- 可选短时效人机验证、IP 封禁和后台上传审计，默认保持轻量且不打扰个人使用
-- 页面切换时保持完整权限导航，不再闪退管理与系统菜单
-- 精确 Scope 的 API Token、有效期与 IP/CIDR 白名单
-- TOTP 双因素认证、恢复代码和活跃会话管理
-- 通知偏好、免打扰、审计筛选与 CSV 导出
-- 数据统计、系统状态、设置中心和后台任务
+- 后台可自定义站点名称、副标题、Logo
+- 可自定义登录页文案、公共首页标题和描述
+- 支持浅色、深色、跟随系统
+- 支持受控主题色，避免把界面改得太怪
+- Logo 保持原始比例，不拉伸、不重绘、不 AI 化
 
 ### 存储与运维
 
-- 本地原图、缩略图、版本和物理空间统计
-- 更完整的概况面板：容量水位环、健康状态、平均图片大小、快捷入口和存储提醒
-- S3、Cloudflare R2、S3-compatible 配置与内置分步向导，逐项解释字段并链接官方控制台
-- 连接测试可区分权限、密钥、存储桶、区域和网络错误；迁移任务展示成功、失败、剩余及总量
-- 自定义域名、链接模板、防盗链和签名 URL
-- gzip 完整备份、严格校验、维护模式与原子恢复
-- `/health/live`、`/health/ready` 与 Docker 健康检查
+- 本地存储开箱即用
+- Amazon S3 / Cloudflare R2 / S3-compatible 配置向导
+- 连接测试能区分权限、密钥、桶、区域和网络问题
+- 支持本地到 S3 / R2 的迁移进度展示
+- 自动备份、手动备份、恢复前预检和原子恢复
+- Docker Compose 三服务：API、Web、Caddy
+- `/health/live`、`/health/ready` 与容器健康检查
 
-后台针对浏览器 100% 缩放重新调整了侧栏、顶栏、字号和内容宽度；常用操作保持清晰、紧凑，桌面宽屏不再出现大面积无效留白。
+## 🛡️ 安全与防滥用
 
-### S3 / R2 快速配置
+- 公共上传可设置匿名/登录用户的每 IP 分钟限制、每日张数和每日流量
+- 可开启短时效算术验证，默认关闭，不打扰个人使用
+- 支持 IP 封禁和公共上传审计
+- 上传文件名会清理控制字符、零宽字符、双向文本字符和异常空白
+- 远程 URL 上传会阻断私网、保留地址、IPv4-mapped IPv6 与 DNS rebinding 风险
+- Cookie 会话、CSRF Origin 检查、权限门禁和审计记录均在服务端执行
 
-进入“存储”并选择 Amazon S3 或 Cloudflare R2，先打开卡片右上角的配置向导：
+## 🧑‍🔧 运维命令
 
-1. 在对应控制台创建专用 Bucket，并创建仅拥有该 Bucket 对象读写权限的访问密钥。
-2. S3 填写 Bucket 实际 Region；R2 的 Region 固定为 `auto`，Endpoint 使用账户级 `https://<ACCOUNT_ID>.r2.cloudflarestorage.com`。
-3. Bucket 只填写名称，Access Key ID 与 Secret 必须来自同一组凭证；公开域名填写在 Public Base URL，而不是 Endpoint。
-4. 先运行“测试连接”，根据页面给出的权限、凭证、桶、区域或网络建议修正，再保存配置并开始迁移。
-
-密钥只在保存或测试时发送，后台不会回显 Secret。迁移前建议先完成一次站外备份，并保留本地文件直至抽查原图与缩略图均可访问。
-
-## 日常运维
-
-安装完成后直接运行 `ouih` 打开交互菜单：
+安装后可直接使用：
 
 ```bash
 ouih
 ```
 
-交互菜单执行查看、启停、更新等操作后会停留在结果页面；按任意键返回上级菜单，不会立即清屏或退出。
-
-也可以直接使用子命令：
+常用命令：
 
 ```bash
-# 查看访问地址与安装目录
-ouih url
-ouih dir
-
-# 更新、状态与日志
-ouih update
-ouih status
-ouih logs
-
-# 一键诊断安装、代理、网络和资源状态
-ouih doctor
-
-# 停止 / 启动
-ouih stop
-ouih start
+ouih status      # 查看容器与服务状态
+ouih logs        # 查看日志
+ouih start       # 启动服务
+ouih stop        # 停止服务
+ouih update      # 更新到最新版本
+ouih doctor      # 诊断 Docker、端口、DNS、HTTPS、Caddy、磁盘、内存和配置
+ouih backup      # 创建本机数据卷备份
+ouih restore     # 恢复备份
+ouih rollback    # 回退最近一次成功更新
+ouih url         # 显示访问地址
+ouih dir         # 显示安装目录
+ouih uninstall   # 卸载服务
 ```
 
-`ouih doctor` 会检查生产配置、Docker、Compose、容器、Caddy、监听端口、DNS、HTTPS、磁盘和内存，并为 Cloudflare 小黄云部署提示 `Full (strict)` 核对项。诊断结果会汇总通过、警告和失败数量，方便直接定位打不开站点的原因。
+每个菜单动作执行后会停留在结果页，按任意键返回上级菜单，方便排查问题。
 
-`ouih update` 会自动补齐 Git、curl、OpenSSL、coreutils 等基础依赖，并拒绝覆盖存在未提交修改的仓库；正常安装目录会先备份 `.env.production`，再同步远端 `main`，恢复生产配置与 `OU_SECRET_KEY`，顺序重建镜像并重新验证服务。任一阶段失败都会保留配置并给出重试和代码回退提示。
+## 📦 技术栈
 
-`ouih uninstall` 默认只移除运行中的容器并保留生产配置与 Docker 数据卷，方便重新安装恢复。永久删除图片与元数据必须显式使用数据清理选项并完成二次确认。
+- **Frontend**：Next.js 15、React 19、Radix UI、CSS Modules
+- **Backend**：Fastify、TypeScript、Sharp
+- **Storage**：Local filesystem、Amazon S3、Cloudflare R2、S3-compatible
+- **Runtime**：Docker Compose、Caddy
+- **Quality**：Vitest、Playwright、GitHub Actions
 
-> 不要执行 `docker compose down -v`，除非你明确要永久删除全部元数据、图片、版本、缩略图和卷内备份。
+## 📚 文档
 
-## 部署边界
-
-- 当前元数据由单个 API 进程通过原子 JSON 文件管理，请只运行一个 API 副本。
-- 当前图片读写的权威来源是 Docker 持久化卷中的本地存储。
-- S3/R2 已支持安全配置、连接探测和迁移，但日常读写尚未切换到远端。
-- PostgreSQL、Redis 与 CDN 变量用于状态探测，不代表业务已经启用这些组件。
-- 正式公网安装默认由内置 Caddy 提供 HTTPS；使用外部反向代理时必须正确转发原始 Host 与 HTTPS scheme。
-- 备份应定期导出到服务器之外，Docker 数据卷不能替代异地备份。
-
-## 技术栈
-
-| 层级 | 技术 |
-|---|---|
-| Web | Next.js 15、React 19、TypeScript、Tailwind CSS 4 |
-| UI | Radix UI、Lucide、三层 Design Token、浅色/深色主题 |
-| API | Fastify 5、Multipart、Cookie、Rate Limit、Node.js Crypto |
-| Image | Sharp、版本原图、WebP 缩略图、SHA-256 去重 |
-| Runtime | Docker Compose、Caddy 自动 HTTPS、非 root、只读根文件系统、健康检查 |
-| Test | Vitest、Playwright、Axe |
-
-## 文档
-
-- [生产部署](./docs/deployment.md)
+- [部署文档](./docs/deployment.md)
 - [备份与恢复](./docs/backup-restore.md)
-- [版本升级](./docs/upgrading.md)
-- [故障排查](./docs/troubleshooting.md)
-- [威胁模型](./docs/threat-model.md)
-- [性能预算](./docs/performance.md)
-- [品牌规范](./docs/brand-guidelines.md)
+- [安全模型](./docs/threat-model.md)
+- [v1.0.0 发布说明](./docs/releases/v1.0.0.md)
 
-## 品牌
+## 🗺️ 适合谁
 
-- Logo 使用用户提供的黑白猫原图，只按比例缩放，不重绘、不改色。
-- 品牌色为炭黑、暖白与鼻尖粉。
-- 标题使用 Swei Ax Sans CJK SC Black 授权网页子集，正文使用系统字体保证阅读体验。
+- 想把图片放在自己服务器上的个人用户
+- 需要稳定图片外链的博客、文档、论坛、知识库维护者
+- 希望给小团队统一管理素材和相册的创作者
+- 不想每次维护图床都翻命令行日志的人
 
-## License
+## 🤍 License
 
-项目代码使用 [MIT License](./LICENSE)。
+MIT License。
 
-品牌展示字体子集使用 [SIL Open Font License 1.1](./apps/web/public/fonts/SIL-OFL-1.1.txt)。
+希望它像一只靠谱的小猫一样，安静、漂亮、会帮你把图片看好。
