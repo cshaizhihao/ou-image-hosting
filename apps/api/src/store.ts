@@ -97,6 +97,8 @@ export type StoredUser = {
   recoveryCodeHashes?: string[];
   notificationPreferences?: NotificationPreferences;
   notificationReadEventIds?: string[];
+  disabledAt?: string;
+  lastLoginAt?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -425,7 +427,7 @@ export type StoredAuditEvent = {
 };
 
 export type AppState = {
-  schemaVersion: 7;
+  schemaVersion: 8;
   setupComplete: boolean;
   site?: SiteConfig;
   users: StoredUser[];
@@ -483,7 +485,7 @@ export function calculateImageStorageBytes(images: StoredImage[]) {
 }
 
 const initialState = (): AppState => ({
-  schemaVersion: 7,
+  schemaVersion: 8,
   setupComplete: false,
   users: [],
   sessions: [],
@@ -1217,7 +1219,7 @@ export function migrateAppState(parsed: MigratableAppState): AppState {
   return {
     ...initialState(),
     ...parsed,
-    schemaVersion: 7,
+    schemaVersion: 8,
     site: parsed.site
       ? defaultSiteConfig(
           typeof parsed.site.siteName === "string" &&
@@ -1352,7 +1354,8 @@ export function migrateAppState(parsed: MigratableAppState): AppState {
         (coverage) =>
           isRecord(coverage) && coverage.workspaceId === workspace.id
       );
-      const canPreserveCoverage = parsed.schemaVersion === 7;
+      const canPreserveCoverage =
+        parsed.schemaVersion === 7 || parsed.schemaVersion === 8;
       return {
         workspaceId: workspace.id,
         uploads:
@@ -1398,7 +1401,7 @@ export class AppStore {
       const parsed = JSON.parse(contents) as MigratableAppState;
       this.state = migrateAppState(parsed);
       if (
-        parsed.schemaVersion !== 7 ||
+        parsed.schemaVersion !== 8 ||
         !parsed.images ||
         !parsed.imageShares ||
         !parsed.albums ||

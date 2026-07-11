@@ -5,6 +5,7 @@ import {
   ApiError,
   apiRequest,
   clearStoredWorkspaceId,
+  normalizeSessionBootstrap,
   type SessionUser
 } from "@/lib/api";
 import { Button } from "@ou-image/ui";
@@ -47,8 +48,22 @@ export default function LoginPage() {
         })
       });
       clearStoredWorkspaceId();
+      const session = normalizeSessionBootstrap(
+        await apiRequest<{
+          user: SessionUser;
+          workspaces?: import("@/lib/api").WorkspaceSummary[];
+          defaultWorkspace?: import("@/lib/api").WorkspaceSummary;
+          backoffice?: import("@/lib/api").BackofficeAccess;
+        }>("/auth/session")
+      );
+      if (!session.backoffice.allowed) {
+        window.location.replace("/?signedIn=1");
+        return;
+      }
       window.location.replace(
-        response.user.onboardingCompleted ? "/overview" : "/onboarding"
+        response.user.role === "owner" && !response.user.onboardingCompleted
+          ? "/onboarding"
+          : "/overview"
       );
     } catch (requestError) {
       setError(

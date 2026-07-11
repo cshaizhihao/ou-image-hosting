@@ -14,6 +14,10 @@ import {
 } from "./access.js";
 import { PublicError } from "./errors.js";
 import {
+  isSiteBackofficeWorkspace,
+  requireBackofficeAccess
+} from "./site-access.js";
+import {
   createOpaqueToken,
   createRecoveryCodes,
   createTotpSecret,
@@ -410,6 +414,7 @@ export function registerWorkspaceSecurityRoutes(
     const principal = authenticate(request);
     requireSession(principal);
     const state = store.snapshot();
+    requireBackofficeAccess(state, principal);
     return {
       workspaces: state.workspaceMembers
         .filter((member) => member.userId === principal.user.id)
@@ -437,6 +442,7 @@ export function registerWorkspaceSecurityRoutes(
     async (request, reply) => {
       const principal = authenticate(request);
       requireSession(principal);
+      requireBackofficeAccess(store.snapshot(), principal, "owner");
       const name = request.body.name.trim();
       const timestamp = now().toISOString();
       const id = randomUUID();
@@ -512,6 +518,7 @@ export function registerWorkspaceSecurityRoutes(
         authenticate,
         request.params.id
       );
+      requireBackofficeAccess(store.snapshot(), principal);
       return {
         workspace: publicWorkspace(
           store.snapshot(),
@@ -552,6 +559,7 @@ export function registerWorkspaceSecurityRoutes(
         authenticate,
         request.params.id
       );
+      requireBackofficeAccess(store.snapshot(), principal);
       requireCapability(principal, "admin");
       const timestamp = now().toISOString();
       await store.update((state) => {
@@ -606,6 +614,7 @@ export function registerWorkspaceSecurityRoutes(
         authenticate,
         request.params.id
       );
+      requireBackofficeAccess(store.snapshot(), principal, "owner");
       requireCapability(principal, "owner");
       if (principal.workspace.personal) {
         throw new PublicError(
@@ -681,6 +690,7 @@ export function registerWorkspaceSecurityRoutes(
         authenticate,
         request.params.id
       );
+      requireBackofficeAccess(store.snapshot(), principal);
       requireCapability(principal, "admin");
       const state = store.snapshot();
       return {
@@ -725,6 +735,7 @@ export function registerWorkspaceSecurityRoutes(
         authenticate,
         request.params.id
       );
+      requireBackofficeAccess(store.snapshot(), principal);
       const timestamp = now().toISOString();
       await store.update((state) => {
         const target = findMember(
@@ -744,6 +755,13 @@ export function registerWorkspaceSecurityRoutes(
           );
         }
         if (request.body.role === "owner") {
+          if (isSiteBackofficeWorkspace(state, principal.workspaceId)) {
+            throw new PublicError(
+              409,
+              "SITE_OWNERSHIP_FIXED",
+              "站点后台工作区不能转移所有权"
+            );
+          }
           if (target.userId === principal.user.id) {
             throw new PublicError(
               400,
@@ -812,6 +830,7 @@ export function registerWorkspaceSecurityRoutes(
         authenticate,
         request.params.id
       );
+      requireBackofficeAccess(store.snapshot(), principal);
       await store.update((state) => {
         const target = findMember(
           state,
@@ -861,6 +880,7 @@ export function registerWorkspaceSecurityRoutes(
         authenticate,
         request.params.id
       );
+      requireBackofficeAccess(store.snapshot(), principal);
       requireCapability(principal, "admin");
       return {
         invitations: store
@@ -906,12 +926,13 @@ export function registerWorkspaceSecurityRoutes(
         authenticate,
         request.params.id
       );
+      const access = requireBackofficeAccess(store.snapshot(), principal);
       requireCapability(principal, "admin");
-      if (principal.role !== "owner" && request.body.role === "admin") {
+      if (access.role !== "owner") {
         throw new PublicError(
           403,
           "OWNER_REQUIRED",
-          "仅工作区所有者可邀请管理员"
+          "仅站点所有者可创建后台成员邀请"
         );
       }
       const email = normalizeEmail(request.body.email);
@@ -982,6 +1003,7 @@ export function registerWorkspaceSecurityRoutes(
         authenticate,
         request.params.id
       );
+      requireBackofficeAccess(store.snapshot(), principal);
       requireCapability(principal, "admin");
       const timestamp = now().toISOString();
       await store.update((state) => {
@@ -1098,6 +1120,7 @@ export function registerWorkspaceSecurityRoutes(
   app.get("/api-tokens", async (request) => {
     const principal = authenticate(request);
     requireSession(principal);
+    requireBackofficeAccess(store.snapshot(), principal);
     requireCapability(principal, "admin");
     return {
       tokens: store
@@ -1148,6 +1171,7 @@ export function registerWorkspaceSecurityRoutes(
     async (request, reply) => {
       const principal = authenticate(request);
       requireSession(principal);
+      requireBackofficeAccess(store.snapshot(), principal);
       requireCapability(principal, "admin");
       const prefix = randomBytes(6).toString("hex");
       const secret = createOpaqueToken();
@@ -1206,6 +1230,7 @@ export function registerWorkspaceSecurityRoutes(
     async (request, reply) => {
       const principal = authenticate(request);
       requireSession(principal);
+      requireBackofficeAccess(store.snapshot(), principal);
       requireCapability(principal, "admin");
       const timestamp = now().toISOString();
       await store.update((state) => {
@@ -1612,6 +1637,7 @@ export function registerWorkspaceSecurityRoutes(
     async (request, reply) => {
       const principal = authenticate(request);
       requireSession(principal);
+      requireBackofficeAccess(store.snapshot(), principal);
       requireCapability(principal, "admin");
       const events = filterAuditEvents(
         store.snapshot(),
@@ -1677,6 +1703,7 @@ export function registerWorkspaceSecurityRoutes(
     async (request) => {
       const principal = authenticate(request);
       requireSession(principal);
+      requireBackofficeAccess(store.snapshot(), principal);
       requireCapability(principal, "admin");
       const page = Math.max(1, Number(request.query.page ?? 1));
       const limit = Math.min(

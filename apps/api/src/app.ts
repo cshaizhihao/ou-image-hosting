@@ -17,11 +17,13 @@ import {
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import {
+  addAuditEvent,
   hashRequestIp,
   isIpAllowed,
   normalizeIpAllowlist,
   type Principal
 } from "./access.js";
+import { backofficeAccessFor, siteOwnerWorkspace } from "./site-access.js";
 import {
   createOpaqueToken,
   hashOpaqueToken,
@@ -130,6 +132,17 @@ function publicUser(user: StoredUser) {
     onboardingCompleted: user.onboardingCompleted,
     createdAt: user.createdAt
   };
+}
+
+function requireSiteOwner(principal: Principal) {
+  if (principal.kind !== "session" || principal.user.role !== "owner") {
+    throw new PublicError(
+      403,
+      "SITE_OWNER_REQUIRED",
+      "仅站点所有者可以执行此操作"
+    );
+  }
+  return principal;
 }
 
 function assertEmail(email: string) {
@@ -511,6 +524,13 @@ export async function buildApp(options: BuildAppOptions = {}) {
     if (!user) {
       throw new PublicError(401, "UNAUTHENTICATED", "登录状态已失效");
     }
+    if (user.disabledAt) {
+      throw new PublicError(
+        403,
+        "ACCOUNT_DISABLED",
+        "账号已被停用，请联系站点管理员"
+      );
+    }
     let workspaceId =
       request.headers["x-workspace-id"]?.toString() ??
       `personal-${user.id}`;
@@ -671,7 +691,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
       return {
         status: "ready",
         service: "ou-image-api",
-        schemaVersion: 7
+        schemaVersion: 8
       };
     } catch {
       return reply.status(503).send({
@@ -911,12 +931,21 @@ export async function buildApp(options: BuildAppOptions = {}) {
         );
       }
 
+      if (user.disabledAt) {
+        throw new PublicError(
+          403,
+          "ACCOUNT_DISABLED",
+          "账号已被停用，请联系站点管理员"
+        );
+      }
+
       let challengeToken: string | undefined;
       await store.update((draft) => {
         const current = draft.users.find((item) => item.id === user.id);
         if (!current) return;
         current.failedLoginCount = 0;
         delete current.lockedUntil;
+        current.lastLoginAt = timestamp.toISOString();
         current.updatedAt = timestamp.toISOString();
         if (current.totpEnabledAt && current.totpSecretCiphertext) {
           challengeToken = createOpaqueToken();
@@ -995,8 +1024,15 @@ export async function buildApp(options: BuildAppOptions = {}) {
           role: typeof principal.role;
         } => Boolean(workspace)
       );
+    const backoffice = backofficeAccessFor(state, principal.user.id);
     const defaultWorkspace =
-      workspaces.find((workspace) => workspace.personal) ?? workspaces[0];
+      (backoffice.workspaceId
+        ? workspaces.find(
+            (workspace) => workspace.id === backoffice.workspaceId
+          )
+        : undefined) ??
+      workspaces.find((workspace) => workspace.personal) ??
+      workspaces[0];
     return {
       user: publicUser(principal.user),
       workspace: {
@@ -1006,9 +1042,252 @@ export async function buildApp(options: BuildAppOptions = {}) {
       },
       workspaces,
       defaultWorkspace,
+      backoffice,
       authType: principal.kind
     };
   });
+
+  app.get("/site/users", async (request) => {
+    const principal = requireSiteOwner(authenticatedUser(request));
+    const state = store.snapshot();
+    const users = state.users
+      .map((user) => {
+        const access = backofficeAccessFor(state, user.id);
+        return {
+          id: user.id,
+          email: user.email,
+          displayName: user.displayName,
+          siteRole: user.role,
+          backofficeRole: access.role,
+          status: user.disabledAt ? "disabled" : "active",
+          createdAt: user.createdAt,
+          updatedAt: user.updatedAt,
+          lastLoginAt: user.lastLoginAt
+        };
+      })
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    await store.update((draft) => {
+      addAuditEvent(draft, {
+        principal,
+        global: true,
+        action: "site.users.read",
+        result: "success",
+        resourceType: "user",
+        ipHash: hashRequestIp(request),
+        createdAt: now().toISOString()
+      });
+    });
+    return { users };
+  });
+
+  app.patch<{
+    Params: { id: string };
+    Body: { disabled: boolean };
+  }>(
+    "/site/users/:id/status",
+    {
+      schema: {
+        params: {
+          type: "object",
+          additionalProperties: false,
+          required: ["id"],
+          properties: {
+            id: { type: "string", minLength: 1, maxLength: 100 }
+          }
+        },
+        body: {
+          type: "object",
+          additionalProperties: false,
+          required: ["disabled"],
+          properties: { disabled: { type: "boolean" } }
+        }
+      }
+    },
+    async (request) => {
+      const principal = requireSiteOwner(authenticatedUser(request));
+      const timestamp = now().toISOString();
+      await store.update((state) => {
+        const user = state.users.find((item) => item.id === request.params.id);
+        if (!user) {
+          throw new PublicError(404, "USER_NOT_FOUND", "用户不存在");
+        }
+        if (user.role === "owner") {
+          throw new PublicError(
+            409,
+            "OWNER_IMMUTABLE",
+            "站点所有者不能被停用"
+          );
+        }
+        if (request.body.disabled) user.disabledAt = timestamp;
+        else delete user.disabledAt;
+        user.updatedAt = timestamp;
+        if (request.body.disabled) {
+          state.sessions = state.sessions.filter(
+            (session) => session.userId !== user.id
+          );
+        }
+        addAuditEvent(state, {
+          principal,
+          global: true,
+          action: request.body.disabled
+            ? "site.user.disable"
+            : "site.user.enable",
+          result: "success",
+          resourceType: "user",
+          resourceId: user.id,
+          ipHash: hashRequestIp(request),
+          createdAt: timestamp
+        });
+      });
+      return { updated: true };
+    }
+  );
+
+  app.patch<{
+    Params: { id: string };
+    Body: { role: "admin" | "member" };
+  }>(
+    "/site/users/:id/backoffice-role",
+    {
+      schema: {
+        params: {
+          type: "object",
+          additionalProperties: false,
+          required: ["id"],
+          properties: {
+            id: { type: "string", minLength: 1, maxLength: 100 }
+          }
+        },
+        body: {
+          type: "object",
+          additionalProperties: false,
+          required: ["role"],
+          properties: {
+            role: { type: "string", enum: ["admin", "member"] }
+          }
+        }
+      }
+    },
+    async (request) => {
+      const principal = requireSiteOwner(authenticatedUser(request));
+      const timestamp = now().toISOString();
+      await store.update((state) => {
+        const user = state.users.find((item) => item.id === request.params.id);
+        const workspace = siteOwnerWorkspace(state);
+        if (!user) {
+          throw new PublicError(404, "USER_NOT_FOUND", "用户不存在");
+        }
+        if (!workspace) {
+          throw new PublicError(
+            503,
+            "SITE_WORKSPACE_MISSING",
+            "站点工作区不存在"
+          );
+        }
+        if (user.role === "owner") {
+          throw new PublicError(
+            409,
+            "OWNER_IMMUTABLE",
+            "站点所有者角色不能修改"
+          );
+        }
+        const membership = state.workspaceMembers.find(
+          (item) =>
+            item.workspaceId === workspace.id && item.userId === user.id
+        );
+        if (request.body.role === "admin") {
+          if (membership) {
+            membership.role = "admin";
+            membership.updatedAt = timestamp;
+          } else {
+            state.workspaceMembers.push({
+              id: randomUUID(),
+              workspaceId: workspace.id,
+              userId: user.id,
+              role: "admin",
+              createdAt: timestamp,
+              updatedAt: timestamp
+            });
+          }
+        } else if (membership) {
+          state.workspaceMembers = state.workspaceMembers.filter(
+            (item) => item.id !== membership.id
+          );
+        }
+        state.sessions = state.sessions.filter(
+          (session) => session.userId !== user.id
+        );
+        addAuditEvent(state, {
+          principal,
+          global: true,
+          action: "site.user.backoffice_role.update",
+          result: "success",
+          resourceType: "user",
+          resourceId: user.id,
+          metadata: { role: request.body.role },
+          ipHash: hashRequestIp(request),
+          createdAt: timestamp
+        });
+      });
+      return { updated: true };
+    }
+  );
+
+  app.post<{ Params: { id: string } }>(
+    "/site/users/:id/password-reset",
+    {
+      schema: {
+        params: {
+          type: "object",
+          additionalProperties: false,
+          required: ["id"],
+          properties: {
+            id: { type: "string", minLength: 1, maxLength: 100 }
+          }
+        }
+      }
+    },
+    async (request) => {
+      const principal = requireSiteOwner(authenticatedUser(request));
+      const user = store
+        .snapshot()
+        .users.find((item) => item.id === request.params.id);
+      if (!user) {
+        throw new PublicError(404, "USER_NOT_FOUND", "用户不存在");
+      }
+      const token = createOpaqueToken();
+      const timestamp = now();
+      const expiresAt = new Date(
+        timestamp.getTime() + RESET_DURATION_MS
+      ).toISOString();
+      await store.update((state) => {
+        state.passwordResets = state.passwordResets.filter(
+          (item) => item.userId !== user.id
+        );
+        state.passwordResets.push({
+          id: randomUUID(),
+          userId: user.id,
+          tokenHash: hashOpaqueToken(token),
+          createdAt: timestamp.toISOString(),
+          expiresAt
+        });
+        addAuditEvent(state, {
+          principal,
+          global: true,
+          action: "site.user.password_reset.issue",
+          result: "success",
+          resourceType: "user",
+          resourceId: user.id,
+          ipHash: hashRequestIp(request),
+          createdAt: timestamp.toISOString()
+        });
+      });
+      return {
+        resetUrl: `${appOrigin}/reset-password?token=${encodeURIComponent(token)}`,
+        expiresAt
+      };
+    }
+  );
 
   app.get("/me", async (request) => {
     const principal = authenticatedUser(request);
@@ -1150,6 +1429,13 @@ export async function buildApp(options: BuildAppOptions = {}) {
         }
         if (request.body.theme !== undefined) current.theme = request.body.theme;
         if (request.body.onboardingCompleted !== undefined) {
+          if (current.role !== "owner") {
+            throw new PublicError(
+              403,
+              "OWNER_ONBOARDING_REQUIRED",
+              "仅站点所有者需要完成后台引导"
+            );
+          }
           current.onboardingCompleted = request.body.onboardingCompleted;
         }
         current.updatedAt = timestamp;

@@ -19,6 +19,7 @@ import {
   Command,
   FileImage,
   FolderHeart,
+  Globe2,
   Heart,
   ImageUp,
   KeyRound,
@@ -79,6 +80,7 @@ const iconMap: Record<string, LucideIcon> = {
   storage: FolderHeart,
   analytics: ChartNoAxesCombined,
   team: Users,
+  users: Users,
   tokens: KeyRound,
   audit: Activity,
   system: ServerCog,
@@ -314,6 +316,7 @@ export function AppShell({
   const [notificationError, setNotificationError] = useState("");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [online, setOnline] = useState(true);
+  const [accessChecked, setAccessChecked] = useState(false);
   const [query, setQuery] = useState("");
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(
     cachedSession?.user ?? null
@@ -402,17 +405,30 @@ export function AppShell({
       user: SessionUser;
       workspaces?: WorkspaceSummary[];
       defaultWorkspace?: WorkspaceSummary;
+      backoffice?: import("@/lib/api").BackofficeAccess;
     }>("/auth/session")
       .then((payload) => {
         const bootstrap = normalizeSessionBootstrap(payload);
+        if (!bootstrap.backoffice.allowed) {
+          clearShellSessionSnapshot();
+          router.replace("/?backoffice=denied");
+          return;
+        }
+        const backofficeWorkspaces = bootstrap.backoffice.workspaceId
+          ? bootstrap.workspaces.filter(
+              (workspace) => workspace.id === bootstrap.backoffice.workspaceId
+            )
+          : [bootstrap.defaultWorkspace];
         const storedId = getStoredWorkspaceId();
         const selected =
-          bootstrap.workspaces.find((workspace) => workspace.id === storedId) ??
+          backofficeWorkspaces.find((workspace) => workspace.id === storedId) ??
+          backofficeWorkspaces[0] ??
           bootstrap.defaultWorkspace;
         setStoredWorkspaceId(selected.id);
         setSessionUser(bootstrap.user);
-        setWorkspaces(bootstrap.workspaces);
+        setWorkspaces(backofficeWorkspaces);
         setCurrentWorkspace(selected);
+        setAccessChecked(true);
         writeShellSessionSnapshot(bootstrap, selected.id);
         void apiRequest<{ bytes: number; quotaBytes: number }>(
           "/uploads/summary"
@@ -494,6 +510,14 @@ export function AppShell({
     window.localStorage.setItem("ou-theme", nextTheme);
     document.documentElement.dataset.theme = nextTheme;
   };
+
+  if (!accessChecked) {
+    return (
+      <div aria-live="polite" className="app-access-loading" role="status">
+        正在确认后台访问权限…
+      </div>
+    );
+  }
 
   return (
     <Tooltip.Provider delayDuration={350}>
@@ -597,6 +621,12 @@ export function AppShell({
           </button>
 
           <div className="topbar__actions">
+            <Button asChild size="compact" variant="secondary">
+              <Link href="/">
+                <Globe2 aria-hidden="true" size={17} />
+                公共图床
+              </Link>
+            </Button>
             {visibleItems.some((item) => item.key === "upload") && (
               <Button asChild className="quick-upload" size="compact">
                 <Link href="/">

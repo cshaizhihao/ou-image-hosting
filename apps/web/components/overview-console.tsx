@@ -8,12 +8,16 @@ import {
   Database,
   FileImage,
   FolderCog,
+  Globe2,
   HardDrive,
+  Images,
   ImageUp,
   LoaderCircle,
   Settings,
   ShieldCheck,
   Sparkles,
+  ToggleLeft,
+  ToggleRight,
   Users
 } from "lucide-react";
 import Link from "next/link";
@@ -36,6 +40,11 @@ import {
   type OverviewSummary
 } from "@/lib/overview-model";
 import { AppShell } from "./app-shell";
+import {
+  getSiteSettings,
+  updateSiteSettings,
+  type SiteSettingsData
+} from "@/lib/operations-api";
 import styles from "./overview-console.module.css";
 
 type OverviewData = {
@@ -47,6 +56,9 @@ type OverviewData = {
 export function OverviewConsole() {
   const [data, setData] = useState<OverviewData | null>(null);
   const [error, setError] = useState("");
+  const [siteSettings, setSiteSettings] = useState<SiteSettingsData | null>(null);
+  const [siteBusy, setSiteBusy] = useState("");
+  const [siteNotice, setSiteNotice] = useState("");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -71,6 +83,11 @@ export function OverviewConsole() {
           ),
           summary
         });
+        if (bootstrap.user.role === "owner") {
+          void getSiteSettings()
+            .then(setSiteSettings)
+            .catch(() => setSiteNotice("公共上传状态暂时读取失败。"));
+        }
       })
       .catch((requestError) => {
         if ((requestError as Error).name !== "AbortError") {
@@ -92,6 +109,30 @@ export function OverviewConsole() {
     ? overviewAverageImageBytes(data.summary)
     : 0;
   const isSiteOwner = data?.user.role === "owner";
+
+  const toggleSiteSetting = async (
+    key:
+      | "publicUploadEnabled"
+      | "publicUploadRequiresLogin"
+      | "publicGalleryEnabled"
+      | "publicUploadDefaultPublic",
+    value: boolean
+  ) => {
+    if (!siteSettings) return;
+    const next = { ...siteSettings, [key]: value };
+    setSiteBusy(key);
+    setSiteNotice("");
+    try {
+      setSiteSettings(await updateSiteSettings(next));
+      setSiteNotice("公共上传设置已同步保存。现有页面刷新后生效。");
+    } catch (requestError) {
+      setSiteNotice(
+        requestError instanceof Error ? requestError.message : "设置保存失败"
+      );
+    } finally {
+      setSiteBusy("");
+    }
+  };
 
   return (
     <AppShell activeKey="overview">
@@ -163,8 +204,10 @@ export function OverviewConsole() {
                     }}
                   />
                 </svg>
-                <strong>{quotaPercent}%</strong>
-                <span>容量水位</span>
+                <div className={styles.capacityCopy}>
+                  <strong>{quotaPercent}%</strong>
+                  <span>容量水位</span>
+                </div>
               </div>
               <div className={styles.heroActions}>
                 <Button asChild>
@@ -183,6 +226,67 @@ export function OverviewConsole() {
                 )}
               </div>
             </section>
+
+            {isSiteOwner && siteSettings && (
+              <section aria-label="公共上传快捷设置" className={styles.publicControls}>
+                <div className={styles.publicControlsHead}>
+                  <span className={styles.publicControlsIcon}>
+                    <Globe2 aria-hidden="true" size={21} />
+                  </span>
+                  <div>
+                    <span>PUBLIC ACCESS</span>
+                    <h2>公共上传状态</h2>
+                    <p>常用开关集中在这里，和设置中心使用同一份配置。</p>
+                  </div>
+                  <Button asChild size="compact" variant="ghost">
+                    <Link href="/settings">打开完整设置</Link>
+                  </Button>
+                </div>
+                <div className={styles.publicControlGrid}>
+                  <button
+                    aria-pressed={siteSettings.publicUploadEnabled}
+                    disabled={Boolean(siteBusy)}
+                    onClick={() => void toggleSiteSetting("publicUploadEnabled", !siteSettings.publicUploadEnabled)}
+                    type="button"
+                  >
+                    <ImageUp aria-hidden="true" size={19} />
+                    <span><strong>公共上传入口</strong><small>控制整个公共页面是否接受新图片</small></span>
+                    {siteSettings.publicUploadEnabled ? <ToggleRight size={28} /> : <ToggleLeft size={28} />}
+                  </button>
+                  <button
+                    aria-pressed={!siteSettings.publicUploadRequiresLogin}
+                    disabled={Boolean(siteBusy) || !siteSettings.publicUploadEnabled}
+                    onClick={() => void toggleSiteSetting("publicUploadRequiresLogin", !siteSettings.publicUploadRequiresLogin)}
+                    type="button"
+                  >
+                    <Users aria-hidden="true" size={19} />
+                    <span><strong>未登录访客上传</strong><small>关闭后必须登录账号才能上传</small></span>
+                    {!siteSettings.publicUploadRequiresLogin ? <ToggleRight size={28} /> : <ToggleLeft size={28} />}
+                  </button>
+                  <button
+                    aria-pressed={siteSettings.publicGalleryEnabled}
+                    disabled={Boolean(siteBusy)}
+                    onClick={() => void toggleSiteSetting("publicGalleryEnabled", !siteSettings.publicGalleryEnabled)}
+                    type="button"
+                  >
+                    <Images aria-hidden="true" size={19} />
+                    <span><strong>公共图库展示</strong><small>展示用户主动设为公开的缩略图</small></span>
+                    {siteSettings.publicGalleryEnabled ? <ToggleRight size={28} /> : <ToggleLeft size={28} />}
+                  </button>
+                  <button
+                    aria-pressed={siteSettings.publicUploadDefaultPublic}
+                    disabled={Boolean(siteBusy) || !siteSettings.publicGalleryEnabled}
+                    onClick={() => void toggleSiteSetting("publicUploadDefaultPublic", !siteSettings.publicUploadDefaultPublic)}
+                    type="button"
+                  >
+                    <CheckCircle2 aria-hidden="true" size={19} />
+                    <span><strong>默认公开新图片</strong><small>上传者仍可在上传前取消公开</small></span>
+                    {siteSettings.publicUploadDefaultPublic ? <ToggleRight size={28} /> : <ToggleLeft size={28} />}
+                  </button>
+                </div>
+                {siteNotice && <p className={styles.publicNotice} role="status">{siteNotice}</p>}
+              </section>
+            )}
 
             <section aria-label="工作区摘要" className={styles.metrics}>
               <article className={styles.metric}>

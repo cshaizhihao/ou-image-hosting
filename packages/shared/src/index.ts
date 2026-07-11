@@ -48,6 +48,13 @@ export const navigationItems: NavigationItem[] = [
     access: "admin"
   },
   {
+    key: "users",
+    label: "用户与权限",
+    href: "/users",
+    group: "manage",
+    access: "site-owner"
+  },
+  {
     key: "tokens",
     label: "API Token",
     href: "/tokens",
@@ -153,6 +160,12 @@ export const sectionContent = {
     description: "管理工作区成员与协作权限。",
     emptyTitle: "当前只有你",
     emptyDescription: "团队功能启用后，可以邀请成员共同管理图片。"
+  },
+  users: {
+    title: "用户与权限",
+    description: "管理注册用户、后台访问和账号状态。",
+    emptyTitle: "还没有注册用户",
+    emptyDescription: "开放注册后，普通用户账号会显示在这里。"
   },
   tokens: {
     title: "API Token",

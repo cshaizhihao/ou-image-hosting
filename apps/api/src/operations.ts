@@ -18,6 +18,7 @@ import {
   type Principal
 } from "./access.js";
 import { PublicError } from "./errors.js";
+import { requireBackofficeAccess } from "./site-access.js";
 import {
   calculateImageStorageBytes,
   defaultWorkspaceSettings,
@@ -544,6 +545,7 @@ export function registerOperationsRoutes(
     },
     async (request) => {
       const principal = authenticate(request);
+      requireBackofficeAccess(store.snapshot(), principal);
       requireCapability(principal, "read", ["analytics:read"]);
       const range = request.query.range ?? "30d";
       const days = Number(range.slice(0, -1));
@@ -1030,6 +1032,7 @@ export function registerOperationsRoutes(
   app.get("/workspace/settings", async (request) => {
     const principal = authenticate(request);
     requireSession(principal);
+    requireBackofficeAccess(store.snapshot(), principal);
     const response = publicWorkspaceSettings(
       store.snapshot(),
       principal.workspaceId
@@ -1089,6 +1092,7 @@ export function registerOperationsRoutes(
     async (request) => {
       const principal = authenticate(request);
       requireSession(principal);
+      requireBackofficeAccess(store.snapshot(), principal);
       requireCapability(principal, "admin");
       if (request.body.timezone) assertTimezone(request.body.timezone);
       const timestamp = now().toISOString();

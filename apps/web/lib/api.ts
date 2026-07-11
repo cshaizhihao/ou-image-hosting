@@ -11,6 +11,12 @@ export type SessionUser = {
   createdAt: string;
 };
 
+export type BackofficeAccess = {
+  allowed: boolean;
+  role: "owner" | "admin" | "member";
+  workspaceId?: string;
+};
+
 export type WorkspaceSummary = {
   id: string;
   name: string;
@@ -24,6 +30,7 @@ export type SessionBootstrap = {
   user: SessionUser;
   workspaces: WorkspaceSummary[];
   defaultWorkspace: WorkspaceSummary;
+  backoffice: BackofficeAccess;
 };
 
 const WORKSPACE_STORAGE_KEY = "ou-workspace-id";
@@ -109,6 +116,7 @@ export function normalizeSessionBootstrap(payload: {
   user: SessionUser;
   workspaces?: WorkspaceSummary[];
   defaultWorkspace?: WorkspaceSummary;
+  backoffice?: BackofficeAccess;
 }): SessionBootstrap {
   const fallback: WorkspaceSummary = {
     id: "default",
@@ -124,7 +132,13 @@ export function normalizeSessionBootstrap(payload: {
     workspaces.find((workspace) => workspace.role === "owner") ??
     workspaces[0] ??
     fallback;
-  return { user: payload.user, workspaces, defaultWorkspace };
+  const backoffice = payload.backoffice ?? {
+    allowed: payload.user.role === "owner",
+    role: payload.user.role === "owner" ? "owner" : "member",
+    workspaceId:
+      payload.user.role === "owner" ? defaultWorkspace.id : undefined
+  };
+  return { user: payload.user, workspaces, defaultWorkspace, backoffice };
 }
 
 export function applyTheme(theme: ThemePreference) {

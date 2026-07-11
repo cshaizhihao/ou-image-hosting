@@ -643,7 +643,7 @@ async function stageBackupArchive(
     !Array.isArray(envelope.files) ||
     !envelope.state ||
     typeof envelope.state !== "object" ||
-    ![5, 6, 7].includes(envelope.state.schemaVersion)
+    ![5, 6, 7, 8].includes(envelope.state.schemaVersion)
   ) {
     throw new PublicError(400, "INVALID_BACKUP", "备份清单校验失败");
   }

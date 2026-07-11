@@ -14,6 +14,7 @@ const publicPaths = [
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   if (
+    pathname === "/" ||
     publicPaths.some((path) => pathname === path || pathname.startsWith(`${path}/`)) ||
     pathname.startsWith("/api/")
   ) {

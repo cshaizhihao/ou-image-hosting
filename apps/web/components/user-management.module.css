@@ -1,0 +1,43 @@
+.page { display: grid; width: min(1480px, 100%); gap: 18px; }
+.header { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }
+.header > div:first-child { display: grid; gap: 6px; }
+.header span { color: var(--text-accent); font-size: 12px; font-weight: 800; letter-spacing: .12em; }
+.header h1 { margin: 0; font-size: clamp(32px, 4vw, 48px); line-height: 1; }
+.header p { max-width: 760px; margin: 0; color: var(--text-secondary); font-size: 15px; line-height: 1.7; }
+.summary { display: flex; align-items: center; gap: 8px; padding: 12px 15px; border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--surface-panel); }
+.summary strong { font-size: 22px; }
+.summary span { color: var(--text-secondary); font-size: 13px; letter-spacing: 0; }
+.toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.toolbar label { display: flex; width: min(460px, 100%); min-height: 44px; align-items: center; gap: 9px; padding: 0 13px; border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--surface-panel); color: var(--text-tertiary); }
+.toolbar input { width: 100%; border: 0; outline: 0; background: transparent; color: var(--text-primary); font: inherit; font-size: 14px; }
+.message { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--status-success) 35%, var(--border-default)); border-radius: var(--radius-md); background: color-mix(in srgb, var(--status-success) 8%, var(--surface-panel)); font-size: 14px; }
+.message button { display: grid; width: 32px; height: 32px; flex: 0 0 auto; place-items: center; border: 0; border-radius: 8px; background: transparent; color: inherit; cursor: pointer; }
+.error { border-color: color-mix(in srgb, var(--action-danger) 35%, var(--border-default)); background: color-mix(in srgb, var(--action-danger) 8%, var(--surface-panel)); }
+.panel { overflow: hidden; min-height: 280px; border: 1px solid var(--border-default); border-radius: var(--radius-lg); background: var(--surface-panel); box-shadow: 0 16px 48px rgb(30 25 25 / 6%); }
+.tableWrap { overflow-x: auto; }
+.panel table { width: 100%; min-width: 980px; border-collapse: collapse; }
+.panel th { padding: 13px 16px; border-bottom: 1px solid var(--border-default); color: var(--text-tertiary); font-size: 12px; text-align: left; }
+.panel td { padding: 15px 16px; border-bottom: 1px solid var(--border-subtle); color: var(--text-secondary); font-size: 13px; vertical-align: middle; }
+.panel tbody tr:last-child td { border-bottom: 0; }
+.identity { display: flex; align-items: center; gap: 11px; min-width: 220px; }
+.identity > span { display: grid; width: 40px; height: 40px; flex: 0 0 auto; place-items: center; border-radius: 12px; background: var(--surface-muted); color: var(--text-primary); font-size: 12px; font-weight: 800; letter-spacing: 0; }
+.identity div { display: grid; min-width: 0; gap: 2px; }
+.identity strong, .identity small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.identity strong { color: var(--text-primary); font-size: 14px; }
+.identity small { max-width: 260px; color: var(--text-tertiary); font-size: 12px; }
+.role, .status { display: inline-flex; width: fit-content; padding: 5px 9px; border-radius: 999px; background: var(--surface-muted); color: var(--text-secondary); font-size: 12px; font-weight: 750; letter-spacing: 0; }
+.role_owner { background: color-mix(in srgb, var(--action-primary) 13%, var(--surface-panel)); color: var(--text-accent); }
+.role_admin { background: color-mix(in srgb, var(--status-info) 13%, var(--surface-panel)); color: var(--status-info); }
+.status { color: var(--status-success); }
+.disabled { color: var(--action-danger); }
+.actions { display: flex; justify-content: flex-end; gap: 6px; }
+.ownerNote { display: inline-flex; align-items: center; gap: 6px; color: var(--text-tertiary); font-size: 12px; letter-spacing: 0; }
+.empty { display: grid; min-height: 280px; place-content: center; justify-items: center; gap: 9px; color: var(--text-tertiary); }
+.empty strong { color: var(--text-primary); }
+.empty span { color: var(--text-tertiary); font-size: 13px; letter-spacing: 0; }
+.dialog { position: fixed; z-index: 101; top: 50%; left: 50%; display: grid; width: min(520px, calc(100vw - 28px)); max-height: calc(100dvh - 28px); overflow: auto; gap: 14px; padding: 24px; border: 1px solid var(--border-default); border-radius: var(--radius-lg); background: var(--surface-panel); box-shadow: 0 30px 90px rgb(0 0 0 / 28%); transform: translate(-50%, -50%); }
+.dialogIcon { display: grid; width: 44px; height: 44px; place-items: center; border-radius: 13px; background: color-mix(in srgb, var(--action-primary) 12%, var(--surface-muted)); color: var(--action-primary); }
+.dialog h2 { margin: 0; font-size: 22px; }
+.dialog p { margin: 0; color: var(--text-secondary); font-size: 14px; line-height: 1.7; }
+.dialog code { overflow-wrap: anywhere; padding: 12px; border-radius: var(--radius-sm); background: var(--surface-muted); color: var(--text-primary); font-size: 12px; line-height: 1.6; }
+@media (max-width: 760px) { .header, .toolbar { align-items: stretch; flex-direction: column; } .summary { width: fit-content; } .toolbar label { width: 100%; } }

@@ -39,7 +39,7 @@ export default function RegisterPage() {
         })
       });
       clearStoredWorkspaceId();
-      window.location.replace("/onboarding");
+      window.location.replace("/?welcome=1");
     } catch (requestError) {
       setError(requestError instanceof ApiError ? requestError.message : "注册失败");
     } finally {

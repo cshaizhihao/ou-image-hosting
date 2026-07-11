@@ -118,6 +118,15 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+.app-access-loading {
+  display: grid;
+  min-height: 100dvh;
+  place-content: center;
+  background: var(--surface-canvas);
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
 button,
 input {
   font: inherit;
@@ -4816,6 +4825,7 @@ kbd {
   display: grid;
   gap: 9px;
   min-width: 0;
+  overflow: hidden;
   padding: 9px;
   border: 1px solid var(--border-default);
   border-radius: 18px;
@@ -4846,12 +4856,45 @@ kbd {
 }
 
 .public-user-library__card img {
+  display: block;
+  min-width: 0;
   width: 100%;
+  height: auto;
   aspect-ratio: 4 / 3;
   border-radius: 13px;
   object-fit: cover;
   background: var(--surface-muted);
 }
+
+.public-account-menu {
+  position: relative;
+}
+
+.public-account-menu summary {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 11px 5px 6px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-panel);
+  color: var(--text-primary);
+  cursor: pointer;
+  list-style: none;
+}
+
+.public-account-menu summary::-webkit-details-marker { display: none; }
+.public-account-menu summary > span { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 9px; background: var(--text-primary); color: var(--surface-panel); font-size: 11px; font-weight: 800; }
+.public-account-menu summary strong { max-width: 150px; overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.public-account-menu > div { position: absolute; z-index: 20; top: calc(100% + 8px); right: 0; display: grid; width: min(260px, calc(100vw - 36px)); overflow: hidden; padding: 7px; border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--surface-panel); box-shadow: 0 22px 60px rgb(20 18 18 / 18%); }
+.public-account-menu header { display: grid; gap: 2px; padding: 9px 10px 11px; border-bottom: 1px solid var(--border-subtle); }
+.public-account-menu header strong, .public-account-menu header small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.public-account-menu header strong { font-size: 14px; }
+.public-account-menu header small { color: var(--text-tertiary); font-size: 12px; }
+.public-account-menu a, .public-account-menu button { display: flex; min-height: 40px; align-items: center; gap: 9px; padding: 0 10px; border: 0; border-radius: 9px; background: transparent; color: var(--text-primary); cursor: pointer; font: inherit; font-size: 13px; text-decoration: none; }
+.public-account-menu a:hover, .public-account-menu button:hover { background: var(--surface-hover); }
+.public-account-menu a:focus-visible, .public-account-menu button:focus-visible, .public-account-menu summary:focus-visible { outline: 2px solid var(--action-primary); outline-offset: 2px; }
 
 .public-user-library__card strong,
 .public-user-library__card small {

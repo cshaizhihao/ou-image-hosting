@@ -13,6 +13,7 @@ export function generateStaticParams() {
     "storage",
     "analytics",
     "team",
+    "users",
     "tokens",
     "audit",
     "settings",

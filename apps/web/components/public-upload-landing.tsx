@@ -9,12 +9,15 @@ import {
   ExternalLink,
   ImageIcon,
   Images,
+  LayoutDashboard,
   LockKeyhole,
+  LogOut,
   Moon,
   ShieldCheck,
   Sparkles,
   Sun,
   UploadCloud,
+  UserRound,
   X
 } from "lucide-react";
 import Link from "next/link";
@@ -95,6 +98,15 @@ const fallbackConfig: PublicConfig = {
 
 type SessionStatus = {
   authenticated: boolean;
+  user?: {
+    displayName: string;
+    email: string;
+    role: "owner" | "member";
+  };
+  backoffice?: {
+    allowed: boolean;
+    role: "owner" | "admin" | "member";
+  };
 };
 
 async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -217,8 +229,15 @@ export function PublicUploadLanding() {
       try {
         const [payload, sessionPayload] = await Promise.all([
           apiJson<PublicConfig>("/public/config"),
-          apiJson<{ user: unknown }>("/auth/session")
-            .then(() => ({ authenticated: true }))
+          apiJson<{
+            user: NonNullable<SessionStatus["user"]>;
+            backoffice?: SessionStatus["backoffice"];
+          }>("/auth/session")
+            .then((payload) => ({
+              authenticated: true as const,
+              user: payload.user,
+              backoffice: payload.backoffice
+            }))
             .catch(() => ({ authenticated: false }))
         ]);
         if (!alive) return;
@@ -503,12 +522,41 @@ export function PublicUploadLanding() {
           >
             {dark ? <Sun aria-hidden="true" size={18} /> : <Moon aria-hidden="true" size={18} />}
           </button>
-          <Button asChild variant="secondary">
-            <Link href="/login">
-              <LockKeyhole aria-hidden="true" size={16} />
-              登录
-            </Link>
-          </Button>
+          {session.authenticated && session.user ? (
+            <details className="public-account-menu">
+              <summary>
+                <span>{session.user.displayName.slice(0, 2).toUpperCase()}</span>
+                <strong>{session.user.displayName}</strong>
+              </summary>
+              <div>
+                <header>
+                  <strong>{session.user.displayName}</strong>
+                  <small>{session.user.email}</small>
+                </header>
+                <a href="#my-uploads"><Images size={16} />我的上传</a>
+                {session.backoffice?.allowed && (
+                  <Link href="/overview"><LayoutDashboard size={16} />进入后台</Link>
+                )}
+                <button
+                  onClick={() => {
+                    void apiJson("/auth/logout", { method: "POST" }).finally(() => {
+                      window.location.replace("/");
+                    });
+                  }}
+                  type="button"
+                >
+                  <LogOut size={16} />退出登录
+                </button>
+              </div>
+            </details>
+          ) : (
+            <Button asChild variant="secondary">
+              <Link href="/login">
+                <LockKeyhole aria-hidden="true" size={16} />
+                登录
+              </Link>
+            </Button>
+          )}
         </div>
       </header>
 
@@ -710,7 +758,7 @@ export function PublicUploadLanding() {
       )}
 
       {session.authenticated && personalImages.length > 0 && (
-        <section className="public-user-library" aria-label="我的上传历史">
+        <section className="public-user-library" aria-label="我的上传历史" id="my-uploads">
           <div className="public-user-library__head">
             <div>
               <span>MY UPLOADS</span>
@@ -753,7 +801,7 @@ export function PublicUploadLanding() {
                 />
                 <img alt={image.name} loading="lazy" src={image.thumbnailUrl} />
                 <span>
-                  <strong>{image.name}</strong>
+                  <strong title={image.name}>{image.name}</strong>
                   <small>{image.publicVisible ? "正在公共图床展示" : "仅自己可见"}</small>
                 </span>
               </label>

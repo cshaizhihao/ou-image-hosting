@@ -24,7 +24,8 @@ const bootstrap: SessionBootstrap = {
     { id: "a", name: "主工作区", role: "owner" },
     { id: "b", name: "共享工作区", role: "viewer" }
   ],
-  defaultWorkspace: { id: "a", name: "主工作区", role: "owner" }
+  defaultWorkspace: { id: "a", name: "主工作区", role: "owner" },
+  backoffice: { allowed: true, role: "owner", workspaceId: "a" }
 };
 
 describe("overview model", () => {

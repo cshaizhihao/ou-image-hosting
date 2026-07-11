@@ -21,7 +21,12 @@ const bootstrap: SessionBootstrap = {
     { id: "workspace-a", name: "A", role: "owner" },
     { id: "workspace-b", name: "B", role: "viewer" }
   ],
-  defaultWorkspace: { id: "workspace-a", name: "A", role: "owner" }
+  defaultWorkspace: { id: "workspace-a", name: "A", role: "owner" },
+  backoffice: {
+    allowed: true,
+    role: "owner",
+    workspaceId: "workspace-a"
+  }
 };
 
 describe("shell session snapshot", () => {

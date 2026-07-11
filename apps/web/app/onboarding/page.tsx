@@ -49,6 +49,10 @@ export default function OnboardingPage() {
     }>("/auth/session")
       .then((payload) => {
         const bootstrap = normalizeSessionBootstrap(payload);
+        if (bootstrap.user.role !== "owner") {
+          window.location.replace("/?signedIn=1");
+          return;
+        }
         setStoredWorkspaceId(bootstrap.defaultWorkspace.id);
         setUser(bootstrap.user);
         setTheme(bootstrap.user.theme);

@@ -150,7 +150,7 @@ describe("OU-Image API", () => {
     expect(ready.statusCode).toBe(200);
     expect(ready.json()).toMatchObject({
       status: "ready",
-      schemaVersion: 7
+      schemaVersion: 8
     });
     expect(
       (await readdir(dataDirectory)).some((name) =>
@@ -333,6 +333,173 @@ describe("OU-Image API", () => {
     expect(duplicate.statusCode).toBe(409);
     expect(login.statusCode).toBe(401);
     expect(login.json().error.code).toBe("INVALID_CREDENTIALS");
+  });
+
+  it("keeps registered members on public capabilities until the owner grants backoffice access", async () => {
+    const app = await createTestApp();
+    const setup = await app.inject({
+      method: "POST",
+      url: "/setup",
+      payload: { ...owner, registrationEnabled: true }
+    });
+    const ownerCookie = setup.cookies.find(
+      (item) => item.name === "ou_session"
+    )!;
+    const ownerCookies = { ou_session: ownerCookie.value };
+    const registration = await app.inject({
+      method: "POST",
+      url: "/auth/register",
+      payload: {
+        displayName: "普通用户",
+        email: "public-member@example.com",
+        password: "Public-Member-2026!"
+      }
+    });
+    const memberCookie = registration.cookies.find(
+      (item) => item.name === "ou_session"
+    )!;
+    const memberCookies = { ou_session: memberCookie.value };
+    const memberId = registration.json().user.id as string;
+
+    const memberSession = await app.inject({
+      method: "GET",
+      url: "/auth/session",
+      cookies: memberCookies
+    });
+    expect(memberSession.json()).toMatchObject({
+      user: { role: "member" },
+      backoffice: { allowed: false, role: "member" }
+    });
+    expect(
+      (
+        await app.inject({
+          method: "GET",
+          url: "/uploads?limit=1",
+          cookies: memberCookies
+        })
+      ).statusCode
+    ).toBe(200);
+
+    const deniedRequests = await Promise.all([
+      app.inject({
+        method: "POST",
+        url: "/workspaces",
+        cookies: memberCookies,
+        payload: { name: "不应创建" }
+      }),
+      app.inject({ method: "GET", url: "/api-tokens", cookies: memberCookies }),
+      app.inject({ method: "GET", url: "/audit", cookies: memberCookies }),
+      app.inject({
+        method: "GET",
+        url: "/workspace/settings",
+        cookies: memberCookies
+      }),
+      app.inject({ method: "GET", url: "/site/settings", cookies: memberCookies })
+    ]);
+    expect(deniedRequests.map((response) => response.statusCode)).toEqual([
+      403, 403, 403, 403, 403
+    ]);
+    const onboarding = await app.inject({
+      method: "PATCH",
+      url: "/me",
+      cookies: memberCookies,
+      payload: { onboardingCompleted: true }
+    });
+    expect(onboarding.statusCode).toBe(403);
+
+    const users = await app.inject({
+      method: "GET",
+      url: "/site/users",
+      cookies: ownerCookies
+    });
+    expect(users.json().users).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: memberId,
+          email: "public-member@example.com",
+          backofficeRole: "member",
+          status: "active"
+        })
+      ])
+    );
+    expect(JSON.stringify(users.json())).not.toContain("passwordHash");
+
+    const ownerSession = await app.inject({
+      method: "GET",
+      url: "/auth/session",
+      cookies: ownerCookies
+    });
+    const backofficeWorkspaceId = ownerSession.json().backoffice
+      .workspaceId as string;
+    const promoted = await app.inject({
+      method: "PATCH",
+      url: `/site/users/${memberId}/backoffice-role`,
+      cookies: ownerCookies,
+      payload: { role: "admin" }
+    });
+    expect(promoted.statusCode).toBe(200);
+
+    const adminLogin = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: {
+        email: "public-member@example.com",
+        password: "Public-Member-2026!"
+      }
+    });
+    const adminCookie = adminLogin.cookies.find(
+      (item) => item.name === "ou_session"
+    )!;
+    const adminSession = await app.inject({
+      method: "GET",
+      url: "/auth/session",
+      cookies: { ou_session: adminCookie.value }
+    });
+    expect(adminSession.json()).toMatchObject({
+      backoffice: {
+        allowed: true,
+        role: "admin",
+        workspaceId: backofficeWorkspaceId
+      },
+      defaultWorkspace: { id: backofficeWorkspaceId, role: "admin" }
+    });
+    const adminAudit = await app.inject({
+      method: "GET",
+      url: "/audit",
+      cookies: { ou_session: adminCookie.value },
+      headers: { "x-workspace-id": backofficeWorkspaceId }
+    });
+    expect(adminAudit.statusCode).toBe(200);
+
+    const reset = await app.inject({
+      method: "POST",
+      url: `/site/users/${memberId}/password-reset`,
+      cookies: ownerCookies
+    });
+    expect(reset.statusCode).toBe(200);
+    expect(reset.json().resetUrl).toContain("/reset-password?token=");
+    expect(reset.json().passwordHash).toBeUndefined();
+
+    const ownerCannotDisable = await app.inject({
+      method: "PATCH",
+      url: `/site/users/${setup.json().user.id}/status`,
+      cookies: ownerCookies,
+      payload: { disabled: true }
+    });
+    expect(ownerCannotDisable.statusCode).toBe(409);
+    const disabled = await app.inject({
+      method: "PATCH",
+      url: `/site/users/${memberId}/status`,
+      cookies: ownerCookies,
+      payload: { disabled: true }
+    });
+    expect(disabled.statusCode).toBe(200);
+    const revokedSession = await app.inject({
+      method: "GET",
+      url: "/auth/session",
+      cookies: { ou_session: adminCookie.value }
+    });
+    expect([401, 403]).toContain(revokedSession.statusCode);
   });
 
   it("returns sanitized validation errors for invalid setup requests", async () => {
@@ -721,7 +888,7 @@ describe("OU-Image API", () => {
     expect(summary.json().count).toBe(1);
   });
 
-  it("migrates schema v4 into workspace schema v7", async () => {
+  it("migrates schema v4 into workspace schema v8", async () => {
     const dataDirectory = await mkdtemp(
       path.join(tmpdir(), "ou-image-store-migration-")
     );
@@ -780,7 +947,7 @@ describe("OU-Image API", () => {
     const store = new AppStore(filePath);
     await store.initialize();
     const state = store.snapshot();
-    expect(state.schemaVersion).toBe(7);
+    expect(state.schemaVersion).toBe(8);
     expect(state.imageShares).toEqual([]);
     expect(state.albums).toEqual([]);
     expect(state.tags).toEqual([]);
@@ -2181,7 +2348,7 @@ describe("OU-Image API", () => {
     );
     expect(envelope).toMatchObject({
       format: "ou-image-backup-v1",
-      state: { schemaVersion: 7 }
+      state: { schemaVersion: 8 }
     });
     expect(envelope.manifest.files).toHaveLength(2);
 
@@ -2989,7 +3156,7 @@ describe("OU-Image API", () => {
       cookies: { ou_session: "settings-viewer-session" },
       payload: { locale: "zh-CN" }
     });
-    expect(viewerRead.statusCode).toBe(200);
+    expect(viewerRead.statusCode).toBe(403);
     expect(viewerWrite.statusCode).toBe(403);
 
     const site = await app.inject({
@@ -3475,7 +3642,7 @@ describe("OU-Image API", () => {
     expect(completedRetry.json().error.code).toBe("JOB_NOT_FAILED");
   });
 
-  it("normalizes hostile schema v6 fields into bounded schema v7 state", async () => {
+  it("normalizes hostile schema v6 fields into bounded schema v8 state", async () => {
     const directory = await mkdtemp(
       path.join(tmpdir(), "ou-image-v7-migration-")
     );
@@ -3764,7 +3931,7 @@ describe("OU-Image API", () => {
     const store = new AppStore(filePath);
     await store.initialize();
     const state = store.snapshot();
-    expect(state.schemaVersion).toBe(7);
+    expect(state.schemaVersion).toBe(8);
     expect(state.site).toMatchObject({
       siteName: "OU-Image Hosting",
       registrationEnabled: false
@@ -4446,7 +4613,7 @@ describe("OU-Image API", () => {
         cookies: { ou_session: `csv-${role}-session` }
       });
       expect(deniedRole.statusCode).toBe(403);
-      expect(deniedRole.json().error.code).toBe("INSUFFICIENT_ROLE");
+      expect(deniedRole.json().error.code).toBe("BACKOFFICE_ACCESS_DENIED");
     }
 
     const token = await app.inject({
@@ -4581,7 +4748,7 @@ describe("OU-Image API", () => {
     expect(JSON.stringify(regenerationAudit)).not.toContain(secondCode);
   });
 
-  it("restores legacy v5 backup state through the v7 migration", async () => {
+  it("restores legacy v5 backup state through the v8 migration", async () => {
     const store = new AppStore(null);
     let dataDirectory = "";
     const app = await createTestApp({
@@ -4669,7 +4836,7 @@ describe("OU-Image API", () => {
     });
     expect(restored.statusCode).toBe(200);
     const state = store.snapshot();
-    expect(state.schemaVersion).toBe(7);
+    expect(state.schemaVersion).toBe(8);
     expect(state.workspaces).toHaveLength(1);
     expect(state.workspaceMembers[0]).toMatchObject({ role: "owner" });
     expect(state.users[0]).toMatchObject({
