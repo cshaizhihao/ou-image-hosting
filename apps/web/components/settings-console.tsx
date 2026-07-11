@@ -82,6 +82,7 @@ import {
   applySiteAppearance,
   storedThemePreference,
   useFallbackLogo,
+  writeStoredSiteBranding,
   type AccentPreset,
   type PublicFeatureIcon
 } from "@/lib/site-branding";
@@ -93,6 +94,7 @@ type SettingsSection =
   | "sessions"
   | "workspace"
   | "site"
+  | "appearance"
   | "processing";
 
 const settingsSections: Array<{
@@ -105,7 +107,8 @@ const settingsSections: Array<{
   { id: "notifications", label: "通知", icon: BellRing },
   { id: "sessions", label: "活跃会话", icon: MonitorSmartphone },
   { id: "workspace", label: "工作区", icon: Users },
-  { id: "site", label: "站点外观", icon: Globe2 },
+  { id: "site", label: "站点设置", icon: Globe2 },
+  { id: "appearance", label: "站点外观", icon: Palette },
   { id: "processing", label: "图片处理", icon: SlidersHorizontal }
 ];
 
@@ -498,6 +501,7 @@ export function SettingsConsole() {
     try {
       const updated = await updateSiteSettings(siteSettings);
       setSiteSettings(updated);
+      writeStoredSiteBranding(updated);
       applySiteAppearance(
         updated,
         storedThemePreference(window.localStorage.getItem("ou-theme"))
@@ -516,6 +520,7 @@ export function SettingsConsole() {
     try {
       const updated = await resetSiteBranding();
       setSiteSettings(updated);
+      writeStoredSiteBranding(updated);
       applySiteAppearance(
         updated,
         storedThemePreference(window.localStorage.getItem("ou-theme"))
@@ -1168,304 +1173,117 @@ export function SettingsConsole() {
                   <section className={styles.settingsCard}>
                     <div className={styles.settingsCardHead}>
                       <div>
-                        <strong>站点公开信息</strong>
-                        <span>仅站点 Owner 可读取和修改实例级设置。</span>
+                        <strong>站点设置</strong>
+                        <span>放置高频功能开关、公共上传、人机验证和公共图库规则。</span>
                       </div>
                       <Globe2 aria-hidden="true" size={19} />
                     </div>
-                    <div className={styles.formGrid}>
-                      <label className={styles.field}>
-                        <span><strong>站点名称</strong></span>
-                        <input
-                          className={styles.input}
-                          onChange={(event) =>
-                            setSiteSettings((current) =>
-                              current
-                                ? { ...current, siteName: event.target.value }
-                                : current
-                            )
-                          }
-                          value={siteSettings.siteName}
-                        />
-                      </label>
-                      <label className={cn(styles.field, styles.spanFull)}>
-                        <span>
-                          <strong>站点描述</strong>
-                          <small>用于登录页、分享页和站点元信息。</small>
-                        </span>
-                        <textarea
-                          className={styles.textarea}
-                          onChange={(event) =>
-                            setSiteSettings((current) =>
-                              current
-                                ? {
-                                    ...current,
-                                    siteDescription: event.target.value
-                                  }
-                                : current
-                            )
-                          }
-                          value={siteSettings.siteDescription}
-                        />
-                      </label>
-                      <label className={cn(styles.field, styles.spanFull)}>
-                        <span>
-                          <strong>站点 Logo 地址</strong>
-                          <small>支持站内路径或完整 HTTPS 图片地址。</small>
-                        </span>
-                        <div className={styles.brandLogoEditor}>
-                          <span className={styles.brandLogoPreview}>
-                            <img
-                              alt="当前站点 Logo 预览"
-                              onError={(event) => useFallbackLogo(event.currentTarget)}
-                              src={siteSettings.siteLogoUrl}
-                            />
-                          </span>
-                          <input
-                            className={styles.input}
-                            maxLength={500}
-                            onChange={(event) =>
-                              setSiteSettings((current) =>
-                                current
-                                  ? {
-                                      ...current,
-                                      siteLogoUrl: event.target.value
-                                    }
-                                  : current
-                              )
-                            }
-                            value={siteSettings.siteLogoUrl}
-                          />
+                    <div className={styles.preferenceList}>
+                      <div className={styles.preferenceRow}>
+                        <div>
+                          <strong>开放注册</strong>
+                          <span>允许新用户从公开入口创建账号。</span>
                         </div>
-                      </label>
-                      <div className={cn(styles.field, styles.spanFull)}>
-                        <span>
-                          <strong>访客默认外观</strong>
-                          <small>访客自己的显式选择会优先于这里的默认值。</small>
-                        </span>
-                        <div className={styles.themeChoices}>
-                          {(["light", "dark", "system"] as const).map((value) => (
-                            <button
-                              aria-pressed={siteSettings.theme === value}
-                              className={cn(
-                                siteSettings.theme === value && styles.themeChoiceActive
-                              )}
-                              key={value}
-                              onClick={() =>
-                                setSiteSettings((current) =>
-                                  current ? { ...current, theme: value } : current
-                                )
-                              }
-                              type="button"
-                            >
-                              <Palette aria-hidden="true" size={16} />
-                              {value === "light"
-                                ? "浅色"
-                                : value === "dark"
-                                  ? "深色"
-                                  : "跟随系统"}
-                            </button>
-                          ))}
+                        <button
+                          aria-label={siteSettings.registrationEnabled ? "关闭开放注册" : "开启开放注册"}
+                          aria-pressed={siteSettings.registrationEnabled}
+                          className={cn(styles.preferenceSwitch, siteSettings.registrationEnabled && styles.preferenceSwitchActive)}
+                          onClick={() => setSiteSettings((current) => current ? { ...current, registrationEnabled: !current.registrationEnabled } : current)}
+                          type="button"
+                        >
+                          <span />
+                        </button>
+                      </div>
+                      <div className={styles.preferenceRow}>
+                        <div>
+                          <strong>公共上传入口</strong>
+                          <span>关闭后，公共首页只展示站点与公共图库，不接受上传。</span>
                         </div>
+                        <button
+                          aria-label={siteSettings.publicUploadEnabled ? "关闭公共上传入口" : "开启公共上传入口"}
+                          aria-pressed={siteSettings.publicUploadEnabled}
+                          className={cn(styles.preferenceSwitch, siteSettings.publicUploadEnabled && styles.preferenceSwitchActive)}
+                          onClick={() => setSiteSettings((current) => current ? { ...current, publicUploadEnabled: !current.publicUploadEnabled } : current)}
+                          type="button"
+                        >
+                          <span />
+                        </button>
                       </div>
-                      <div className={cn(styles.field, styles.spanFull)}>
-                        <span>
-                          <strong>站点主题色</strong>
-                          <small>从经过设计校验的配色中选择，避免影响界面可读性。</small>
-                        </span>
-                        <div className={styles.accentChoices}>
-                          {accentPresets.map((preset) => (
-                            <button
-                              aria-pressed={siteSettings.accentPreset === preset.value}
-                              className={cn(
-                                siteSettings.accentPreset === preset.value &&
-                                  styles.accentChoiceActive
-                              )}
-                              key={preset.value}
-                              onClick={() =>
-                                setSiteSettings((current) =>
-                                  current
-                                    ? { ...current, accentPreset: preset.value }
-                                    : current
-                                )
-                              }
-                              type="button"
-                            >
-                              <span
-                                aria-hidden="true"
-                                className={styles.accentSwatch}
-                                data-accent-preview={preset.value}
-                              />
-                              {preset.label}
-                            </button>
-                          ))}
+                      <div className={styles.preferenceRow}>
+                        <div>
+                          <strong>上传需要登录</strong>
+                          <span>开启后，公共页仍可访问，但未登录访客不能上传图片。</span>
                         </div>
+                        <button
+                          aria-label={siteSettings.publicUploadRequiresLogin ? "关闭上传需要登录" : "开启上传需要登录"}
+                          aria-pressed={siteSettings.publicUploadRequiresLogin}
+                          className={cn(styles.preferenceSwitch, siteSettings.publicUploadRequiresLogin && styles.preferenceSwitchActive)}
+                          onClick={() => setSiteSettings((current) => current ? { ...current, publicUploadRequiresLogin: !current.publicUploadRequiresLogin } : current)}
+                          type="button"
+                        >
+                          <span />
+                        </button>
                       </div>
-                    </div>
-                    <div className={styles.preferenceRow}>
-                      <div>
-                        <strong>开放注册</strong>
-                        <span>允许新用户从公开入口创建账号。</span>
+                      <div className={styles.preferenceRow}>
+                        <div>
+                          <strong>访客简单人机验证</strong>
+                          <span>开启后，未登录访客每次上传前需要完成一道短时效算术题。</span>
+                        </div>
+                        <button
+                          aria-label={siteSettings.publicUploadHumanVerificationEnabled ? "关闭访客人机验证" : "开启访客人机验证"}
+                          aria-pressed={siteSettings.publicUploadHumanVerificationEnabled}
+                          className={cn(styles.preferenceSwitch, siteSettings.publicUploadHumanVerificationEnabled && styles.preferenceSwitchActive)}
+                          onClick={() => setSiteSettings((current) => current ? { ...current, publicUploadHumanVerificationEnabled: !current.publicUploadHumanVerificationEnabled } : current)}
+                          type="button"
+                        >
+                          <span />
+                        </button>
                       </div>
-                      <button
-                        aria-label={
-                          siteSettings.registrationEnabled
-                            ? "关闭开放注册"
-                            : "开启开放注册"
-                        }
-                        aria-pressed={siteSettings.registrationEnabled}
-                        className={cn(
-                          styles.preferenceSwitch,
-                          siteSettings.registrationEnabled &&
-                            styles.preferenceSwitchActive
-                        )}
-                        onClick={() =>
-                          setSiteSettings((current) =>
-                            current
-                              ? {
-                                  ...current,
-                                  registrationEnabled:
-                                    !current.registrationEnabled
-                                }
-                              : current
-                          )
-                        }
-                        type="button"
-                      >
-                        <span />
-                      </button>
-                    </div>
-                    <div className={styles.preferenceRow}>
-                      <div>
-                        <strong>公共上传入口</strong>
-                        <span>开启后，访客访问站点根地址即可看到上传入口。</span>
+                      <div className={styles.preferenceRow}>
+                        <div>
+                          <strong>公共图片展示</strong>
+                          <span>开启后，公开上传的图片会以缩略图瀑布流展示。</span>
+                        </div>
+                        <button
+                          aria-label={siteSettings.publicGalleryEnabled ? "关闭公共图片展示" : "开启公共图片展示"}
+                          aria-pressed={siteSettings.publicGalleryEnabled}
+                          className={cn(styles.preferenceSwitch, siteSettings.publicGalleryEnabled && styles.preferenceSwitchActive)}
+                          onClick={() => setSiteSettings((current) => current ? { ...current, publicGalleryEnabled: !current.publicGalleryEnabled } : current)}
+                          type="button"
+                        >
+                          <span />
+                        </button>
                       </div>
-                      <button
-                        aria-label={
-                          siteSettings.publicUploadEnabled
-                            ? "关闭公共上传入口"
-                            : "开启公共上传入口"
-                        }
-                        aria-pressed={siteSettings.publicUploadEnabled}
-                        className={cn(
-                          styles.preferenceSwitch,
-                          siteSettings.publicUploadEnabled &&
-                            styles.preferenceSwitchActive
-                        )}
-                        onClick={() =>
-                          setSiteSettings((current) =>
-                            current
-                              ? {
-                                  ...current,
-                                  publicUploadEnabled:
-                                    !current.publicUploadEnabled
-                                }
-                              : current
-                          )
-                        }
-                        type="button"
-                      >
-                        <span />
-                      </button>
-                    </div>
-                    <div className={styles.preferenceRow}>
-                      <div>
-                        <strong>上传需要登录</strong>
-                        <span>开启后，公共页仍可访问，但未登录访客不能上传图片。</span>
+                      <div className={styles.preferenceRow}>
+                        <div>
+                          <strong>默认公开展示</strong>
+                          <span>新上传默认勾选公开展示，用户上传时仍可手动取消。</span>
+                        </div>
+                        <button
+                          aria-label={siteSettings.publicUploadDefaultPublic ? "关闭默认公开展示" : "开启默认公开展示"}
+                          aria-pressed={siteSettings.publicUploadDefaultPublic}
+                          className={cn(styles.preferenceSwitch, siteSettings.publicUploadDefaultPublic && styles.preferenceSwitchActive)}
+                          onClick={() => setSiteSettings((current) => current ? { ...current, publicUploadDefaultPublic: !current.publicUploadDefaultPublic } : current)}
+                          type="button"
+                        >
+                          <span />
+                        </button>
                       </div>
-                      <button
-                        aria-label={
-                          siteSettings.publicUploadRequiresLogin
-                            ? "关闭上传需要登录"
-                            : "开启上传需要登录"
-                        }
-                        aria-pressed={siteSettings.publicUploadRequiresLogin}
-                        className={cn(
-                          styles.preferenceSwitch,
-                          siteSettings.publicUploadRequiresLogin &&
-                            styles.preferenceSwitchActive
-                        )}
-                        onClick={() =>
-                          setSiteSettings((current) =>
-                            current
-                              ? {
-                                  ...current,
-                                  publicUploadRequiresLogin:
-                                    !current.publicUploadRequiresLogin
-                                }
-                              : current
-                          )
-                        }
-                        type="button"
-                      >
-                        <span />
-                      </button>
-                    </div>
-                    <div className={styles.preferenceRow}>
-                      <div>
-                        <strong>访客简单人机验证</strong>
-                        <span>开启后，未登录访客每次上传前需要完成一道短时效算术题。</span>
+                      <div className={styles.preferenceRow}>
+                        <div>
+                          <strong>Live Photo 动态片段</strong>
+                          <span>开启后，公共上传可同时选择 iPhone 实况照片的 MOV 动态片段。</span>
+                        </div>
+                        <button
+                          aria-label={siteSettings.publicUploadLivePhotoEnabled ? "关闭 Live Photo 动态片段" : "开启 Live Photo 动态片段"}
+                          aria-pressed={siteSettings.publicUploadLivePhotoEnabled}
+                          className={cn(styles.preferenceSwitch, siteSettings.publicUploadLivePhotoEnabled && styles.preferenceSwitchActive)}
+                          onClick={() => setSiteSettings((current) => current ? { ...current, publicUploadLivePhotoEnabled: !current.publicUploadLivePhotoEnabled } : current)}
+                          type="button"
+                        >
+                          <span />
+                        </button>
                       </div>
-                      <button
-                        aria-label={
-                          siteSettings.publicUploadHumanVerificationEnabled
-                            ? "关闭访客人机验证"
-                            : "开启访客人机验证"
-                        }
-                        aria-pressed={siteSettings.publicUploadHumanVerificationEnabled}
-                        className={cn(
-                          styles.preferenceSwitch,
-                          siteSettings.publicUploadHumanVerificationEnabled &&
-                            styles.preferenceSwitchActive
-                        )}
-                        onClick={() =>
-                          setSiteSettings((current) =>
-                            current
-                              ? {
-                                  ...current,
-                                  publicUploadHumanVerificationEnabled:
-                                    !current.publicUploadHumanVerificationEnabled
-                                }
-                              : current
-                          )
-                        }
-                        type="button"
-                      >
-                        <span />
-                      </button>
-                    </div>
-                    <div className={styles.preferenceRow}>
-                      <div>
-                        <strong>Live Photo 动态片段</strong>
-                        <span>开启后，公共上传可同时选择 iPhone 实况照片的 MOV 动态片段；默认关闭，避免额外流量。</span>
-                      </div>
-                      <button
-                        aria-label={
-                          siteSettings.publicUploadLivePhotoEnabled
-                            ? "关闭 Live Photo 动态片段"
-                            : "开启 Live Photo 动态片段"
-                        }
-                        aria-pressed={siteSettings.publicUploadLivePhotoEnabled}
-                        className={cn(
-                          styles.preferenceSwitch,
-                          siteSettings.publicUploadLivePhotoEnabled &&
-                            styles.preferenceSwitchActive
-                        )}
-                        onClick={() =>
-                          setSiteSettings((current) =>
-                            current
-                              ? {
-                                  ...current,
-                                  publicUploadLivePhotoEnabled:
-                                    !current.publicUploadLivePhotoEnabled
-                                }
-                              : current
-                          )
-                        }
-                        type="button"
-                      >
-                        <span />
-                      </button>
                     </div>
                     <div className={styles.formGrid}>
                       {([
@@ -1485,10 +1303,7 @@ export function SettingsConsole() {
                                 current
                                   ? {
                                       ...current,
-                                      [key]: Math.min(
-                                        maximum,
-                                        Math.max(minimum, Number(event.target.value) || minimum)
-                                      )
+                                      [key]: Math.min(maximum, Math.max(minimum, Number(event.target.value) || minimum))
                                     }
                                   : current
                               )
@@ -1513,10 +1328,7 @@ export function SettingsConsole() {
                                 current
                                   ? {
                                       ...current,
-                                      [key]: Math.min(
-                                        1024 * 1024 * 1024 * 1024,
-                                        Math.max(1, Number(event.target.value) || 1) * 1024 * 1024
-                                      )
+                                      [key]: Math.min(1024 * 1024 * 1024 * 1024, Math.max(1, Number(event.target.value) || 1) * 1024 * 1024)
                                     }
                                   : current
                               )
@@ -1526,8 +1338,6 @@ export function SettingsConsole() {
                           />
                         </label>
                       ))}
-                    </div>
-                    <div className={styles.formGrid}>
                       <label className={cn(styles.field, styles.spanFull)}>
                         <span>
                           <strong>禁止指定 IP 上传</strong>
@@ -1575,387 +1385,336 @@ export function SettingsConsole() {
                         </div>
                       )}
                     </div>
-                    <div className={styles.preferenceRow}>
-                      <div>
-                        <strong>公共图片展示</strong>
-                        <span>开启后，公开上传的图片会以缩略图瀑布流展示。</span>
-                      </div>
-                      <button
-                        aria-label={
-                          siteSettings.publicGalleryEnabled
-                            ? "关闭公共图片展示"
-                            : "开启公共图片展示"
-                        }
-                        aria-pressed={siteSettings.publicGalleryEnabled}
-                        className={cn(
-                          styles.preferenceSwitch,
-                          siteSettings.publicGalleryEnabled &&
-                            styles.preferenceSwitchActive
+                    <div className={styles.cardActions}>
+                      <Button disabled={busy === "site-configuration"} onClick={() => void saveSiteConfiguration()}>
+                        {busy === "site-configuration" ? (
+                          <LoaderCircle className={styles.spin} size={16} />
+                        ) : (
+                          <Save aria-hidden="true" size={16} />
                         )}
-                        onClick={() =>
-                          setSiteSettings((current) =>
-                            current
-                              ? {
-                                  ...current,
-                                  publicGalleryEnabled:
-                                    !current.publicGalleryEnabled
-                                }
-                              : current
-                          )
-                        }
-                        type="button"
-                      >
-                        <span />
-                      </button>
+                        保存站点设置
+                      </Button>
                     </div>
-                    <div className={styles.preferenceRow}>
+                  </section>
+                )}
+              </>
+            )}
+
+            {section === "appearance" && (
+              <>
+                {profile?.siteRole === "owner" && siteSettings && (
+                  <section className={styles.settingsCard}>
+                    <div className={styles.settingsCardHead}>
                       <div>
-                        <strong>展示上传者</strong>
-                        <span>公共图库卡片和预览浮窗中显示上传用户名称。</span>
+                        <strong>站点外观</strong>
+                        <span>品牌、主题、公共页和登录页文案已拆成折叠分类，避免设置页继续瀑布流。</span>
                       </div>
-                      <button
-                        aria-label={
-                          siteSettings.publicGalleryShowUploader
-                            ? "关闭展示上传者"
-                            : "开启展示上传者"
-                        }
-                        aria-pressed={siteSettings.publicGalleryShowUploader}
-                        className={cn(
-                          styles.preferenceSwitch,
-                          siteSettings.publicGalleryShowUploader &&
-                            styles.preferenceSwitchActive
-                        )}
-                        onClick={() =>
-                          setSiteSettings((current) =>
-                            current
-                              ? {
-                                  ...current,
-                                  publicGalleryShowUploader:
-                                    !current.publicGalleryShowUploader
-                                }
-                              : current
-                          )
-                        }
-                        type="button"
-                      >
-                        <span />
-                      </button>
+                      <Palette aria-hidden="true" size={19} />
                     </div>
-                    <div className={styles.preferenceRow}>
-                      <div>
-                        <strong>展示文件名</strong>
-                        <span>关闭后，公共图库只展示图片，不暴露原始文件名。</span>
-                      </div>
-                      <button
-                        aria-label={
-                          siteSettings.publicGalleryShowFileName
-                            ? "关闭展示文件名"
-                            : "开启展示文件名"
-                        }
-                        aria-pressed={siteSettings.publicGalleryShowFileName}
-                        className={cn(
-                          styles.preferenceSwitch,
-                          siteSettings.publicGalleryShowFileName &&
-                            styles.preferenceSwitchActive
-                        )}
-                        onClick={() =>
-                          setSiteSettings((current) =>
-                            current
-                              ? {
-                                  ...current,
-                                  publicGalleryShowFileName:
-                                    !current.publicGalleryShowFileName
+
+                    <div className={styles.settingsAccordionGroup}>
+                      <details className={styles.settingsAccordion} open>
+                        <summary>
+                          <span>品牌基础</span>
+                          <small>站点名称、描述和 Logo。</small>
+                        </summary>
+                        <div className={styles.formGrid}>
+                          <label className={styles.field}>
+                            <span><strong>站点名称</strong></span>
+                            <input
+                              className={styles.input}
+                              onChange={(event) =>
+                                setSiteSettings((current) =>
+                                  current ? { ...current, siteName: event.target.value } : current
+                                )
+                              }
+                              value={siteSettings.siteName}
+                            />
+                          </label>
+                          <label className={cn(styles.field, styles.spanFull)}>
+                            <span>
+                              <strong>站点描述</strong>
+                              <small>用于登录页、分享页和站点元信息。</small>
+                            </span>
+                            <textarea
+                              className={styles.textarea}
+                              onChange={(event) =>
+                                setSiteSettings((current) =>
+                                  current
+                                    ? { ...current, siteDescription: event.target.value }
+                                    : current
+                                )
+                              }
+                              value={siteSettings.siteDescription}
+                            />
+                          </label>
+                          <label className={cn(styles.field, styles.spanFull)}>
+                            <span>
+                              <strong>站点 Logo 地址</strong>
+                              <small>支持站内路径或完整 HTTPS 图片地址，保持原图比例不变形。</small>
+                            </span>
+                            <div className={styles.brandLogoEditor}>
+                              <span className={styles.brandLogoPreview}>
+                                <img
+                                  alt="当前站点 Logo 预览"
+                                  onError={(event) => useFallbackLogo(event.currentTarget)}
+                                  src={siteSettings.siteLogoUrl}
+                                />
+                              </span>
+                              <input
+                                className={styles.input}
+                                maxLength={500}
+                                onChange={(event) =>
+                                  setSiteSettings((current) =>
+                                    current ? { ...current, siteLogoUrl: event.target.value } : current
+                                  )
                                 }
-                              : current
-                          )
-                        }
-                        type="button"
-                      >
-                        <span />
-                      </button>
-                    </div>
-                    <div className={styles.preferenceRow}>
-                      <div>
-                        <strong>展示上传时间</strong>
-                        <span>公共图库可显示上传日期，方便访客理解图片新旧。</span>
-                      </div>
-                      <button
-                        aria-label={
-                          siteSettings.publicGalleryShowUploadTime
-                            ? "关闭展示上传时间"
-                            : "开启展示上传时间"
-                        }
-                        aria-pressed={siteSettings.publicGalleryShowUploadTime}
-                        className={cn(
-                          styles.preferenceSwitch,
-                          siteSettings.publicGalleryShowUploadTime &&
-                            styles.preferenceSwitchActive
-                        )}
-                        onClick={() =>
-                          setSiteSettings((current) =>
-                            current
-                              ? {
-                                  ...current,
-                                  publicGalleryShowUploadTime:
-                                    !current.publicGalleryShowUploadTime
-                                }
-                              : current
-                          )
-                        }
-                        type="button"
-                      >
-                        <span />
-                      </button>
-                    </div>
-                    <div className={styles.preferenceRow}>
-                      <div>
-                        <strong>默认公开展示</strong>
-                        <span>访客上传时默认勾选“公开展示”，仍可手动取消。</span>
-                      </div>
-                      <button
-                        aria-label={
-                          siteSettings.publicUploadDefaultPublic
-                            ? "关闭默认公开展示"
-                            : "开启默认公开展示"
-                        }
-                        aria-pressed={siteSettings.publicUploadDefaultPublic}
-                        className={cn(
-                          styles.preferenceSwitch,
-                          siteSettings.publicUploadDefaultPublic &&
-                            styles.preferenceSwitchActive
-                        )}
-                        onClick={() =>
-                          setSiteSettings((current) =>
-                            current
-                              ? {
-                                  ...current,
-                                  publicUploadDefaultPublic:
-                                    !current.publicUploadDefaultPublic
-                                }
-                              : current
-                          )
-                        }
-                        type="button"
-                      >
-                        <span />
-                      </button>
-                    </div>
-                    <div className={styles.formGrid}>
-                      <label className={styles.field}>
-                        <span>
-                          <strong>公共首页标题</strong>
-                          <small>显示在访客上传页的主视觉区域。</small>
-                        </span>
-                        <input
-                          className={styles.input}
-                          maxLength={80}
-                          onChange={(event) =>
-                            setSiteSettings((current) =>
-                              current
-                                ? {
-                                    ...current,
-                                    publicHeroTitle: event.target.value
-                                  }
-                                : current
-                            )
-                          }
-                          value={siteSettings.publicHeroTitle}
-                        />
-                      </label>
-                      <label className={cn(styles.field, styles.spanFull)}>
-                        <span>
-                          <strong>公共首页说明</strong>
-                          <small>建议写清楚上传方式、公开展示和文件限制。</small>
-                        </span>
-                        <textarea
-                          className={styles.textarea}
-                          maxLength={260}
-                          onChange={(event) =>
-                            setSiteSettings((current) =>
-                              current
-                                ? {
-                                    ...current,
-                                    publicHeroDescription: event.target.value
-                                  }
-                                : current
-                            )
-                          }
-                          value={siteSettings.publicHeroDescription}
-                        />
-                      </label>
-                      <div className={cn(styles.field, styles.spanFull)}>
-                        <span>
-                          <strong>公共首页三枚卖点卡片</strong>
-                          <small>对应公共上传页左侧的小图标与说明，可选预置图标，不会重绘 Logo。</small>
-                        </span>
-                        <div className={styles.featureEditorGrid}>
-                          {siteSettings.publicFeatureCards.map((card, index) => {
-                            const CurrentIcon =
-                              publicFeatureIconOptions.find((item) => item.value === card.icon)?.icon ??
-                              ImageIcon;
-                            return (
-                              <article className={styles.featureEditorCard} key={index}>
-                                <div className={styles.featureEditorCardHead}>
-                                  <span>
-                                    <CurrentIcon aria-hidden="true" size={18} />
-                                  </span>
-                                  <strong>卖点 {index + 1}</strong>
-                                </div>
-                                <label className={styles.field}>
-                                  <span>
-                                    <strong>图标</strong>
-                                    <small>从克制的预置图标里选择。</small>
-                                  </span>
-                                  <select
-                                    className={styles.select}
-                                    onChange={(event) =>
-                                      setSiteSettings((current) =>
-                                        current
-                                          ? {
-                                              ...current,
-                                              publicFeatureCards:
-                                                current.publicFeatureCards.map((item, itemIndex) =>
-                                                  itemIndex === index
-                                                    ? {
-                                                        ...item,
-                                                        icon: event.target.value as PublicFeatureIcon
-                                                      }
-                                                    : item
-                                                )
-                                            }
-                                          : current
-                                      )
-                                    }
-                                    value={card.icon}
-                                  >
-                                    {publicFeatureIconOptions.map((item) => (
-                                      <option key={item.value} value={item.value}>
-                                        {item.label}
-                                      </option>
-                                    ))}
-                                  </select>
-                                </label>
-                                <label className={styles.field}>
-                                  <span>
-                                    <strong>标题</strong>
-                                    <small>建议 2-6 个字，保持轻巧。</small>
-                                  </span>
-                                  <input
-                                    className={styles.input}
-                                    maxLength={24}
-                                    onChange={(event) =>
-                                      setSiteSettings((current) =>
-                                        current
-                                          ? {
-                                              ...current,
-                                              publicFeatureCards:
-                                                current.publicFeatureCards.map((item, itemIndex) =>
-                                                  itemIndex === index
-                                                    ? { ...item, title: event.target.value }
-                                                    : item
-                                                )
-                                            }
-                                          : current
-                                      )
-                                    }
-                                    value={card.title}
-                                  />
-                                </label>
-                                <label className={styles.field}>
-                                  <span>
-                                    <strong>说明</strong>
-                                    <small>一句话说明这个站点的体验价值。</small>
-                                  </span>
-                                  <textarea
-                                    className={styles.textarea}
-                                    maxLength={80}
-                                    onChange={(event) =>
-                                      setSiteSettings((current) =>
-                                        current
-                                          ? {
-                                              ...current,
-                                              publicFeatureCards:
-                                                current.publicFeatureCards.map((item, itemIndex) =>
-                                                  itemIndex === index
-                                                    ? { ...item, description: event.target.value }
-                                                    : item
-                                                )
-                                            }
-                                          : current
-                                      )
-                                    }
-                                    value={card.description}
-                                  />
-                                </label>
-                              </article>
-                            );
-                          })}
+                                value={siteSettings.siteLogoUrl}
+                              />
+                            </div>
+                          </label>
                         </div>
-                      </div>
-                      <label className={styles.field}>
-                        <span>
-                          <strong>登录页英文标签</strong>
-                          <small>用于登录页左侧上方小标题。</small>
-                        </span>
-                        <input
-                          className={styles.input}
-                          maxLength={80}
-                          onChange={(event) =>
-                            setSiteSettings((current) =>
-                              current
-                                ? {
-                                    ...current,
-                                    loginEyebrow: event.target.value
+                      </details>
+
+                      <details className={styles.settingsAccordion} open>
+                        <summary>
+                          <span>主题颜色</span>
+                          <small>浅色、深色、跟随系统与主题色。</small>
+                        </summary>
+                        <div className={styles.formGrid}>
+                          <div className={cn(styles.field, styles.spanFull)}>
+                            <span>
+                              <strong>访客默认外观</strong>
+                              <small>访客自己的显式选择会优先于这里的默认值。</small>
+                            </span>
+                            <div className={styles.themeChoices}>
+                              {(["light", "dark", "system"] as const).map((value) => (
+                                <button
+                                  aria-pressed={siteSettings.theme === value}
+                                  className={cn(siteSettings.theme === value && styles.themeChoiceActive)}
+                                  key={value}
+                                  onClick={() =>
+                                    setSiteSettings((current) => current ? { ...current, theme: value } : current)
                                   }
-                                : current
-                            )
-                          }
-                          value={siteSettings.loginEyebrow}
-                        />
-                      </label>
-                      <label className={styles.field}>
-                        <span>
-                          <strong>登录页标题</strong>
-                          <small>换行会自动由页面排版处理。</small>
-                        </span>
-                        <input
-                          className={styles.input}
-                          maxLength={80}
-                          onChange={(event) =>
-                            setSiteSettings((current) =>
-                              current
-                                ? {
-                                    ...current,
-                                    loginHeroTitle: event.target.value
+                                  type="button"
+                                >
+                                  <Palette aria-hidden="true" size={16} />
+                                  {value === "light" ? "浅色" : value === "dark" ? "深色" : "跟随系统"}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                          <div className={cn(styles.field, styles.spanFull)}>
+                            <span>
+                              <strong>站点主题色</strong>
+                              <small>限制在设计系统内，避免把界面改得刺眼。</small>
+                            </span>
+                            <div className={styles.accentChoices}>
+                              {accentPresets.map((preset) => (
+                                <button
+                                  aria-pressed={siteSettings.accentPreset === preset.value}
+                                  className={cn(siteSettings.accentPreset === preset.value && styles.themeChoiceActive)}
+                                  data-accent-preview={preset.value}
+                                  key={preset.value}
+                                  onClick={() =>
+                                    setSiteSettings((current) =>
+                                      current ? { ...current, accentPreset: preset.value } : current
+                                    )
                                   }
-                                : current
-                            )
-                          }
-                          value={siteSettings.loginHeroTitle}
-                        />
-                      </label>
-                      <label className={cn(styles.field, styles.spanFull)}>
-                        <span>
-                          <strong>登录页说明</strong>
-                          <small>用于描述站点价值和管理体验。</small>
-                        </span>
-                        <textarea
-                          className={styles.textarea}
-                          maxLength={260}
-                          onChange={(event) =>
-                            setSiteSettings((current) =>
-                              current
-                                ? {
-                                    ...current,
-                                    loginHeroDescription: event.target.value
-                                  }
-                                : current
-                            )
-                          }
-                          value={siteSettings.loginHeroDescription}
-                        />
-                      </label>
+                                  type="button"
+                                >
+                                  <span className={styles.accentSwatch} data-accent-preview={preset.value} />
+                                  {preset.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </details>
+
+                      <details className={styles.settingsAccordion}>
+                        <summary>
+                          <span>公共首页</span>
+                          <small>公共上传页标题、说明和三张卖点卡片。</small>
+                        </summary>
+                        <div className={styles.formGrid}>
+                          <label className={styles.field}>
+                            <span>
+                              <strong>公共首页标题</strong>
+                              <small>用于访客上传首页的大标题。</small>
+                            </span>
+                            <input
+                              className={styles.input}
+                              maxLength={80}
+                              onChange={(event) =>
+                                setSiteSettings((current) =>
+                                  current ? { ...current, publicHeroTitle: event.target.value } : current
+                                )
+                              }
+                              value={siteSettings.publicHeroTitle}
+                            />
+                          </label>
+                          <label className={cn(styles.field, styles.spanFull)}>
+                            <span>
+                              <strong>公共首页说明</strong>
+                              <small>控制首页标题下方的说明文案。</small>
+                            </span>
+                            <textarea
+                              className={styles.textarea}
+                              maxLength={280}
+                              onChange={(event) =>
+                                setSiteSettings((current) =>
+                                  current
+                                    ? { ...current, publicHeroDescription: event.target.value }
+                                    : current
+                                )
+                              }
+                              value={siteSettings.publicHeroDescription}
+                            />
+                          </label>
+                          <div className={cn(styles.field, styles.spanFull)}>
+                            <span>
+                              <strong>首页卖点卡片</strong>
+                              <small>三张小卡片会展示在公共上传页左侧。</small>
+                            </span>
+                            <div className={styles.featureEditorGrid}>
+                              {siteSettings.publicFeatureCards.map((card, index) => {
+                                const Icon = publicFeatureIconOptions.find((option) => option.value === card.icon)?.icon ?? ImageIcon;
+                                return (
+                                  <article className={styles.featureEditorCard} key={index}>
+                                    <div className={styles.featureEditorCardHead}>
+                                      <span><Icon aria-hidden="true" size={17} />卡片 {index + 1}</span>
+                                      <select
+                                        className={styles.select}
+                                        onChange={(event) =>
+                                          setSiteSettings((current) =>
+                                            current
+                                              ? {
+                                                  ...current,
+                                                  publicFeatureCards: current.publicFeatureCards.map((item, itemIndex) =>
+                                                    itemIndex === index
+                                                      ? { ...item, icon: event.target.value as PublicFeatureIcon }
+                                                      : item
+                                                  )
+                                                }
+                                              : current
+                                          )
+                                        }
+                                        value={card.icon}
+                                      >
+                                        {publicFeatureIconOptions.map((option) => (
+                                          <option key={option.value} value={option.value}>{option.label}</option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                    <label className={styles.field}>
+                                      <span><strong>标题</strong></span>
+                                      <input
+                                        className={styles.input}
+                                        maxLength={24}
+                                        onChange={(event) =>
+                                          setSiteSettings((current) =>
+                                            current
+                                              ? {
+                                                  ...current,
+                                                  publicFeatureCards: current.publicFeatureCards.map((item, itemIndex) =>
+                                                    itemIndex === index ? { ...item, title: event.target.value } : item
+                                                  )
+                                                }
+                                              : current
+                                          )
+                                        }
+                                        value={card.title}
+                                      />
+                                    </label>
+                                    <label className={styles.field}>
+                                      <span><strong>说明</strong></span>
+                                      <textarea
+                                        className={styles.textarea}
+                                        maxLength={80}
+                                        onChange={(event) =>
+                                          setSiteSettings((current) =>
+                                            current
+                                              ? {
+                                                  ...current,
+                                                  publicFeatureCards: current.publicFeatureCards.map((item, itemIndex) =>
+                                                    itemIndex === index ? { ...item, description: event.target.value } : item
+                                                  )
+                                                }
+                                              : current
+                                          )
+                                        }
+                                        value={card.description}
+                                      />
+                                    </label>
+                                  </article>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+                      </details>
+
+                      <details className={styles.settingsAccordion}>
+                        <summary>
+                          <span>登录页文案</span>
+                          <small>登录页左侧品牌文案。</small>
+                        </summary>
+                        <div className={styles.formGrid}>
+                          <label className={styles.field}>
+                            <span>
+                              <strong>登录页英文标签</strong>
+                              <small>用于登录页左侧上方小标题。</small>
+                            </span>
+                            <input
+                              className={styles.input}
+                              maxLength={80}
+                              onChange={(event) =>
+                                setSiteSettings((current) =>
+                                  current ? { ...current, loginEyebrow: event.target.value } : current
+                                )
+                              }
+                              value={siteSettings.loginEyebrow}
+                            />
+                          </label>
+                          <label className={styles.field}>
+                            <span>
+                              <strong>登录页标题</strong>
+                              <small>换行会自动由页面排版处理。</small>
+                            </span>
+                            <input
+                              className={styles.input}
+                              maxLength={80}
+                              onChange={(event) =>
+                                setSiteSettings((current) =>
+                                  current ? { ...current, loginHeroTitle: event.target.value } : current
+                                )
+                              }
+                              value={siteSettings.loginHeroTitle}
+                            />
+                          </label>
+                          <label className={cn(styles.field, styles.spanFull)}>
+                            <span>
+                              <strong>登录页说明</strong>
+                              <small>用于描述站点价值和管理体验。</small>
+                            </span>
+                            <textarea
+                              className={styles.textarea}
+                              maxLength={260}
+                              onChange={(event) =>
+                                setSiteSettings((current) =>
+                                  current
+                                    ? { ...current, loginHeroDescription: event.target.value }
+                                    : current
+                                )
+                              }
+                              value={siteSettings.loginHeroDescription}
+                            />
+                          </label>
+                        </div>
+                      </details>
                     </div>
+
                     <div className={styles.cardActions}>
                       <Button
                         disabled={busy === "reset-branding"}
@@ -1972,9 +1731,7 @@ export function SettingsConsole() {
                           !siteSettings.siteLogoUrl.trim() ||
                           !siteSettings.publicHeroTitle.trim() ||
                           !siteSettings.publicHeroDescription.trim() ||
-                          siteSettings.publicFeatureCards.some(
-                            (card) => !card.title.trim() || !card.description.trim()
-                          ) ||
+                          siteSettings.publicFeatureCards.some((card) => !card.title.trim() || !card.description.trim()) ||
                           !siteSettings.loginEyebrow.trim() ||
                           !siteSettings.loginHeroTitle.trim() ||
                           !siteSettings.loginHeroDescription.trim()
@@ -1986,12 +1743,11 @@ export function SettingsConsole() {
                         ) : (
                           <Save aria-hidden="true" size={16} />
                         )}
-                        保存站点设置
+                        保存站点外观
                       </Button>
                     </div>
                   </section>
                 )}
-
               </>
             )}
 

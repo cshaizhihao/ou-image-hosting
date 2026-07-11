@@ -45,6 +45,7 @@ import {
   DEFAULT_PUBLIC_FEATURE_CARDS,
   DEFAULT_SITE_BRANDING,
   bindSiteAppearance,
+  hasStoredSiteBranding,
   readStoredSiteBranding,
   normalizeSiteBranding,
   storedThemePreference,
@@ -241,11 +242,13 @@ function publicDate(value?: string) {
 }
 
 export function PublicUploadLanding() {
+  const hasBrandingCache = hasStoredSiteBranding();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const wheelLockRef = useRef(false);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const [dark, setDark] = useState(false);
   const [config, setConfig] = useState<PublicConfig>(() => makeFallbackConfig());
+  const [configReady, setConfigReady] = useState(hasBrandingCache);
   const [session, setSession] = useState<SessionStatus>({ authenticated: false });
   const [gallery, setGallery] = useState<PublicImage[]>([]);
   const [galleryPreferences, setGalleryPreferences] = useState<GalleryPreferences>({
@@ -307,7 +310,7 @@ export function PublicUploadLanding() {
       !session.authenticated
   );
   const requiresHumanChallenge = Boolean(
-    site.publicUploadHumanVerificationEnabled && !session.authenticated
+    uploadEnabled && site.publicUploadHumanVerificationEnabled && !session.authenticated
   );
   const previewImage =
     previewIndex === null ? null : galleryItems.at(previewIndex) ?? null;
@@ -350,10 +353,17 @@ export function PublicUploadLanding() {
     const explicit = storedThemePreference(
       window.localStorage.getItem("ou-theme")
     );
+    if (!configReady) {
+      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      document.documentElement.dataset.theme = prefersDark ? "dark" : "light";
+      document.documentElement.dataset.accent = "neutral";
+      setDark(prefersDark);
+      return () => undefined;
+    }
     return bindSiteAppearance(site, explicit, (theme) =>
       setDark(theme === "dark")
     );
-  }, [site]);
+  }, [configReady, site]);
 
   const refreshPublicGallery = useCallback(async (fresh = false) => {
     if (!site.publicGalleryEnabled) {
@@ -426,6 +436,8 @@ export function PublicUploadLanding() {
               }
             : payload
         );
+        if (payload.site) writeStoredSiteBranding(payload.site);
+        setConfigReady(true);
         setSession(sessionPayload);
         setPublicVisible(
           payload.site?.publicUploadDefaultPublic ??
@@ -439,6 +451,7 @@ export function PublicUploadLanding() {
         }
       } catch (requestError) {
         if (alive) {
+          setConfigReady(true);
           setError(
             requestError instanceof Error
               ? requestError.message
@@ -561,7 +574,7 @@ export function PublicUploadLanding() {
   };
 
   const refreshHumanChallenge = useCallback(async () => {
-    if (!requiresHumanChallenge || !uploadEnabled) {
+    if (!requiresHumanChallenge) {
       setHumanChallenge(null);
       setHumanAnswer("");
       return;
@@ -594,7 +607,7 @@ export function PublicUploadLanding() {
     } finally {
       setHumanChallengeLoading(false);
     }
-  }, [requiresHumanChallenge, uploadEnabled]);
+  }, [requiresHumanChallenge]);
 
   useEffect(() => {
     void refreshHumanChallenge();
@@ -841,15 +854,15 @@ export function PublicUploadLanding() {
         <Link className="public-upload-brand" href="/">
           <span>
             <img
-              alt={`${site.siteName} Logo`}
+              alt={`${configReady ? site.siteName : "站点"} Logo`}
               height={46}
               onError={(event) => useFallbackLogo(event.currentTarget)}
               src={site.siteLogoUrl || fallbackConfig.site!.siteLogoUrl}
               width={46}
             />
           </span>
-          <strong>{site.siteName}</strong>
-          <small>{site.siteDescription || "欧记图床"}</small>
+          <strong>{configReady ? site.siteName : ""}</strong>
+          <small>{configReady ? site.siteDescription || "欧记图床" : "正在读取站点"}</small>
         </Link>
 
         <div>
@@ -900,12 +913,12 @@ export function PublicUploadLanding() {
       </header>
 
       <section className="public-upload-hero">
-        <div className="public-upload-copy">
-          <span className="public-upload-eyebrow">PUBLIC IMAGE DESK</span>
-          <h1>{site.publicHeroTitle}</h1>
-          <p>{site.publicHeroDescription}</p>
-          <div className="public-upload-benefits">
-            {featureCards.map((card, index) => {
+        <div className={cn("public-upload-copy", !configReady && "is-loading")}>
+          <span className="public-upload-eyebrow">{configReady ? "PUBLIC IMAGE DESK" : "LOADING IMAGE DESK"}</span>
+          <h1>{configReady ? site.publicHeroTitle : "正在准备公共上传入口"}</h1>
+          <p>{configReady ? site.publicHeroDescription : "请稍等一下，正在同步站点外观、上传规则和公共图库配置。"}</p>
+          <div className={cn("public-upload-benefits", !configReady && "public-upload-benefits--loading")}>
+            {(configReady ? featureCards : DEFAULT_PUBLIC_FEATURE_CARDS).map((card, index) => {
               const Icon = publicFeatureIcons[card.icon] ?? ImageIcon;
               return (
                 <span key={`${card.title}-${index}`}>

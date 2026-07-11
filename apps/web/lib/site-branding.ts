@@ -161,6 +161,15 @@ export function readStoredSiteBranding(): SiteBranding | null {
   }
 }
 
+export function hasStoredSiteBranding(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return Boolean(window.localStorage.getItem(SITE_BRANDING_STORAGE_KEY));
+  } catch {
+    return false;
+  }
+}
+
 export function writeStoredSiteBranding(value: unknown) {
   if (typeof window === "undefined") return;
   try {
@@ -203,7 +212,7 @@ export const siteAppearanceBootScript = `(() => {
         : "system";
     const accent = accents.has(branding.accentPreset)
       ? branding.accentPreset
-      : "coral";
+      : "neutral";
     const prefersDark = matchMedia("(prefers-color-scheme: dark)").matches;
     const effective = preference === "system" ? (prefersDark ? "dark" : "light") : preference;
     document.documentElement.dataset.theme = effective;

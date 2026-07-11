@@ -1038,6 +1038,64 @@
   border-top: 1px solid var(--border-default);
 }
 
+.settingsAccordionGroup {
+  display: grid;
+  gap: 10px;
+}
+
+.settingsAccordion {
+  overflow: hidden;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--surface-page);
+}
+
+.settingsAccordion summary {
+  display: flex;
+  min-height: 58px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 13px 14px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.settingsAccordion summary::-webkit-details-marker {
+  display: none;
+}
+
+.settingsAccordion summary::after {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 9px;
+  border-right: 2px solid var(--text-tertiary);
+  border-bottom: 2px solid var(--text-tertiary);
+  content: "";
+  transform: rotate(45deg);
+  transition: transform var(--motion-fast) var(--ease-out);
+}
+
+.settingsAccordion[open] summary::after {
+  transform: rotate(225deg);
+}
+
+.settingsAccordion summary > span {
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.settingsAccordion summary > small {
+  margin-left: auto;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.settingsAccordion > .formGrid {
+  padding: 0 14px 14px;
+}
+
 .actionGroup {
   display: flex;
   flex-wrap: wrap;

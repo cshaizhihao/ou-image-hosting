@@ -8,6 +8,7 @@ import {
   DEFAULT_SITE_BRANDING,
   bindSiteAppearance,
   getInitialSiteBranding,
+  hasStoredSiteBranding,
   normalizeSiteBranding,
   storedThemePreference,
   useFallbackLogo,
@@ -49,7 +50,7 @@ export function BrandLockup({
       </span>
       <span>
         <strong>{site.siteName}</strong>
-        <small>{site.siteDescription || "欧记图床"}</small>
+        <small>{site.siteDescription}</small>
       </span>
     </Link>
   );
@@ -64,15 +65,23 @@ export function AuthShell({
 }) {
   const [dark, setDark] = useState(false);
   const [site, setSite] = useState<AuthSite>(() => getInitialSiteBranding());
+  const [brandingReady, setBrandingReady] = useState(() => hasStoredSiteBranding());
 
   useEffect(() => {
     const explicit = storedThemePreference(
       window.localStorage.getItem("ou-theme")
     );
+    if (!brandingReady) {
+      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      document.documentElement.dataset.theme = prefersDark ? "dark" : "light";
+      document.documentElement.dataset.accent = "neutral";
+      setDark(prefersDark);
+      return () => undefined;
+    }
     return bindSiteAppearance(site, explicit, (theme) =>
       setDark(theme === "dark")
     );
-  }, [site]);
+  }, [brandingReady, site]);
 
   useEffect(() => {
     let alive = true;
@@ -81,16 +90,24 @@ export function AuthShell({
         const response = await fetch("/api/setup/status", {
           credentials: "same-origin"
         });
-        if (!response.ok) return;
+        if (!response.ok) {
+          setBrandingReady(true);
+          return;
+        }
         const payload = (await response.json()) as {
           site?: Partial<AuthSite> | null;
         };
-        if (!alive || !payload.site) return;
+        if (!alive) return;
+        if (!payload.site) {
+          setBrandingReady(true);
+          return;
+        }
         const nextSite = normalizeSiteBranding(payload.site);
         writeStoredSiteBranding(nextSite);
         setSite(nextSite);
+        setBrandingReady(true);
       } catch {
-        // 登录页文案读取失败时保持默认品牌文案。
+        setBrandingReady(true);
       }
     };
     void load();
@@ -106,6 +123,17 @@ export function AuthShell({
     document.documentElement.dataset.theme = next ? "dark" : "light";
   };
 
+  const displaySite = brandingReady
+    ? site
+    : {
+        ...site,
+        siteName: "",
+        siteDescription: "",
+        loginEyebrow: "",
+        loginHeroTitle: "",
+        loginHeroDescription: ""
+      };
+
   return (
     <main
       className={cn("auth-layout", mode === "install" && "auth-layout--install")}
@@ -117,7 +145,7 @@ export function AuthShell({
       </a>
       <section className="auth-story" aria-label="产品介绍">
         <div className="auth-story__top">
-          <BrandLockup site={site} />
+          <BrandLockup site={displaySite} />
           <button
             aria-label={dark ? "切换浅色模式" : "切换深色模式"}
             className="auth-theme-toggle"
@@ -128,10 +156,20 @@ export function AuthShell({
           </button>
         </div>
 
-        <div className="auth-story__content">
-          <span className="auth-eyebrow">{site.loginEyebrow}</span>
-          <h1>{site.loginHeroTitle}</h1>
-          <p>{site.loginHeroDescription}</p>
+        <div className={cn("auth-story__content", !brandingReady && "auth-story__content--loading")}>
+          {brandingReady ? (
+            <>
+              <span className="auth-eyebrow">{site.loginEyebrow}</span>
+              <h1>{site.loginHeroTitle}</h1>
+              <p>{site.loginHeroDescription}</p>
+            </>
+          ) : (
+            <div className="auth-branding-skeleton" aria-label="正在读取站点外观">
+              <span />
+              <strong />
+              <small />
+            </div>
+          )}
           <div className="auth-benefits">
             <div>
               <span><ImageIcon size={17} /></span>
@@ -148,12 +186,12 @@ export function AuthShell({
           </div>
         </div>
 
-        <p className="auth-story__footer">{site.siteName} · Built for your own space</p>
+        <p className="auth-story__footer">{brandingReady ? `${site.siteName} · Built for your own space` : "正在读取站点外观"}</p>
       </section>
 
       <section className="auth-panel">
         <div className="auth-panel__mobile-head">
-          <BrandLockup compact site={site} />
+          <BrandLockup compact site={displaySite} />
           <button
             aria-label={dark ? "切换浅色模式" : "切换深色模式"}
             className="auth-theme-toggle"
