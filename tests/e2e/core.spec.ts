@@ -13,11 +13,6 @@ test("键盘上传、图库、详情与公开分享核心流程", async ({
   await expectVisibleFocus(page);
 
   const chooserPromise = page.waitForEvent("filechooser");
-  const uploadResponsePromise = page.waitForResponse(
-    (response) =>
-      response.request().method() === "POST" &&
-      new URL(response.url()).pathname === "/api/uploads"
-  );
   await page.keyboard.press("Enter");
   const chooser = await chooserPromise;
   await chooser.setFiles({
@@ -25,6 +20,13 @@ test("键盘上传、图库、详情与公开分享核心流程", async ({
     mimeType: "image/jpeg",
     buffer: await imageFixture()
   });
+  await expect(page.getByDisplayValue(imageName)).toBeVisible();
+  const uploadResponsePromise = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      new URL(response.url()).pathname === "/api/uploads"
+  );
+  await page.getByRole("button", { name: "开始上传 1 张" }).click();
   const uploadResponse = await uploadResponsePromise;
   const uploadBody = await uploadResponse.text();
   expect(
