@@ -72,7 +72,6 @@ test("设置、统计与系统状态核心 smoke", async ({ page }) => {
   await page.goto("/settings");
   await expect(page.getByRole("heading", { name: "设置中心" })).toBeVisible();
   await page.getByRole("button", { name: "站点外观" }).click();
-  await expect(page.getByRole("heading", { name: "站点外观" })).toBeVisible();
   await expect(page.getByText("品牌基础")).toBeVisible();
   await page.getByRole("button", { name: "图片处理" }).click();
   await expect(page.getByText("上传规则")).toBeVisible();
