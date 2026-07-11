@@ -1293,12 +1293,13 @@
 
 .accentChoices button:hover,
 .accentChoices .accentChoiceActive {
-  border-color: var(--border-strong);
+  border-color: color-mix(in srgb, var(--action-primary) 62%, var(--border-default));
   color: var(--text-primary);
 }
 
 .accentChoices .accentChoiceActive {
-  box-shadow: inset 0 0 0 1px var(--border-strong);
+  background: color-mix(in srgb, var(--action-primary) 8%, var(--surface-page));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--action-primary) 44%, transparent);
 }
 
 .accentSwatch {
@@ -1769,45 +1770,70 @@
   white-space: nowrap;
 }
 
-.iconPickerPanel {
-  position: absolute;
-  z-index: 30;
-  top: calc(100% + 8px);
-  left: 0;
-  width: min(280px, calc(100vw - 48px));
-  padding: 12px;
+.iconPickerDialog {
+  position: fixed;
+  z-index: 95;
+  inset: 50% auto auto 50%;
+  width: min(420px, calc(100vw - 32px));
+  max-height: min(620px, calc(100dvh - 32px));
+  padding: 16px;
+  overflow: auto;
   border: 1px solid var(--border-default);
-  border-radius: 18px;
-  background: color-mix(in srgb, var(--surface-panel) 96%, var(--surface-page));
+  border-radius: var(--radius-lg);
+  outline: 0;
+  background: var(--surface-panel);
   box-shadow: var(--shadow-overlay);
-  animation: dialog-in var(--motion-fast) var(--ease-out);
+  transform: translate(-50%, -50%);
+  animation: dialog-in var(--motion-standard) var(--ease-out);
 }
 
-.iconPickerPanel > div:first-child {
+.iconPickerDialogHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.iconPickerDialogHead > div {
   display: grid;
-  gap: 2px;
-  margin-bottom: 10px;
+  gap: 3px;
 }
 
-.iconPickerPanel > div:first-child strong {
+.iconPickerDialogHead h2 {
+  margin: 0;
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: 17px;
 }
 
-.iconPickerPanel > div:first-child small {
+.iconPickerDialogHead p {
+  margin: 0;
   color: var(--text-tertiary);
-  font-size: 12px;
+  font-size: 13px;
 }
 
-.iconPickerPanel > div:last-child {
+.iconPickerDialogHead > button {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  place-items: center;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-page);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.iconPickerOptions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
 
-.iconPickerPanel button {
+.iconPickerOptions > button {
   display: grid;
-  min-height: 76px;
+  min-height: 92px;
   justify-items: center;
   gap: 6px;
   padding: 10px 8px;
@@ -1826,7 +1852,7 @@
     transform var(--motion-fast) var(--ease-out);
 }
 
-.iconPickerPanel button:hover,
+.iconPickerOptions > button:hover,
 .iconPickerOptionActive {
   border-color: color-mix(in srgb, var(--action-primary) 50%, var(--border-default));
   background: color-mix(in srgb, var(--action-primary) 12%, var(--surface-panel));
@@ -1834,14 +1860,20 @@
   transform: translateY(-1px);
 }
 
-.iconPickerPanel button > span {
+.iconPickerOptions > button > span {
   display: grid;
-  width: 34px;
-  height: 34px;
+  width: 42px;
+  height: 42px;
   place-items: center;
   border-radius: 12px;
   background: color-mix(in srgb, var(--action-primary) 12%, var(--surface-panel));
   color: var(--action-primary-hover);
+}
+
+@media (max-width: 480px) {
+  .iconPickerOptions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 1180px) {

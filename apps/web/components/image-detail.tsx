@@ -192,7 +192,15 @@ function escapeHtml(value: string) {
     .replaceAll(">", "&gt;");
 }
 
-export function ImageDetailView({ imageId }: { imageId: string }) {
+export function ImageDetailView({
+  imageId,
+  returnHref = "/library",
+  returnLabel = "返回图片库"
+}: {
+  imageId: string;
+  returnHref?: string;
+  returnLabel?: string;
+}) {
   const [image, setImage] = useState<ImageDetail | null>(null);
   const [albums, setAlbums] = useState<AlbumOption[]>([]);
   const [tags, setTags] = useState<TagOption[]>([]);
@@ -451,9 +459,9 @@ export function ImageDetailView({ imageId }: { imageId: string }) {
       <main className={cn("workspace-page", styles.page)}>
         <header className={styles.header}>
           <div>
-            <Link className={styles.back} href="/library">
+            <Link className={styles.back} href={returnHref}>
               <ArrowLeft size={16} />
-              返回图片库
+              {returnLabel}
             </Link>
             <span className={styles.eyebrow}>IMAGE DETAIL</span>
             <h1>{image?.name ?? "图片详情"}</h1>

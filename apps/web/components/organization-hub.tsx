@@ -926,7 +926,13 @@ function ImageCollection({
                 {selectedImages.has(image.id) && <Check size={14} />}
               </button>
             )}
-            <Link href={`/library/${image.id}`}>
+            <Link
+              href={
+                mode === "albums" && selectedAlbum
+                  ? `/library/${image.id}?albumId=${encodeURIComponent(selectedAlbum.id)}`
+                  : `/library/${image.id}`
+              }
+            >
               <img alt={image.name} src={image.thumbnailUrl} />
             </Link>
             <div>

@@ -1514,7 +1514,7 @@ export function SettingsConsole() {
                               {accentPresets.map((preset) => (
                                 <button
                                   aria-pressed={siteSettings.accentPreset === preset.value}
-                                  className={cn(siteSettings.accentPreset === preset.value && styles.themeChoiceActive)}
+                                  className={cn(siteSettings.accentPreset === preset.value && styles.accentChoiceActive)}
                                   data-accent-preview={preset.value}
                                   key={preset.value}
                                   onClick={() =>
@@ -1594,57 +1594,72 @@ export function SettingsConsole() {
                                         </div>
                                       </div>
                                       <div className={styles.iconPicker}>
-                                        <button
-                                          aria-expanded={pickerOpen}
-                                          aria-haspopup="listbox"
-                                          className={styles.iconPickerTrigger}
-                                          onClick={() => setFeatureIconPicker((current) => current === index ? null : index)}
-                                          type="button"
+                                        <Dialog.Root
+                                          onOpenChange={(open) => setFeatureIconPicker(open ? index : null)}
+                                          open={pickerOpen}
                                         >
-                                          <Icon aria-hidden="true" size={17} />
-                                          <span>{selectedOption.label}</span>
-                                        </button>
-                                        {pickerOpen && (
-                                          <div className={styles.iconPickerPanel} role="listbox">
-                                            <div>
-                                              <strong>选择卡片图标</strong>
-                                              <small>预览会同步到公共首页。</small>
-                                            </div>
-                                            <div>
-                                              {publicFeatureIconOptions.map((option) => {
-                                                const OptionIcon = option.icon;
-                                                const selected = option.value === card.icon;
-                                                return (
-                                                  <button
-                                                    aria-selected={selected}
-                                                    className={cn(selected && styles.iconPickerOptionActive)}
-                                                    key={option.value}
-                                                    onClick={() => {
-                                                      setSiteSettings((current) =>
-                                                        current
-                                                          ? {
-                                                              ...current,
-                                                              publicFeatureCards: current.publicFeatureCards.map((item, itemIndex) =>
-                                                                itemIndex === index
-                                                                  ? { ...item, icon: option.value }
-                                                                  : item
-                                                              )
-                                                            }
-                                                          : current
-                                                      );
-                                                      setFeatureIconPicker(null);
-                                                    }}
-                                                    role="option"
-                                                    type="button"
-                                                  >
-                                                    <span><OptionIcon aria-hidden="true" size={18} /></span>
-                                                    <strong>{option.label}</strong>
+                                          <Dialog.Trigger asChild>
+                                            <button
+                                              aria-expanded={pickerOpen}
+                                              className={styles.iconPickerTrigger}
+                                              type="button"
+                                            >
+                                              <Icon aria-hidden="true" size={17} />
+                                              <span>{selectedOption.label}</span>
+                                            </button>
+                                          </Dialog.Trigger>
+                                          <Dialog.Portal>
+                                            <Dialog.Overlay className="dialog-overlay" />
+                                            <Dialog.Content className={styles.iconPickerDialog}>
+                                              <div className={styles.iconPickerDialogHead}>
+                                                <div>
+                                                  <Dialog.Title>选择卡片图标</Dialog.Title>
+                                                  <Dialog.Description>
+                                                    选择后会立即显示在当前卡片预览中。
+                                                  </Dialog.Description>
+                                                </div>
+                                                <Dialog.Close asChild>
+                                                  <button aria-label="关闭图标选择" type="button">
+                                                    <X aria-hidden="true" size={18} />
                                                   </button>
-                                                );
-                                              })}
-                                            </div>
-                                          </div>
-                                        )}
+                                                </Dialog.Close>
+                                              </div>
+                                              <div className={styles.iconPickerOptions} role="listbox">
+                                                {publicFeatureIconOptions.map((option) => {
+                                                  const OptionIcon = option.icon;
+                                                  const selected = option.value === card.icon;
+                                                  return (
+                                                    <button
+                                                      aria-selected={selected}
+                                                      className={cn(selected && styles.iconPickerOptionActive)}
+                                                      key={option.value}
+                                                      onClick={() => {
+                                                        setSiteSettings((current) =>
+                                                          current
+                                                            ? {
+                                                                ...current,
+                                                                publicFeatureCards: current.publicFeatureCards.map((item, itemIndex) =>
+                                                                  itemIndex === index
+                                                                    ? { ...item, icon: option.value }
+                                                                    : item
+                                                                )
+                                                              }
+                                                            : current
+                                                        );
+                                                        setFeatureIconPicker(null);
+                                                      }}
+                                                      role="option"
+                                                      type="button"
+                                                    >
+                                                      <span><OptionIcon aria-hidden="true" size={20} /></span>
+                                                      <strong>{option.label}</strong>
+                                                    </button>
+                                                  );
+                                                })}
+                                              </div>
+                                            </Dialog.Content>
+                                          </Dialog.Portal>
+                                        </Dialog.Root>
                                       </div>
                                     </div>
                                     <label className={styles.field}>
