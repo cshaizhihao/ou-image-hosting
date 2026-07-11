@@ -28,11 +28,13 @@ type AlbumBody = {
   name: string;
   description?: string;
   coverImageId?: string;
+  coverMode?: "auto" | "none";
 };
 type AlbumPatchBody = {
   name?: string;
   description?: string;
   coverImageId?: string | null;
+  coverMode?: "auto" | "none";
 };
 type TagBody = { name: string; color: string };
 type TagPatchBody = { name?: string; color?: string };
@@ -99,7 +101,15 @@ function publicAlbum(
   state: AppState,
   timestamp: Date
 ) {
-  const cover = album.coverImageId
+  const albumImages = state.images
+    .filter(
+      (image) =>
+        image.workspaceId === album.workspaceId &&
+        !image.deletedAt &&
+        image.albumIds.includes(album.id)
+    )
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const customCover = album.coverImageId
     ? state.images.find(
         (image) =>
           image.id === album.coverImageId &&
@@ -107,20 +117,25 @@ function publicAlbum(
           !image.deletedAt
       )
     : undefined;
+  const cover =
+    album.coverMode === "none"
+      ? undefined
+      : customCover ?? albumImages[0];
+  const effectiveCoverMode = customCover
+    ? "custom"
+    : album.coverMode === "none"
+      ? "none"
+      : "auto";
   return {
     id: album.id,
     name: album.name,
     description: album.description,
     coverImageId: album.coverImageId,
+    coverMode: effectiveCoverMode,
     coverThumbnailUrl: cover
       ? buildDeliveryUrl(state, cover.id, "thumbnail", timestamp)
       : undefined,
-    imageCount: state.images.filter(
-      (image) =>
-        image.workspaceId === album.workspaceId &&
-        !image.deletedAt &&
-        image.albumIds.includes(album.id)
-    ).length,
+    imageCount: albumImages.length,
     createdAt: album.createdAt,
     updatedAt: album.updatedAt
   };
@@ -214,10 +229,18 @@ function findTag(state: AppState, id: string, workspaceId: string) {
 function validateCover(
   state: AppState,
   coverImageId: string | undefined,
-  workspaceId: string
+  workspaceId: string,
+  albumId?: string
 ) {
   if (coverImageId) {
-    findOwnedImage(state, coverImageId, workspaceId);
+    const image = findOwnedImage(state, coverImageId, workspaceId);
+    if (albumId && !image.albumIds.includes(albumId)) {
+      throw new PublicError(
+        400,
+        "ALBUM_COVER_NOT_IN_ALBUM",
+        "只能选择当前相册中的图片作为封面"
+      );
+    }
   }
 }
 
@@ -324,7 +347,8 @@ export function registerOrganizationRoutes(
               type: "string",
               minLength: 1,
               maxLength: 80
-            }
+            },
+            coverMode: { type: "string", enum: ["auto", "none"] }
           }
         }
       }
@@ -346,6 +370,9 @@ export function registerOrganizationRoutes(
         name: validateName(request.body.name, 60, "INVALID_ALBUM_NAME"),
         description: validateDescription(request.body.description),
         coverImageId: request.body.coverImageId,
+        coverMode: request.body.coverImageId
+          ? "custom"
+          : request.body.coverMode ?? "auto",
         createdAt: timestamp,
         updatedAt: timestamp
       };
@@ -376,7 +403,8 @@ export function registerOrganizationRoutes(
                 { type: "string", minLength: 1, maxLength: 80 },
                 { type: "null" }
               ]
-            }
+            },
+            coverMode: { type: "string", enum: ["auto", "none"] }
           }
         }
       }
@@ -395,7 +423,8 @@ export function registerOrganizationRoutes(
           validateCover(
             state,
             request.body.coverImageId,
-            principal.workspaceId
+            principal.workspaceId,
+            current.id
           );
         }
         if (request.body.name !== undefined) {
@@ -412,8 +441,14 @@ export function registerOrganizationRoutes(
         }
         if (request.body.coverImageId === null) {
           delete current.coverImageId;
+          current.coverMode = "none";
         } else if (request.body.coverImageId !== undefined) {
           current.coverImageId = request.body.coverImageId;
+          current.coverMode = "custom";
+        }
+        if (request.body.coverMode !== undefined) {
+          delete current.coverImageId;
+          current.coverMode = request.body.coverMode;
         }
         current.updatedAt = timestamp;
         return current;
@@ -890,6 +925,7 @@ export function registerOrganizationRoutes(
             ids.has(album.coverImageId)
           ) {
             delete album.coverImageId;
+            album.coverMode = "auto";
             album.updatedAt = timestamp;
           }
         });

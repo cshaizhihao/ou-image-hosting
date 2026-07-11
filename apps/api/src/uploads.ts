@@ -739,6 +739,16 @@ export async function registerUploadRoutes(
             if (request.body.action === "trash") {
               image.deletedAt = timestamp;
               image.updatedAt = timestamp;
+              state.albums.forEach((album) => {
+                if (
+                  album.workspaceId === principal.workspaceId &&
+                  album.coverImageId === image.id
+                ) {
+                  delete album.coverImageId;
+                  album.coverMode = "auto";
+                  album.updatedAt = timestamp;
+                }
+              });
               count += 1;
             } else if (request.body.action === "set-public-visibility") {
               if (image.publicVisible !== nextPublicVisible) {
@@ -777,6 +787,7 @@ export async function registerUploadRoutes(
                   );
                   if (album) {
                     delete album.coverImageId;
+                    album.coverMode = "auto";
                     album.updatedAt = timestamp;
                   }
                 });

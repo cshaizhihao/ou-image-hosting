@@ -197,6 +197,7 @@ export type StoredAlbum = {
   name: string;
   description: string;
   coverImageId?: string;
+  coverMode: "auto" | "custom" | "none";
   createdAt: string;
   updatedAt: string;
 };
@@ -1305,7 +1306,15 @@ export function migrateAppState(parsed: MigratableAppState): AppState {
     })),
     albums: (parsed.albums ?? []).map((album) => ({
       ...album,
-      workspaceId: album.workspaceId ?? `personal-${album.userId}`
+      workspaceId: album.workspaceId ?? `personal-${album.userId}`,
+      coverMode:
+        album.coverMode === "auto" ||
+        album.coverMode === "custom" ||
+        album.coverMode === "none"
+          ? album.coverMode
+          : album.coverImageId
+            ? "custom"
+            : "auto"
     })),
     tags: (parsed.tags ?? []).map((tag) => ({
       ...tag,

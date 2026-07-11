@@ -1385,7 +1385,7 @@ describe("OU-Image API", () => {
     });
     expect(album.statusCode).toBe(201);
     const albumId = album.json().album.id as string;
-    const updatedAlbum = await app.inject({
+    const outsideCover = await app.inject({
       method: "PATCH",
       url: `/albums/${albumId}`,
       cookies: ownerCookies,
@@ -1394,13 +1394,8 @@ describe("OU-Image API", () => {
         coverImageId: imageId
       }
     });
-    expect(updatedAlbum.json().album).toMatchObject({
-      id: albumId,
-      name: "产品视觉",
-      coverImageId: imageId,
-      coverThumbnailUrl: `/api/files/${imageId}/thumbnail`,
-      imageCount: 0
-    });
+    expect(outsideCover.statusCode).toBe(400);
+    expect(outsideCover.json().error.code).toBe("ALBUM_COVER_NOT_IN_ALBUM");
 
     const sourceTag = await app.inject({
       method: "POST",
@@ -1453,6 +1448,24 @@ describe("OU-Image API", () => {
       favorite: true,
       albumIds: [albumId],
       tagIds: [sourceTagId]
+    });
+
+    const updatedAlbum = await app.inject({
+      method: "PATCH",
+      url: `/albums/${albumId}`,
+      cookies: ownerCookies,
+      payload: {
+        name: "产品视觉",
+        coverImageId: imageId
+      }
+    });
+    expect(updatedAlbum.json().album).toMatchObject({
+      id: albumId,
+      name: "产品视觉",
+      coverImageId: imageId,
+      coverMode: "custom",
+      coverThumbnailUrl: `/api/files/${imageId}/thumbnail`,
+      imageCount: 1
     });
 
     const detail = await app.inject({
@@ -1521,6 +1534,7 @@ describe("OU-Image API", () => {
       cookies: ownerCookies
     });
     expect(albumsAfterRemove.json().albums[0].coverImageId).toBeUndefined();
+    expect(albumsAfterRemove.json().albums[0].coverMode).toBe("auto");
 
     const addedBackToAlbum = await app.inject({
       method: "POST",
@@ -1549,9 +1563,31 @@ describe("OU-Image API", () => {
     });
     expect(albums.json().albums[0]).toMatchObject({
       id: albumId,
-      imageCount: 1
+      imageCount: 1,
+      coverMode: "auto",
+      coverThumbnailUrl: `/api/files/${imageId}/thumbnail`
     });
     expect(albums.json().albums[0].coverImageId).toBeUndefined();
+    const blankCover = await app.inject({
+      method: "PATCH",
+      url: `/albums/${albumId}`,
+      cookies: ownerCookies,
+      payload: { coverMode: "none" }
+    });
+    expect(blankCover.json().album).toMatchObject({
+      coverMode: "none"
+    });
+    expect(blankCover.json().album.coverThumbnailUrl).toBeUndefined();
+    const automaticCover = await app.inject({
+      method: "PATCH",
+      url: `/albums/${albumId}`,
+      cookies: ownerCookies,
+      payload: { coverMode: "auto" }
+    });
+    expect(automaticCover.json().album).toMatchObject({
+      coverMode: "auto",
+      coverThumbnailUrl: `/api/files/${imageId}/thumbnail`
+    });
     expect(tags.json().tags).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
