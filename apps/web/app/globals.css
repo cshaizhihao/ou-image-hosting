@@ -2885,12 +2885,25 @@ kbd {
 
 .library-selection {
   display: flex;
-  min-height: 48px;
+  min-height: 52px;
   align-items: center;
   gap: 12px;
   margin: 12px 0;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: 13px;
+  transition:
+    background-color var(--motion-fast) var(--ease-out),
+    border-color var(--motion-fast) var(--ease-out),
+    box-shadow var(--motion-fast) var(--ease-out);
+}
+
+.library-selection.is-active {
+  border-color: color-mix(in srgb, var(--action-primary) 24%, var(--border-default));
+  background: color-mix(in srgb, var(--action-primary) 8%, var(--surface-panel));
+  box-shadow: 0 10px 30px rgb(20 20 20 / 6%);
 }
 
 .library-selection > button:first-child {
@@ -2911,6 +2924,19 @@ kbd {
   border: 1px solid var(--border-strong);
   border-radius: 5px;
   background: var(--surface-panel);
+}
+
+.library-selection > span {
+  display: inline-grid;
+  gap: 2px;
+  min-width: max-content;
+  font-weight: 700;
+}
+
+.library-selection > span small {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 600;
 }
 
 .library-selection > button.is-selected > span {
@@ -2963,7 +2989,16 @@ kbd {
 
 .library-item.is-selected {
   border-color: var(--action-primary);
-  box-shadow: inset 0 0 0 1px var(--action-primary);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--action-primary) 8%, transparent),
+      transparent 44%
+    ),
+    var(--surface-panel);
+  box-shadow:
+    inset 0 0 0 1px var(--action-primary),
+    0 14px 32px rgb(20 20 20 / 10%);
 }
 
 .library-item__check,
@@ -3025,6 +3060,41 @@ kbd {
   object-fit: cover;
 }
 
+.library-item__badges {
+  position: absolute;
+  z-index: 2;
+  right: 10px;
+  bottom: 74px;
+  left: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  pointer-events: none;
+}
+
+.library-item__badges span {
+  display: inline-flex;
+  min-height: 22px;
+  align-items: center;
+  border: 1px solid rgb(255 255 255 / 42%);
+  border-radius: 999px;
+  padding: 0 8px;
+  background: rgb(12 12 12 / 62%);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  backdrop-filter: blur(10px);
+}
+
+.library-item__badges span.is-public {
+  background: color-mix(in srgb, var(--status-success) 72%, rgb(12 12 12 / 70%));
+}
+
+.library-item__badges span.is-favorite {
+  background: color-mix(in srgb, var(--action-primary) 76%, rgb(12 12 12 / 70%));
+}
+
 .library-item__info {
   display: grid;
   gap: 2px;
@@ -3050,8 +3120,8 @@ kbd {
 
 .library-results.is-list .library-item {
   display: grid;
-  grid-template-columns: 72px minmax(0, 1fr) 40px;
-  min-height: 76px;
+  grid-template-columns: 72px minmax(0, 1fr) minmax(170px, auto) 40px;
+  min-height: 84px;
   align-items: center;
   border-width: 0 0 1px;
 }
@@ -3067,6 +3137,29 @@ kbd {
 .library-results.is-list .library-item__info {
   grid-template-columns: minmax(160px, 1.4fr) minmax(130px, 0.8fr) minmax(150px, 0.8fr);
   align-items: center;
+}
+
+.library-results.is-list .library-item__badges {
+  position: static;
+  display: flex;
+  justify-content: flex-end;
+  padding-right: 80px;
+}
+
+.library-results.is-list .library-item__badges span {
+  border-color: var(--border-default);
+  background: var(--surface-muted);
+  color: var(--text-secondary);
+}
+
+.library-results.is-list .library-item__badges span.is-public {
+  background: color-mix(in srgb, var(--status-success) 12%, var(--surface-panel));
+  color: var(--status-success);
+}
+
+.library-results.is-list .library-item__badges span.is-favorite {
+  background: color-mix(in srgb, var(--action-primary) 14%, var(--surface-panel));
+  color: var(--action-primary);
 }
 
 .library-results.is-list .library-item__check {
@@ -3337,6 +3430,21 @@ kbd {
   .library-results.is-list .library-item__info {
     display: grid;
     grid-template-columns: 1fr;
+  }
+
+  .library-selection {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .library-selection .ou-button:first-of-type {
+    margin-left: 0;
+  }
+
+  .library-results.is-list .library-item__badges {
+    grid-column: 2 / -1;
+    justify-content: flex-start;
+    padding: 0 72px 8px 0;
   }
 }
 

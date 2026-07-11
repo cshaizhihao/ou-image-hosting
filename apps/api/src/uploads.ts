@@ -87,9 +87,11 @@ type BulkBody = {
     | "trash"
     | "add-to-albums"
     | "remove-from-albums"
-    | "set-public-visibility";
+    | "set-public-visibility"
+    | "set-favorite";
   albumIds?: string[];
   publicVisible?: boolean;
+  favorite?: boolean;
 };
 
 function publicImage(
@@ -619,7 +621,8 @@ export async function registerUploadRoutes(
                 "trash",
                 "add-to-albums",
                 "remove-from-albums",
-                "set-public-visibility"
+                "set-public-visibility",
+                "set-favorite"
               ]
             },
             albumIds: {
@@ -628,7 +631,8 @@ export async function registerUploadRoutes(
               uniqueItems: true,
               items: { type: "string", minLength: 1, maxLength: 80 }
             },
-            publicVisible: { type: "boolean" }
+            publicVisible: { type: "boolean" },
+            favorite: { type: "boolean" }
           }
         }
       }
@@ -640,7 +644,8 @@ export async function registerUploadRoutes(
         "write",
         request.body.action === "trash"
           ? ["images:delete"]
-          : request.body.action === "set-public-visibility"
+          : request.body.action === "set-public-visibility" ||
+              request.body.action === "set-favorite"
             ? ["images:write"]
             : ["images:write", "organization:write"]
       );
@@ -659,7 +664,18 @@ export async function registerUploadRoutes(
             "请选择公开或隐藏状态"
           );
         }
+        if (
+          request.body.action === "set-favorite" &&
+          typeof request.body.favorite !== "boolean"
+        ) {
+          throw new PublicError(
+            400,
+            "FAVORITE_REQUIRED",
+            "请选择收藏或取消收藏状态"
+          );
+        }
         const nextPublicVisible = request.body.publicVisible === true;
+        const nextFavorite = request.body.favorite === true;
         if (
           request.body.action === "add-to-albums" ||
           request.body.action === "remove-from-albums"
@@ -697,6 +713,20 @@ export async function registerUploadRoutes(
             } else if (request.body.action === "set-public-visibility") {
               if (image.publicVisible !== nextPublicVisible) {
                 image.publicVisible = nextPublicVisible;
+                image.updatedAt = timestamp;
+              }
+              count += 1;
+            } else if (request.body.action === "set-favorite") {
+              const favoriteUserIds = new Set(image.favoriteUserIds);
+              const hadFavorite = favoriteUserIds.has(principal.user.id);
+              if (nextFavorite) {
+                favoriteUserIds.add(principal.user.id);
+              } else {
+                favoriteUserIds.delete(principal.user.id);
+              }
+              if (hadFavorite !== nextFavorite) {
+                image.favoriteUserIds = [...favoriteUserIds];
+                image.favorite = image.favoriteUserIds.length > 0;
                 image.updatedAt = timestamp;
               }
               count += 1;
@@ -742,6 +772,10 @@ export async function registerUploadRoutes(
         publicVisible:
           request.body.action === "set-public-visibility"
             ? request.body.publicVisible
+            : undefined,
+        favorite:
+          request.body.action === "set-favorite"
+            ? request.body.favorite
             : undefined
       };
     }

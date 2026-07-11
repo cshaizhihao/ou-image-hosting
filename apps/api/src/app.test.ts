@@ -637,6 +637,54 @@ describe("OU-Image API", () => {
       "PUBLIC_VISIBILITY_REQUIRED"
     );
 
+    const favorited = await app.inject({
+      method: "POST",
+      url: "/uploads/bulk",
+      cookies: cookieMap,
+      payload: {
+        ids: [alpha.json().image.id, beta.json().image.id],
+        action: "set-favorite",
+        favorite: true
+      }
+    });
+    expect(favorited.json()).toEqual({ updated: 2, favorite: true });
+
+    const favorites = await app.inject({
+      method: "GET",
+      url: "/favorites",
+      cookies: cookieMap
+    });
+    expect(favorites.json().images).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "alpha.png", favorite: true }),
+        expect.objectContaining({ name: "beta.jpg", favorite: true })
+      ])
+    );
+
+    const unfavorited = await app.inject({
+      method: "POST",
+      url: "/uploads/bulk",
+      cookies: cookieMap,
+      payload: {
+        ids: [alpha.json().image.id],
+        action: "set-favorite",
+        favorite: false
+      }
+    });
+    expect(unfavorited.json()).toEqual({ updated: 1, favorite: false });
+
+    const missingFavorite = await app.inject({
+      method: "POST",
+      url: "/uploads/bulk",
+      cookies: cookieMap,
+      payload: {
+        ids: [beta.json().image.id],
+        action: "set-favorite"
+      }
+    });
+    expect(missingFavorite.statusCode).toBe(400);
+    expect(missingFavorite.json().error.code).toBe("FAVORITE_REQUIRED");
+
     const trashed = await app.inject({
       method: "POST",
       url: "/uploads/bulk",

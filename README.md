@@ -16,7 +16,7 @@
   <a href="https://github.com/cshaizhihao/ou-image-hosting/releases">
     <img src="https://img.shields.io/github/v/release/cshaizhihao/ou-image-hosting?style=flat-square&color=ef8f8f" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-v1.9.0-ef8f8f?style=flat-square" alt="Current version v1.9.0" />
+  <img src="https://img.shields.io/badge/version-v1.10.0-ef8f8f?style=flat-square" alt="Current version v1.10.0" />
   <a href="https://github.com/cshaizhihao/ou-image-hosting/actions/workflows/check.yml">
     <img src="https://img.shields.io/github/actions/workflow/status/cshaizhihao/ou-image-hosting/check.yml?branch=main&style=flat-square&label=check" alt="Check" />
   </a>
@@ -65,7 +65,7 @@ OU-Image Hosting 不只是一个生成图片外链的上传框。
   <tr>
     <td width="50%">
       <strong>⌘ 图片真正可管理</strong><br />
-      网格与列表、搜索、格式筛选、相册卡片、标签、收藏、回收站、批量加入/移出相册和滚动位置恢复都围绕高频整理场景设计。
+      网格与列表、搜索、格式筛选、状态标签、相册卡片、标签、收藏、回收站、批量公开/隐藏/收藏/加入相册和滚动位置恢复都围绕高频整理场景设计。
     </td>
     <td width="50%">
       <strong>↗ 分享保持可控</strong><br />
@@ -216,7 +216,8 @@ curl --fail http://127.0.0.1:3000/api/health/ready
 
 ### 组织与分享
 
-- 响应式网格/列表、搜索、格式筛选、排序和分页
+- 响应式网格/列表、搜索、格式筛选、排序、分页和图片状态标签
+- 图片库多选工具栏支持批量公开、隐藏、收藏、取消收藏、加入相册和移入回收站
 - 相册主分类卡片、搜索、编辑、删除确认、新建相册浮窗、图片库批量加入一个或多个相册
 - 相册详情批量移出图片、封面选中态和失效封面自动清理
 - URL、Markdown、HTML、BBCode 与二维码

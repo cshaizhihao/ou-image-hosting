@@ -7,8 +7,11 @@ import {
   ChevronLeft,
   ChevronRight,
   ExternalLink,
+  Eye,
+  EyeOff,
   FileImage,
   Grid2X2,
+  Heart,
   ImagePlus,
   List,
   LoaderCircle,
@@ -40,6 +43,10 @@ type LibraryImage = {
   sha256: string;
   thumbnailUrl: string;
   originalUrl: string;
+  favorite: boolean;
+  publicVisible: boolean;
+  albumIds: string[];
+  tagIds: string[];
   createdAt: string;
 };
 
@@ -114,6 +121,9 @@ export function ImageLibrary() {
   const [albumQuery, setAlbumQuery] = useState("");
   const [albumsLoading, setAlbumsLoading] = useState(false);
   const [assigningAlbums, setAssigningAlbums] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState<
+    "public" | "private" | "favorite" | "unfavorite" | "trash" | null
+  >(null);
   const [deleting, setDeleting] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
@@ -340,9 +350,49 @@ export function ImageLibrary() {
     }
   };
 
+  const runBulkAction = async (
+    action: "set-public-visibility" | "set-favorite",
+    options: {
+      busy: "public" | "private" | "favorite" | "unfavorite";
+      publicVisible?: boolean;
+      favorite?: boolean;
+      success: (updated: number) => string;
+    }
+  ) => {
+    if (selected.size === 0 || bulkBusy) return;
+    setBulkBusy(options.busy);
+    try {
+      const response = await fetch("/api/uploads/bulk", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: workspaceHeaders({ "content-type": "application/json" }),
+        body: JSON.stringify({
+          ids: Array.from(selected),
+          action,
+          publicVisible: options.publicVisible,
+          favorite: options.favorite
+        })
+      });
+      const payload = (await response.json()) as { updated?: number };
+      if (!response.ok) {
+        throw new Error(responseMessage(payload, "批量操作失败"));
+      }
+      setNotice(options.success(payload.updated ?? selected.size));
+      setSelected(new Set());
+      setReloadKey((value) => value + 1);
+    } catch (requestError) {
+      setNotice(
+        requestError instanceof Error ? requestError.message : "批量操作失败"
+      );
+    } finally {
+      setBulkBusy(null);
+    }
+  };
+
   const trashSelected = async () => {
     if (selected.size === 0) return;
     setDeleting(true);
+    setBulkBusy("trash");
     try {
       const response = await fetch("/api/uploads/bulk", {
         method: "POST",
@@ -367,6 +417,7 @@ export function ImageLibrary() {
       );
     } finally {
       setDeleting(false);
+      setBulkBusy(null);
     }
   };
 
@@ -374,6 +425,16 @@ export function ImageLibrary() {
     () => (selected.size > 0 ? `已选择 ${selected.size} 张` : `${data.total} 张图片`),
     [data.total, selected.size]
   );
+  const selectedImages = useMemo(
+    () => data.images.filter((image) => selected.has(image.id)),
+    [data.images, selected]
+  );
+  const selectedPublicCount = selectedImages.filter(
+    (image) => image.publicVisible
+  ).length;
+  const selectedFavoriteCount = selectedImages.filter(
+    (image) => image.favorite
+  ).length;
 
   return (
     <AppShell activeKey="library">
@@ -470,7 +531,7 @@ export function ImageLibrary() {
           </div>
         </section>
 
-        <div className="library-selection">
+        <div className={cn("library-selection", selected.size > 0 && "is-active")}>
           <button
             aria-pressed={allSelected}
             className={allSelected ? "is-selected" : ""}
@@ -481,9 +542,92 @@ export function ImageLibrary() {
             <span>{allSelected && <Check size={13} />}</span>
             {allSelected ? "取消本页全选" : "选择本页"}
           </button>
-          <span>{selectionLabel}</span>
+          <span>
+            {selectionLabel}
+            {selected.size > 0 && (
+              <small>
+                {selectedPublicCount} 公开 · {selectedFavoriteCount} 收藏
+              </small>
+            )}
+          </span>
           {selected.size > 0 && (
             <>
+              <Button
+                disabled={bulkBusy !== null}
+                onClick={() =>
+                  void runBulkAction("set-public-visibility", {
+                    busy: "public",
+                    publicVisible: true,
+                    success: (updated) => `已公开 ${updated} 张图片。`
+                  })
+                }
+                size="compact"
+                variant="secondary"
+              >
+                {bulkBusy === "public" ? (
+                  <LoaderCircle className="spin" size={15} />
+                ) : (
+                  <Eye size={15} />
+                )}
+                公开
+              </Button>
+              <Button
+                disabled={bulkBusy !== null}
+                onClick={() =>
+                  void runBulkAction("set-public-visibility", {
+                    busy: "private",
+                    publicVisible: false,
+                    success: (updated) => `已隐藏 ${updated} 张图片。`
+                  })
+                }
+                size="compact"
+                variant="secondary"
+              >
+                {bulkBusy === "private" ? (
+                  <LoaderCircle className="spin" size={15} />
+                ) : (
+                  <EyeOff size={15} />
+                )}
+                隐藏
+              </Button>
+              <Button
+                disabled={bulkBusy !== null}
+                onClick={() =>
+                  void runBulkAction("set-favorite", {
+                    busy: "favorite",
+                    favorite: true,
+                    success: (updated) => `已收藏 ${updated} 张图片。`
+                  })
+                }
+                size="compact"
+                variant="secondary"
+              >
+                {bulkBusy === "favorite" ? (
+                  <LoaderCircle className="spin" size={15} />
+                ) : (
+                  <Heart size={15} />
+                )}
+                收藏
+              </Button>
+              <Button
+                disabled={bulkBusy !== null}
+                onClick={() =>
+                  void runBulkAction("set-favorite", {
+                    busy: "unfavorite",
+                    favorite: false,
+                    success: (updated) => `已取消收藏 ${updated} 张图片。`
+                  })
+                }
+                size="compact"
+                variant="secondary"
+              >
+                {bulkBusy === "unfavorite" ? (
+                  <LoaderCircle className="spin" size={15} />
+                ) : (
+                  <Heart size={15} />
+                )}
+                取消收藏
+              </Button>
               <Button onClick={openAlbumPicker} size="compact" variant="secondary">
                 <Album size={15} />
                 加入相册
@@ -492,6 +636,7 @@ export function ImageLibrary() {
                 onClick={() => setConfirmOpen(true)}
                 size="compact"
                 variant="danger"
+                disabled={bulkBusy !== null}
               >
                 <Trash2 size={15} />
                 移入回收站
@@ -559,6 +704,15 @@ export function ImageLibrary() {
                   >
                     <img alt={image.name} loading="lazy" src={image.thumbnailUrl} />
                   </Link>
+                  <div className="library-item__badges" aria-label="图片状态">
+                    <span className={image.publicVisible ? "is-public" : ""}>
+                      {image.publicVisible ? "公开" : "私密"}
+                    </span>
+                    {image.albumIds.length > 0 && (
+                      <span>{image.albumIds.length} 相册</span>
+                    )}
+                    {image.favorite && <span className="is-favorite">收藏</span>}
+                  </div>
                   <div className="library-item__info">
                     <strong title={image.name}>{image.name}</strong>
                     <span>
