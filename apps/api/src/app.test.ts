@@ -3327,6 +3327,7 @@ describe("OU-Image API", () => {
       url: "/public/images?sort=latest&format=png"
     });
     expect(pngGallery.statusCode).toBe(200);
+    expect(pngGallery.headers["cache-control"]).toContain("public, max-age=20");
     expect(pngGallery.json()).toMatchObject({
       images: [
         {
@@ -3339,7 +3340,21 @@ describe("OU-Image API", () => {
         showUploader: false,
         showFileName: true,
         showUploadTime: true
-      }
+      },
+      page: 1,
+      limit: 24,
+      total: 1,
+      totalPages: 1
+    });
+    const boundedPage = await app.inject({
+      method: "GET",
+      url: "/public/images?sort=latest&format=png&page=9&limit=1"
+    });
+    expect(boundedPage.json()).toMatchObject({
+      page: 1,
+      limit: 1,
+      total: 1,
+      totalPages: 1
     });
     expect(
       (

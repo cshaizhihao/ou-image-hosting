@@ -30,6 +30,7 @@ import {
   useState
 } from "react";
 import { workspaceHeaders } from "@/lib/api";
+import { paginationWindow } from "@/lib/pagination";
 import { AppShell } from "./app-shell";
 
 type LibraryImage = {
@@ -71,6 +72,7 @@ type FormatFilter = "all" | LibraryImage["format"];
 
 const preferencesKey = "ou-library-preferences";
 const scrollKey = "ou-library-scroll";
+const pageSizeOptions = [12, 24, 48] as const;
 
 function formatBytes(value: number) {
   if (value < 1024) return `${value} B`;
@@ -103,6 +105,7 @@ export function ImageLibrary() {
   const [format, setFormat] = useState<FormatFilter>("all");
   const [sort, setSort] = useState<SortMode>("newest");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(24);
   const [data, setData] = useState<LibraryResponse>({
     images: [],
     page: 1,
@@ -135,6 +138,7 @@ export function ImageLibrary() {
         view: ViewMode;
         format: FormatFilter;
         sort: SortMode;
+        pageSize: number;
       }>;
       if (saved.view === "grid" || saved.view === "list") setView(saved.view);
       if (
@@ -147,6 +151,9 @@ export function ImageLibrary() {
       if (["newest", "oldest", "name", "size"].includes(saved.sort ?? "")) {
         setSort(saved.sort!);
       }
+      if (pageSizeOptions.includes(saved.pageSize as 12 | 24 | 48)) {
+        setPageSize(saved.pageSize!);
+      }
     } catch {
       window.localStorage.removeItem(preferencesKey);
     }
@@ -157,9 +164,9 @@ export function ImageLibrary() {
     if (!restoredRef.current) return;
     window.localStorage.setItem(
       preferencesKey,
-      JSON.stringify({ view, format, sort })
+      JSON.stringify({ view, format, sort, pageSize })
     );
-  }, [view, format, sort]);
+  }, [view, format, sort, pageSize]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -187,7 +194,7 @@ export function ImageLibrary() {
         q: debouncedQuery,
         format,
         page: String(page),
-        limit: "24",
+        limit: String(pageSize),
         sort
       });
       try {
@@ -226,7 +233,7 @@ export function ImageLibrary() {
         if (!signal?.aborted) setLoading(false);
       }
     },
-    [debouncedQuery, format, page, sort]
+    [debouncedQuery, format, page, pageSize, sort]
   );
 
   useEffect(() => {
@@ -337,10 +344,24 @@ export function ImageLibrary() {
       setNotice(
         `已将 ${payload.updated ?? selected.size} 张图片加入 ${albumSelection.size} 个相册。`
       );
+      const selectedIds = new Set(selected);
+      const chosenAlbumIds = Array.from(albumSelection);
+      setData((current) => ({
+        ...current,
+        images: current.images.map((image) =>
+          selectedIds.has(image.id)
+            ? {
+                ...image,
+                albumIds: Array.from(
+                  new Set([...image.albumIds, ...chosenAlbumIds])
+                )
+              }
+            : image
+        )
+      }));
       setSelected(new Set());
       setAlbumSelection(new Set());
       setAlbumPickerOpen(false);
-      setReloadKey((value) => value + 1);
     } catch (requestError) {
       setNotice(
         requestError instanceof Error ? requestError.message : "加入相册失败"
@@ -377,9 +398,22 @@ export function ImageLibrary() {
       if (!response.ok) {
         throw new Error(responseMessage(payload, "批量操作失败"));
       }
+      const selectedIds = new Set(selected);
+      setData((current) => ({
+        ...current,
+        images: current.images.map((image) =>
+          selectedIds.has(image.id)
+            ? {
+                ...image,
+                publicVisible:
+                  options.publicVisible ?? image.publicVisible,
+                favorite: options.favorite ?? image.favorite
+              }
+            : image
+        )
+      }));
       setNotice(options.success(payload.updated ?? selected.size));
       setSelected(new Set());
-      setReloadKey((value) => value + 1);
     } catch (requestError) {
       setNotice(
         requestError instanceof Error ? requestError.message : "批量操作失败"
@@ -407,10 +441,22 @@ export function ImageLibrary() {
       if (!response.ok) {
         throw new Error(responseMessage(payload, "批量操作失败"));
       }
+      const selectedIds = new Set(selected);
+      const removed = data.images.filter((image) =>
+        selectedIds.has(image.id)
+      ).length;
+      const nextTotal = Math.max(0, data.total - removed);
+      const nextTotalPages = Math.max(1, Math.ceil(nextTotal / pageSize));
+      setData((current) => ({
+        ...current,
+        images: current.images.filter((image) => !selectedIds.has(image.id)),
+        total: nextTotal,
+        totalPages: nextTotalPages
+      }));
       setNotice(`已将 ${payload.updated ?? selected.size} 张图片移入回收站。`);
       setConfirmOpen(false);
       setSelected(new Set());
-      setReloadKey((value) => value + 1);
+      if (page > nextTotalPages) setPage(nextTotalPages);
     } catch (requestError) {
       setNotice(
         requestError instanceof Error ? requestError.message : "批量操作失败"
@@ -435,6 +481,10 @@ export function ImageLibrary() {
   const selectedFavoriteCount = selectedImages.filter(
     (image) => image.favorite
   ).length;
+  const visiblePages = useMemo(
+    () => paginationWindow(data.page, data.totalPages),
+    [data.page, data.totalPages]
+  );
 
   return (
     <AppShell activeKey="library">
@@ -529,6 +579,24 @@ export function ImageLibrary() {
               <List size={18} />
             </button>
           </div>
+
+          <label className="library-select library-page-size">
+            <span className="sr-only">每页图片数量</span>
+            <select
+              aria-label="每页图片数量"
+              onChange={(event) => {
+                setPageSize(Number(event.target.value));
+                setPage(1);
+              }}
+              value={pageSize}
+            >
+              {pageSizeOptions.map((value) => (
+                <option key={value} value={value}>
+                  每页 {value} 张
+                </option>
+              ))}
+            </select>
+          </label>
         </section>
 
         <div className={cn("library-selection", selected.size > 0 && "is-active")}>
@@ -702,7 +770,14 @@ export function ImageLibrary() {
                     className="library-item__preview"
                     href={`/library/${image.id}`}
                   >
-                    <img alt={image.name} loading="lazy" src={image.thumbnailUrl} />
+                    <img
+                      alt={image.name}
+                      decoding="async"
+                      height={image.height}
+                      loading="lazy"
+                      src={image.thumbnailUrl}
+                      width={image.width}
+                    />
                   </Link>
                   <div className="library-item__badges" aria-label="图片状态">
                     <span className={image.publicVisible ? "is-public" : ""}>
@@ -735,7 +810,7 @@ export function ImageLibrary() {
           </ol>
         )}
 
-        {!loading && !error && data.totalPages > 1 && (
+        {!loading && !error && data.total > 0 && (
           <nav className="library-pagination" aria-label="图片库分页">
             <Button
               disabled={data.page <= 1}
@@ -747,7 +822,19 @@ export function ImageLibrary() {
               上一页
             </Button>
             <span>
-              第 {data.page} / {data.totalPages} 页
+              第 {data.page} / {data.totalPages} 页 · 共 {data.total} 张
+            </span>
+            <span className="library-pagination__pages" aria-label="选择页码">
+              {visiblePages.map((pageNumber) => (
+                <button
+                  aria-current={pageNumber === data.page ? "page" : undefined}
+                  key={pageNumber}
+                  onClick={() => setPage(pageNumber)}
+                  type="button"
+                >
+                  {pageNumber}
+                </button>
+              ))}
             </span>
             <Button
               disabled={data.page >= data.totalPages}
