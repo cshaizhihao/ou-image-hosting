@@ -6,6 +6,7 @@ import {
   Clipboard,
   ExternalLink,
   ImageIcon,
+  Images,
   LockKeyhole,
   Moon,
   ShieldCheck,
@@ -18,6 +19,7 @@ import Link from "next/link";
 import {
   type ChangeEvent,
   type DragEvent,
+  type ClipboardEvent as ReactClipboardEvent,
   useCallback,
   useEffect,
   useMemo,
@@ -58,6 +60,10 @@ type UploadResult = {
     thumbnailUrl: string;
   };
   duplicate: boolean;
+};
+
+type UploadQueueItem = UploadResult & {
+  uploadedAt: string;
 };
 
 const fallbackConfig: PublicConfig = {
@@ -107,9 +113,12 @@ export function PublicUploadLanding() {
   const [publicVisible, setPublicVisible] = useState(true);
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadCount, setUploadCount] = useState(0);
+  const [uploadIndex, setUploadIndex] = useState(0);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [result, setResult] = useState<UploadResult | null>(null);
+  const [history, setHistory] = useState<UploadQueueItem[]>([]);
 
   const site = config.site ?? fallbackConfig.site!;
   const uploadEnabled = Boolean(config.setupComplete && site.publicUploadEnabled);
@@ -117,6 +126,23 @@ export function PublicUploadLanding() {
   const markdown = result
     ? `![${result.image.name}](${originalUrl})`
     : "";
+  const historyLinks = useMemo(
+    () =>
+      history
+        .map((item) => publicUrl(item.image.originalUrl))
+        .join("\n"),
+    [history]
+  );
+  const historyMarkdown = useMemo(
+    () =>
+      history
+        .map(
+          (item) =>
+            `![${item.image.name}](${publicUrl(item.image.originalUrl)})`
+        )
+        .join("\n"),
+    [history]
+  );
 
   useEffect(() => {
     const saved = window.localStorage.getItem("ou-theme");
@@ -171,24 +197,65 @@ export function PublicUploadLanding() {
     setNotice(message);
   };
 
-  const uploadFile = useCallback(
+  const uploadSingleFile = useCallback(
     async (file?: File) => {
       if (!file || uploading || !uploadEnabled) return;
+      setError("");
+      setNotice("");
+      const body = new FormData();
+      body.append("file", file);
+      const payload = await apiJson<UploadResult>(
+        `/public/uploads?publicVisible=${publicVisible ? "true" : "false"}`,
+        {
+          method: "POST",
+          body
+        }
+      );
+      setResult(payload);
+      setHistory((current) => [
+        {
+          ...payload,
+          uploadedAt: new Date().toISOString()
+        },
+        ...current
+      ].slice(0, 8));
+      return payload;
+    },
+    [publicVisible, uploadEnabled, uploading]
+  );
+
+  const uploadFiles = useCallback(
+    async (files: File[] | FileList | undefined) => {
+      if (!files || uploading || !uploadEnabled) return;
+      const imageFiles = Array.from(files).filter((file) =>
+        file.type.startsWith("image/")
+      );
+      if (imageFiles.length === 0) {
+        setError("没有发现可上传的图片文件。");
+        return;
+      }
+
       setUploading(true);
+      setUploadCount(imageFiles.length);
+      setUploadIndex(0);
       setError("");
       setNotice("");
       try {
-        const body = new FormData();
-        body.append("file", file);
-        const payload = await apiJson<UploadResult>(
-          `/public/uploads?publicVisible=${publicVisible ? "true" : "false"}`,
-          {
-            method: "POST",
-            body
-          }
+        let completed = 0;
+        let duplicates = 0;
+        for (const file of imageFiles) {
+          setUploadIndex(completed + 1);
+          const payload = await uploadSingleFile(file);
+          completed += 1;
+          if (payload?.duplicate) duplicates += 1;
+        }
+        setNotice(
+          imageFiles.length === 1
+            ? duplicates
+              ? "图片已存在，链接已为你取回。"
+              : "上传完成，链接已生成。"
+            : `已处理 ${completed} 张图片，其中 ${duplicates} 张为已存在图片。`
         );
-        setResult(payload);
-        setNotice(payload.duplicate ? "图片已存在，链接已为你取回。" : "上传完成，链接已生成。");
         if (publicVisible && site.publicGalleryEnabled) {
           const images = await apiJson<{ images: PublicImage[] }>("/public/images");
           setGallery(images.images);
@@ -201,26 +268,66 @@ export function PublicUploadLanding() {
         );
       } finally {
         setUploading(false);
+        setUploadCount(0);
+        setUploadIndex(0);
       }
     },
-    [publicVisible, site.publicGalleryEnabled, uploadEnabled, uploading]
+    [
+      publicVisible,
+      site.publicGalleryEnabled,
+      uploadEnabled,
+      uploading,
+      uploadSingleFile
+    ]
   );
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
-    void uploadFile(event.target.files?.[0]);
+    void uploadFiles(event.target.files ?? undefined);
     event.currentTarget.value = "";
   };
 
   const onDrop = (event: DragEvent<HTMLElement>) => {
     event.preventDefault();
     setDragging(false);
-    void uploadFile(event.dataTransfer.files?.[0]);
+    void uploadFiles(event.dataTransfer.files);
+  };
+
+  const handlePaste = useCallback(
+    (event: ClipboardEvent) => {
+      if (!uploadEnabled || uploading) return;
+      const files = Array.from(event.clipboardData?.files ?? []).filter((file) =>
+        file.type.startsWith("image/")
+      );
+      if (files.length === 0) return;
+      event.preventDefault();
+      void uploadFiles(files);
+    },
+    [uploadEnabled, uploading, uploadFiles]
+  );
+
+  useEffect(() => {
+    window.addEventListener("paste", handlePaste);
+    return () => window.removeEventListener("paste", handlePaste);
+  }, [handlePaste]);
+
+  const onPasteCapture = (event: ReactClipboardEvent<HTMLElement>) => {
+    if (!uploadEnabled || uploading) return;
+    const files = Array.from(event.clipboardData.files).filter((file) =>
+      file.type.startsWith("image/")
+    );
+    if (files.length === 0) return;
+    event.preventDefault();
+    void uploadFiles(files);
   };
 
   const galleryItems = useMemo(() => gallery.slice(0, 12), [gallery]);
 
   return (
-    <main className="public-upload-page" id="main-content">
+    <main
+      className="public-upload-page"
+      id="main-content"
+      onPasteCapture={onPasteCapture}
+    >
       <a className="skip-link" href="#public-upload-drop">
         跳到公共上传区域
       </a>
@@ -297,6 +404,7 @@ export function PublicUploadLanding() {
             accept="image/jpeg,image/png,image/webp,image/gif,image/avif"
             hidden
             onChange={handleFileChange}
+            multiple
             ref={inputRef}
             type="file"
           />
@@ -312,7 +420,7 @@ export function PublicUploadLanding() {
           </h2>
           <p>
             {uploadEnabled
-              ? "支持 JPG、PNG、WebP、GIF 与 AVIF，单张最大 20 MB。"
+              ? "支持拖拽、批量选择和直接粘贴图片。JPG、PNG、WebP、GIF 与 AVIF，单张最大 20 MB。"
               : "管理员可以在后台「设置中心 → 站点与处理」中开启公共上传。"}
           </p>
           <label className="public-upload-checkbox">
@@ -334,8 +442,15 @@ export function PublicUploadLanding() {
             type="button"
           >
             <UploadCloud aria-hidden="true" size={16} />
-            {uploading ? "正在上传..." : "选择图片上传"}
+            {uploading && uploadCount > 1
+              ? `正在上传 ${uploadIndex}/${uploadCount}`
+              : uploading
+                ? "正在上传..."
+                : "选择图片上传"}
           </Button>
+          <small className="public-upload-card__hint">
+            也可以按 Ctrl/⌘ + V 粘贴剪贴板里的图片。
+          </small>
         </section>
       </section>
 
@@ -371,6 +486,57 @@ export function PublicUploadLanding() {
                 </a>
               </Button>
             </div>
+          </div>
+        </section>
+      )}
+
+      {history.length > 1 && (
+        <section className="public-upload-history" aria-label="最近上传结果">
+          <div className="public-upload-history__head">
+            <span>
+              <Images aria-hidden="true" size={17} />
+              最近上传
+            </span>
+            <div>
+              <Button
+                onClick={() => void copy(historyLinks, "最近上传链接已复制。")}
+                size="compact"
+                variant="secondary"
+              >
+                <Clipboard size={15} />
+                复制全部链接
+              </Button>
+              <Button
+                onClick={() => void copy(historyMarkdown, "最近上传 Markdown 已复制。")}
+                size="compact"
+                variant="secondary"
+              >
+                <Clipboard size={15} />
+                复制 Markdown
+              </Button>
+            </div>
+          </div>
+          <div className="public-upload-history__list">
+            {history.map((item) => {
+              const itemUrl = publicUrl(item.image.originalUrl);
+              return (
+                <article key={`${item.image.id}-${item.uploadedAt}`}>
+                  <img alt="" src={item.image.thumbnailUrl} />
+                  <div>
+                    <strong>{item.image.name}</strong>
+                    <small>{item.duplicate ? "已存在图片" : "新上传图片"}</small>
+                  </div>
+                  <Button
+                    onClick={() => void copy(itemUrl, "图片链接已复制。")}
+                    size="compact"
+                    variant="ghost"
+                  >
+                    <Clipboard size={15} />
+                    复制
+                  </Button>
+                </article>
+              );
+            })}
           </div>
         </section>
       )}
