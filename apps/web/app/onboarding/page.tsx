@@ -5,7 +5,10 @@ import {
   ApiError,
   apiRequest,
   applyTheme,
+  normalizeSessionBootstrap,
+  setStoredWorkspaceId,
   type SessionUser,
+  type WorkspaceSummary,
   type ThemePreference
 } from "@/lib/api";
 import { Button } from "@ou-image/ui";
@@ -39,10 +42,16 @@ export default function OnboardingPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    apiRequest<{ user: SessionUser }>("/auth/session")
-      .then(({ user: sessionUser }) => {
-        setUser(sessionUser);
-        setTheme(sessionUser.theme);
+    apiRequest<{
+      user: SessionUser;
+      workspaces?: WorkspaceSummary[];
+      defaultWorkspace?: WorkspaceSummary;
+    }>("/auth/session")
+      .then((payload) => {
+        const bootstrap = normalizeSessionBootstrap(payload);
+        setStoredWorkspaceId(bootstrap.defaultWorkspace.id);
+        setUser(bootstrap.user);
+        setTheme(bootstrap.user.theme);
       })
       .catch(() => window.location.replace("/login"));
   }, []);

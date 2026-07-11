@@ -2,7 +2,7 @@
 
 import { AuthShell } from "@/components/auth-shell";
 import { PasswordMeter } from "@/components/password-meter";
-import { ApiError, apiRequest } from "@/lib/api";
+import { ApiError, apiRequest, clearStoredWorkspaceId } from "@/lib/api";
 import { Button } from "@ou-image/ui";
 import { ArrowLeft, ArrowRight, LoaderCircle, UserPlus } from "lucide-react";
 import Link from "next/link";
@@ -38,6 +38,7 @@ export default function RegisterPage() {
           password
         })
       });
+      clearStoredWorkspaceId();
       window.location.replace("/onboarding");
     } catch (requestError) {
       setError(requestError instanceof ApiError ? requestError.message : "注册失败");

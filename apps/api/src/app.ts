@@ -466,7 +466,10 @@ export async function buildApp(options: BuildAppOptions = {}) {
     };
   };
 
-  const authenticatedUser = (request: FastifyRequest): Principal => {
+  const authenticatedUser = (
+    request: FastifyRequest,
+    options: { allowWorkspaceFallback?: boolean } = {}
+  ): Principal => {
     const authorization = request.headers.authorization;
     const state = store.snapshot();
     if (authorization !== undefined) {
@@ -508,16 +511,37 @@ export async function buildApp(options: BuildAppOptions = {}) {
     if (!user) {
       throw new PublicError(401, "UNAUTHENTICATED", "登录状态已失效");
     }
-    const workspaceId =
+    let workspaceId =
       request.headers["x-workspace-id"]?.toString() ??
       `personal-${user.id}`;
-    const membership = state.workspaceMembers.find(
+    let membership = state.workspaceMembers.find(
       (item) =>
         item.workspaceId === workspaceId && item.userId === user.id
     );
-    const workspace = state.workspaces.find(
+    let workspace = state.workspaces.find(
       (item) => item.id === workspaceId
     );
+    if ((!membership || !workspace) && options.allowWorkspaceFallback) {
+      const fallbackMembership =
+        state.workspaceMembers.find((item) => {
+          if (item.userId !== user.id) return false;
+          const candidate = state.workspaces.find(
+            (workspace) => workspace.id === item.workspaceId
+          );
+          return Boolean(candidate?.personal);
+        }) ??
+        state.workspaceMembers.find((item) => item.userId === user.id);
+      const fallbackWorkspace = fallbackMembership
+        ? state.workspaces.find(
+            (item) => item.id === fallbackMembership.workspaceId
+          )
+        : undefined;
+      if (fallbackMembership && fallbackWorkspace) {
+        membership = fallbackMembership;
+        workspace = fallbackWorkspace;
+        workspaceId = fallbackWorkspace.id;
+      }
+    }
     if (!membership || !workspace) {
       throw new PublicError(404, "WORKSPACE_NOT_FOUND", "工作区不存在");
     }
@@ -942,7 +966,9 @@ export async function buildApp(options: BuildAppOptions = {}) {
   });
 
   app.get("/auth/session", async (request) => {
-    const principal = authenticatedUser(request);
+    const principal = authenticatedUser(request, {
+      allowWorkspaceFallback: true
+    });
     const state = store.snapshot();
     const workspaces = state.workspaceMembers
       .filter((membership) => membership.userId === principal.user.id)

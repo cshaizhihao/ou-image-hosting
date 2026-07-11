@@ -289,6 +289,17 @@ describe("OU-Image API", () => {
     expect(session.statusCode).toBe(200);
     expect(session.json().user.email).toBe(owner.email);
 
+    const fallbackSession = await app.inject({
+      method: "GET",
+      url: "/auth/session",
+      cookies: { ou_session: cookie!.value },
+      headers: { "x-workspace-id": "stale-workspace-from-browser" }
+    });
+    expect(fallbackSession.statusCode).toBe(200);
+    expect(fallbackSession.json().workspace.id).toBe(
+      fallbackSession.json().defaultWorkspace.id
+    );
+
     const logout = await app.inject({
       method: "POST",
       url: "/auth/logout",

@@ -51,15 +51,18 @@ export async function apiRequest<T>(
 ): Promise<T> {
   const isFormData =
     typeof FormData !== "undefined" && init.body instanceof FormData;
+  const shouldAttachWorkspace = path !== "/auth/session";
+  const requestHeaders = new Headers(init.headers);
+  if (init.body && !isFormData && !requestHeaders.has("content-type")) {
+    requestHeaders.set("content-type", "application/json");
+  }
+
   const response = await fetch(`/api${path}`, {
     ...init,
     credentials: "same-origin",
-    headers: workspaceHeaders({
-      ...(init.body && !isFormData
-        ? { "content-type": "application/json" }
-        : {}),
-      ...init.headers
-    })
+    headers: shouldAttachWorkspace
+      ? workspaceHeaders(requestHeaders)
+      : requestHeaders
   });
 
   if (!response.ok) {
@@ -95,6 +98,11 @@ export function getStoredWorkspaceId() {
 export function setStoredWorkspaceId(workspaceId: string) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(WORKSPACE_STORAGE_KEY, workspaceId);
+}
+
+export function clearStoredWorkspaceId() {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(WORKSPACE_STORAGE_KEY);
 }
 
 export function normalizeSessionBootstrap(payload: {

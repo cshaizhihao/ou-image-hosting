@@ -1,7 +1,12 @@
 "use client";
 
 import { AuthShell } from "@/components/auth-shell";
-import { ApiError, apiRequest, type SessionUser } from "@/lib/api";
+import {
+  ApiError,
+  apiRequest,
+  clearStoredWorkspaceId,
+  type SessionUser
+} from "@/lib/api";
 import { Button } from "@ou-image/ui";
 import { ArrowRight, Eye, EyeOff, LoaderCircle, LockKeyhole } from "lucide-react";
 import Link from "next/link";
@@ -41,6 +46,7 @@ export default function LoginPage() {
           password: form.get("password")
         })
       });
+      clearStoredWorkspaceId();
       window.location.replace(
         response.user.onboardingCompleted ? "/overview" : "/onboarding"
       );
