@@ -11,6 +11,7 @@ import {
   ImagePlus,
   Link2,
   LoaderCircle,
+  PlayCircle,
   Pause,
   Play,
   RefreshCw,
@@ -19,6 +20,7 @@ import {
 } from "lucide-react";
 import {
   type ChangeEvent,
+  type CSSProperties,
   type DragEvent,
   type FormEvent,
   useCallback,
@@ -40,7 +42,13 @@ const ACCEPTED_TYPES = new Set([
 ]);
 const ACCEPTED_EXTENSIONS = /\.(?:jpe?g|png|webp|gif|avif)$/i;
 
-type UploadStatus = "queued" | "uploading" | "paused" | "success" | "error";
+type UploadStatus =
+  | "ready"
+  | "queued"
+  | "uploading"
+  | "paused"
+  | "success"
+  | "error";
 
 type UploadedImage = {
   id: string;
@@ -78,6 +86,10 @@ type UploadSummary = {
   quotaBytes: number;
 };
 
+type AlbumOption = { id: string; name: string };
+type TagOption = { id: string; name: string; color: string };
+type CopyFormat = "url" | "markdown" | "html" | "bbcode";
+
 type ErrorResponse = {
   message?: string;
   error?: { message?: string };
@@ -110,6 +122,8 @@ function fileLabelFromUrl(value: string) {
 
 function statusLabel(status: UploadStatus) {
   switch (status) {
+    case "ready":
+      return "等待确认";
     case "queued":
       return "等待上传";
     case "uploading":
@@ -140,6 +154,12 @@ export function UploadWorkbench() {
   const [urlDialogOpen, setUrlDialogOpen] = useState(false);
   const [remoteUrl, setRemoteUrl] = useState("");
   const [urlError, setUrlError] = useState("");
+  const [albums, setAlbums] = useState<AlbumOption[]>([]);
+  const [tags, setTags] = useState<TagOption[]>([]);
+  const [selectedAlbumIds, setSelectedAlbumIds] = useState<string[]>([]);
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+  const [publishAfterUpload, setPublishAfterUpload] = useState(false);
+  const [copyFormat, setCopyFormat] = useState<CopyFormat>("url");
 
   useEffect(() => {
     queueRef.current = items;
@@ -187,7 +207,7 @@ export function UploadWorkbench() {
           name: file.name,
           previewUrl: URL.createObjectURL(file),
           progress: 0,
-          status: "queued"
+          status: "ready"
         });
       });
 
@@ -195,7 +215,7 @@ export function UploadWorkbench() {
         setItems((current) => [...current, ...accepted]);
         setNotice(
           successMessage ??
-            `已加入 ${accepted.length} 张图片，上传队列将自动开始。`
+            `已加入 ${accepted.length} 张图片，请确认文件名和完成后设置。`
         );
       }
       if (rejected.length > 0) {
@@ -208,6 +228,37 @@ export function UploadWorkbench() {
   useEffect(() => {
     void refreshSummary();
   }, [refreshSummary]);
+
+  useEffect(() => {
+    Promise.all([
+      fetch("/api/albums", {
+        credentials: "include",
+        cache: "no-store",
+        headers: workspaceHeaders()
+      }).then(async (response) =>
+        response.ok
+          ? ((await response.json()) as { albums: AlbumOption[] }).albums
+          : []
+      ),
+      fetch("/api/tags", {
+        credentials: "include",
+        cache: "no-store",
+        headers: workspaceHeaders()
+      }).then(async (response) =>
+        response.ok
+          ? ((await response.json()) as { tags: TagOption[] }).tags
+          : []
+      )
+    ])
+      .then(([albumItems, tagItems]) => {
+        setAlbums(albumItems);
+        setTags(tagItems);
+      })
+      .catch(() => {
+        setAlbums([]);
+        setTags([]);
+      });
+  }, []);
 
   useEffect(() => {
     const onPaste = (event: ClipboardEvent) => {
@@ -267,13 +318,51 @@ export function UploadWorkbench() {
     []
   );
 
+  const applyPostUploadSettings = useCallback(
+    async (imageId: string) => {
+      if (selectedAlbumIds.length > 0 || selectedTagIds.length > 0) {
+        const response = await fetch(
+          `/api/uploads/${encodeURIComponent(imageId)}/organization`,
+          {
+            method: "PATCH",
+            credentials: "include",
+            headers: workspaceHeaders({ "content-type": "application/json" }),
+            body: JSON.stringify({
+              albumIds: selectedAlbumIds,
+              tagIds: selectedTagIds
+            })
+          }
+        );
+        if (!response.ok) {
+          throw new Error("图片已上传，但相册或标签设置没有保存");
+        }
+      }
+      if (publishAfterUpload) {
+        const response = await fetch("/api/uploads/bulk", {
+          method: "POST",
+          credentials: "include",
+          headers: workspaceHeaders({ "content-type": "application/json" }),
+          body: JSON.stringify({
+            ids: [imageId],
+            action: "set-public-visibility",
+            publicVisible: true
+          })
+        });
+        if (!response.ok) {
+          throw new Error("图片已上传，但公开展示状态没有保存");
+        }
+      }
+    },
+    [publishAfterUpload, selectedAlbumIds, selectedTagIds]
+  );
+
   const uploadFile = useCallback(
     (item: UploadItem) => {
       if (!item.file || activeRequestRef.current) return;
 
       const request = new XMLHttpRequest();
       const formData = new FormData();
-      formData.append("file", item.file);
+      formData.append("file", item.file, item.name.trim() || item.file.name);
       activeRequestRef.current = request;
       activeItemIdRef.current = item.id;
 
@@ -298,7 +387,7 @@ export function UploadWorkbench() {
         }));
       });
 
-      request.addEventListener("load", () => {
+      request.addEventListener("load", async () => {
         completeRequest(item.id);
         const payload = request.response as
           | UploadResponse
@@ -311,6 +400,15 @@ export function UploadWorkbench() {
           payload &&
           "image" in payload
         ) {
+          try {
+            await applyPostUploadSettings(payload.image.id);
+          } catch (postUploadError) {
+            setNotice(
+              postUploadError instanceof Error
+                ? postUploadError.message
+                : "图片已上传，但完成后设置没有全部保存"
+            );
+          }
           updateItem(item.id, (current) => ({
             ...current,
             status: "success",
@@ -354,7 +452,7 @@ export function UploadWorkbench() {
 
       request.send(formData);
     },
-    [completeRequest, refreshSummary, updateItem]
+    [applyPostUploadSettings, completeRequest, refreshSummary, updateItem]
   );
 
   useEffect(() => {
@@ -378,6 +476,23 @@ export function UploadWorkbench() {
       progress: 0,
       error: undefined
     }));
+  };
+
+  const startReadyUploads = () => {
+    setItems((current) =>
+      current.map((item) =>
+        item.status === "ready"
+          ? { ...item, status: "queued", progress: 0, error: undefined }
+          : item
+      )
+    );
+    setNotice("上传已经开始，队列会按顺序处理图片。");
+  };
+
+  const renameReadyItem = (id: string, name: string) => {
+    updateItem(id, (item) =>
+      item.status === "ready" ? { ...item, name: name.slice(0, 160) } : item
+    );
   };
 
   const removeItem = (id: string) => {
@@ -417,6 +532,33 @@ export function UploadWorkbench() {
     }
   };
 
+  const copySuccessful = async () => {
+    const successful = items.filter(
+      (item): item is UploadItem & { result: UploadResponse } =>
+        item.status === "success" && Boolean(item.result)
+    );
+    if (successful.length === 0) return;
+    const content = successful
+      .map((item) => {
+        const url = new URL(
+          item.result.image.originalUrl,
+          window.location.origin
+        ).toString();
+        const name = item.result.image.name || item.name;
+        if (copyFormat === "markdown") return `![${name}](${url})`;
+        if (copyFormat === "html") return `<img src="${url}" alt="${name}" />`;
+        if (copyFormat === "bbcode") return `[img]${url}[/img]`;
+        return url;
+      })
+      .join("\n");
+    try {
+      await navigator.clipboard.writeText(content);
+      setNotice(`已复制 ${successful.length} 张图片的 ${copyFormat.toUpperCase()} 内容。`);
+    } catch {
+      setNotice("浏览器未授予剪贴板权限，请稍后重试。");
+    }
+  };
+
   const runRemoteUpload = useCallback(
     async (id: string, url: string) => {
       updateItem(id, (item) => ({
@@ -441,6 +583,8 @@ export function UploadWorkbench() {
           throw new Error(responseError(payload, "远程图片上传失败"));
         }
 
+        await applyPostUploadSettings(payload.image.id);
+
         updateItem(id, (item) => ({
           ...item,
           status: "success",
@@ -462,7 +606,7 @@ export function UploadWorkbench() {
         }));
       }
     },
-    [refreshSummary, updateItem]
+    [applyPostUploadSettings, refreshSummary, updateItem]
   );
 
   const submitRemoteUrl = (event: FormEvent<HTMLFormElement>) => {
@@ -506,8 +650,9 @@ export function UploadWorkbench() {
 
   const successfulCount = items.filter((item) => item.status === "success").length;
   const activeCount = items.filter((item) =>
-    ["queued", "uploading", "paused"].includes(item.status)
+    ["ready", "queued", "uploading", "paused"].includes(item.status)
   ).length;
+  const readyCount = items.filter((item) => item.status === "ready").length;
   const quotaPercent =
     summary.quotaBytes > 0
       ? Math.min(100, Math.round((summary.bytes / summary.quotaBytes) * 100))
@@ -645,6 +790,53 @@ export function UploadWorkbench() {
           {notice}
         </p>
 
+        <section className="upload-after-panel" aria-label="上传完成后设置">
+          <div className="upload-after-panel__heading">
+            <div>
+              <span>AFTER UPLOAD</span>
+              <h2>完成后自动整理</h2>
+              <p>这些设置会应用到本次队列中随后上传成功的图片。</p>
+            </div>
+            <label className="upload-after-panel__public">
+              <input
+                checked={publishAfterUpload}
+                onChange={(event) => setPublishAfterUpload(event.target.checked)}
+                type="checkbox"
+              />
+              <span><strong>公开展示</strong><small>上传完成后进入公共图库</small></span>
+            </label>
+          </div>
+          <div className="upload-after-panel__groups">
+            <div>
+              <strong>加入相册</strong>
+              <div className="upload-after-panel__chips">
+                {albums.length === 0 ? <span>暂无相册</span> : albums.map((album) => (
+                  <button
+                    aria-pressed={selectedAlbumIds.includes(album.id)}
+                    key={album.id}
+                    onClick={() => setSelectedAlbumIds((current) => current.includes(album.id) ? current.filter((id) => id !== album.id) : [...current, album.id])}
+                    type="button"
+                  >{album.name}</button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <strong>添加标签</strong>
+              <div className="upload-after-panel__chips">
+                {tags.length === 0 ? <span>暂无标签</span> : tags.map((tag) => (
+                  <button
+                    aria-pressed={selectedTagIds.includes(tag.id)}
+                    key={tag.id}
+                    onClick={() => setSelectedTagIds((current) => current.includes(tag.id) ? current.filter((id) => id !== tag.id) : [...current, tag.id])}
+                    style={{ "--tag-color": tag.color } as CSSProperties}
+                    type="button"
+                  >{tag.name}</button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+
         <section className="upload-queue" aria-labelledby="upload-queue-title">
           <div className="upload-queue__head">
             <div>
@@ -658,6 +850,23 @@ export function UploadWorkbench() {
             </div>
             <div className="upload-queue__summary">
               <span>{totalProgress}%</span>
+              {readyCount > 0 && (
+                <Button onClick={startReadyUploads} size="compact">
+                  <PlayCircle aria-hidden="true" size={16} />
+                  开始上传 {readyCount} 张
+                </Button>
+              )}
+              {successfulCount > 0 && (
+                <div className="upload-copy-results">
+                  <select aria-label="批量复制格式" onChange={(event) => setCopyFormat(event.target.value as CopyFormat)} value={copyFormat}>
+                    <option value="url">URL</option>
+                    <option value="markdown">Markdown</option>
+                    <option value="html">HTML</option>
+                    <option value="bbcode">BBCode</option>
+                  </select>
+                  <Button onClick={() => void copySuccessful()} size="compact" variant="secondary"><Copy size={15} />复制完成项</Button>
+                </div>
+              )}
               {items.some(
                 (item) => item.status === "success" || item.status === "error"
               ) && (
@@ -703,7 +912,17 @@ export function UploadWorkbench() {
                     </div>
                     <div className="upload-row__body">
                       <div className="upload-row__title">
-                        <strong title={item.name}>{item.name}</strong>
+                        {item.status === "ready" ? (
+                          <input
+                            aria-label="上传前修改文件名"
+                            maxLength={160}
+                            onChange={(event) => renameReadyItem(item.id, event.target.value)}
+                            spellCheck={false}
+                            value={item.name}
+                          />
+                        ) : (
+                          <strong title={item.name}>{item.name}</strong>
+                        )}
                         {item.result?.duplicate && (
                           <span className="upload-duplicate">重复文件</span>
                         )}
