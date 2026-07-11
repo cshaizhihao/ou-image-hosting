@@ -61,7 +61,7 @@ OU-Image Hosting · 欧记图床 管理命令
 
 用法：
   ouih                         打开交互菜单
-  ouih update                  拉取 main，顺序重建并启动
+  ouih update                  同步 main，顺序重建并启动
   ouih uninstall               安全卸载，默认保留数据卷
   ouih uninstall --purge-data  卸载并永久删除数据卷
   ouih url                     显示公开访问地址
@@ -307,16 +307,16 @@ update_application() {
     fi
   }
 
-  info "检查并拉取 main 分支"
+  info "检查并同步 main 分支"
   local git_status
   set +e
   git -C "$INSTALL_DIR" fetch --depth 1 origin main &&
-    git -C "$INSTALL_DIR" checkout main &&
-    git -C "$INSTALL_DIR" pull --ff-only origin main
+    git -C "$INSTALL_DIR" checkout -B main origin/main &&
+    git -C "$INSTALL_DIR" reset --hard origin/main
   git_status=$?
   set -e
   restore_configuration
-  ((git_status == 0)) || fatal "拉取 main 失败，生产配置已恢复。"
+  ((git_status == 0)) || fatal "同步 main 失败，生产配置已恢复。"
   refresh_management_command
 
   info "校验 Compose 配置"

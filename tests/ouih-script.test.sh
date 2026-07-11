@@ -66,11 +66,11 @@ printf 'git %s\n' "$*" >> "$MOCK_LOG"
 if [[ "$*" == *"status --porcelain"* ]]; then
   [[ "${MOCK_GIT_DIRTY:-0}" == "1" ]] && printf ' M local-change\n'
 fi
-if [[ "$*" == *"pull --ff-only origin main"* ]]; then
+if [[ "$*" == *"reset --hard origin/main"* ]]; then
   if [[ "${MOCK_GIT_OVERWRITE_ENV:-0}" == "1" ]]; then
     printf 'APP_ORIGIN=https://overwritten.invalid\n' > "$2/.env.production"
   fi
-  [[ "${MOCK_GIT_PULL_FAIL:-0}" == "1" ]] && exit 23
+  [[ "${MOCK_GIT_SYNC_FAIL:-0}" == "1" ]] && exit 23
 fi
 exit 0
 EOF
@@ -109,7 +109,9 @@ MOCK_GIT_OVERWRITE_ENV=1 OUIH_INSTALL_DIR="$install_one" \
 env_after="$(cat "$install_one/.env.production")"
 [[ "$env_before" == "$env_after" ]] || fail "update 未保留生产配置"
 assert_log_contains "git -C $install_one status --porcelain"
-assert_log_contains "git -C $install_one pull --ff-only origin main"
+assert_log_contains "git -C $install_one fetch --depth 1 origin main"
+assert_log_contains "git -C $install_one checkout -B main origin/main"
+assert_log_contains "git -C $install_one reset --hard origin/main"
 assert_log_contains "docker compose --env-file .env.production -f docker-compose.yml --profile https build api"
 assert_log_contains "docker compose --env-file .env.production -f docker-compose.yml --profile https build web"
 assert_log_contains "docker compose --env-file .env.production -f docker-compose.yml --profile https up -d"
@@ -120,21 +122,21 @@ if MOCK_GIT_DIRTY=1 OUIH_INSTALL_DIR="$install_one" \
   fail "脏仓库应拒绝更新"
 fi
 assert_contains "$(cat "$TEST_ROOT/dirty.out")" "未提交修改"
-if grep -F "pull --ff-only" "$MOCK_LOG" >/dev/null; then
-  fail "脏仓库不应执行 pull"
+if grep -F "reset --hard origin/main" "$MOCK_LOG" >/dev/null; then
+  fail "脏仓库不应执行同步"
 fi
 
 reset_log
-if MOCK_GIT_OVERWRITE_ENV=1 MOCK_GIT_PULL_FAIL=1 \
+if MOCK_GIT_OVERWRITE_ENV=1 MOCK_GIT_SYNC_FAIL=1 \
   OUIH_INSTALL_DIR="$install_one" \
-  "$SOURCE_SCRIPT" update >"$TEST_ROOT/pull-fail.out" 2>&1; then
-  fail "pull 失败应返回非零"
+  "$SOURCE_SCRIPT" update >"$TEST_ROOT/sync-fail.out" 2>&1; then
+  fail "同步失败应返回非零"
 fi
 [[ "$(cat "$install_one/.env.production")" == "$env_before" ]] ||
-  fail "pull 失败后未恢复生产配置"
-assert_contains "$(cat "$TEST_ROOT/pull-fail.out")" "生产配置已恢复"
+  fail "同步失败后未恢复生产配置"
+assert_contains "$(cat "$TEST_ROOT/sync-fail.out")" "生产配置已恢复"
 if grep -F "build api" "$MOCK_LOG" >/dev/null; then
-  fail "pull 失败后不应开始构建"
+  fail "同步失败后不应开始构建"
 fi
 
 reset_log

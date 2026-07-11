@@ -16,7 +16,7 @@
   <a href="https://github.com/cshaizhihao/ou-image-hosting/releases">
     <img src="https://img.shields.io/github/v/release/cshaizhihao/ou-image-hosting?style=flat-square&color=ef8f8f" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-v1.0.7-ef8f8f?style=flat-square" alt="Current version v1.0.7" />
+  <img src="https://img.shields.io/badge/version-v1.0.8-ef8f8f?style=flat-square" alt="Current version v1.0.8" />
   <a href="https://github.com/cshaizhihao/ou-image-hosting/actions/workflows/check.yml">
     <img src="https://img.shields.io/github/actions/workflow/status/cshaizhihao/ou-image-hosting/check.yml?branch=main&style=flat-square&label=check" alt="Check" />
   </a>
@@ -265,7 +265,7 @@ ouih stop
 ouih start
 ```
 
-`ouih update` 会拒绝覆盖存在未提交修改的仓库，保留 `.env.production` 和 `OU_SECRET_KEY`，顺序重建镜像并重新验证服务。
+`ouih update` 会拒绝覆盖存在未提交修改的仓库；正常安装目录会先备份 `.env.production`，再同步远端 `main`，恢复生产配置与 `OU_SECRET_KEY`，顺序重建镜像并重新验证服务。
 
 `ouih uninstall` 默认只移除运行中的容器并保留生产配置与 Docker 数据卷，方便重新安装恢复。永久删除图片与元数据必须显式使用数据清理选项并完成二次确认。
 

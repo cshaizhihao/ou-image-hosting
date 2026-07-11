@@ -614,10 +614,10 @@ prepare_source() {
     [[ -z "$(git -C "$INSTALL_DIR" status --porcelain)" ]] ||
       fatal "安装目录存在未提交修改，请先处理后再升级。"
 
-    info "检测到已有安装，正在安全更新"
+    info "检测到已有安装，正在对齐远端 main"
     git -C "$INSTALL_DIR" fetch --depth 1 origin main
-    git -C "$INSTALL_DIR" checkout main
-    git -C "$INSTALL_DIR" pull --ff-only origin main
+    git -C "$INSTALL_DIR" checkout -B main origin/main
+    git -C "$INSTALL_DIR" reset --hard origin/main
     success "项目已更新到最新 main"
   else
     if [[ -d "$INSTALL_DIR" && -n "$(find "$INSTALL_DIR" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then

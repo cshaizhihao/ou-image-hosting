@@ -2,6 +2,24 @@
 
 本项目遵循 Semantic Versioning。
 
+## [1.0.8] - 2026-07-11
+
+### Fixed
+
+- 修复 `ouih update` 在安装目录本地 `main` 与远端 `origin/main` 分叉时，由 `git pull --ff-only` 失败导致无法升级的问题。
+- 安装器重复运行时同样改为对齐远端 `main`，避免浅克隆、强制更新或安装机分叉状态阻断升级。
+
+### Changed
+
+- 更新流程改为：备份 `.env.production` → `fetch origin main` → `checkout -B main origin/main` → `reset --hard origin/main` → 恢复生产配置 → 顺序构建启动。
+- 保留未提交源码改动保护；如果安装目录存在未提交修改，仍会拒绝覆盖。
+- `ouih update` 帮助文案从“拉取 main”调整为“同步 main”。
+
+### Tests
+
+- 更新 `ouih` 模拟测试，覆盖 reset 式同步、生产配置恢复和同步失败不构建。
+- 安装器与 `ouih` 回归测试通过。
+
 ## [1.0.7] - 2026-07-11
 
 ### Added
