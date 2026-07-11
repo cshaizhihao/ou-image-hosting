@@ -27,6 +27,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { gunzip, gzip } from "node:zlib";
 import {
+  addAuditEvent,
   requireSession,
   type Principal
 } from "./access.js";
@@ -61,6 +62,7 @@ type InfrastructureOptions = {
   now: () => Date;
   authenticate: (request: FastifyRequest) => Principal;
   maintenance: MaintenanceGate;
+  backupSchedulerIntervalMs?: number;
 };
 
 type RemoteInput = {
@@ -741,7 +743,9 @@ async function stageBackupArchive(
   }
   return {
     migratedState,
-    fileCount: envelope.files.length
+    fileCount: envelope.files.length,
+    sourceSchemaVersion: envelope.state.schemaVersion,
+    archiveCreatedAt: envelope.createdAt
   };
 }
 
@@ -808,8 +812,161 @@ function publicBackup(backup: StoredBackup) {
     size: backup.size,
     fileCount: backup.fileCount,
     checksum: backup.checksum,
+    format: "ou-image-backup-v1" as const,
+    checksumStatus: backup.checksum ? ("recorded" as const) : ("missing" as const),
+    compatibilityStatus: "unchecked" as const,
     error: backup.error
   };
+}
+
+async function cleanupExpiredBackups(input: {
+  store: AppStore;
+  dataDirectory: string;
+  createdBy: string;
+  now: () => Date;
+}) {
+  const { store, dataDirectory, createdBy, now } = input;
+  const snapshot = store.snapshot();
+  const expired = snapshot.backups
+    .filter((item) => item.status === "completed")
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .slice(snapshot.backupSettings.retentionCount);
+  const removedIds = new Set<string>();
+  for (const item of expired) {
+    try {
+      await unlink(safeDataPath(dataDirectory, item.archiveKey));
+      removedIds.add(item.id);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        removedIds.add(item.id);
+        continue;
+      }
+      await store.update((draft) => {
+        const workspaceId =
+          draft.workspaces.find(
+            (workspace) =>
+              workspace.ownerUserId === createdBy && workspace.personal
+          )?.id ?? `personal-${createdBy}`;
+        addAuditEvent(draft, {
+          workspaceId,
+          action: "backup.retention.cleanup.failure",
+          result: "failure",
+          resourceType: "backup",
+          resourceId: item.id,
+          metadata: {
+            message: error instanceof Error ? error.message : "旧备份清理失败"
+          },
+          createdAt: now().toISOString()
+        });
+      }).catch(() => undefined);
+    }
+  }
+  if (removedIds.size > 0) {
+    await store.update((draft) => {
+      draft.backups = draft.backups.filter((item) => !removedIds.has(item.id));
+    });
+  }
+}
+
+async function createBackupArchive(input: {
+  store: AppStore;
+  dataDirectory: string;
+  storageRoot: string;
+  backupsRoot: string;
+  now: () => Date;
+  createdBy: string;
+}) {
+  const { store, dataDirectory, storageRoot, backupsRoot, now, createdBy } = input;
+  const timestamp = now();
+  const backup: StoredBackup = {
+    id: randomUUID(),
+    status: "running",
+    archiveKey: `backups/${randomUUID()}.oubackup.gz`,
+    createdBy,
+    createdAt: timestamp.toISOString(),
+    fileCount: 0
+  };
+  await store.update((state) => {
+    state.backups.push(backup);
+  });
+
+  try {
+    await mkdir(backupsRoot, { recursive: true });
+    const state = store.snapshot();
+    state.backups = state.backups.filter((item) => item.id !== backup.id);
+    const stateJson = JSON.stringify(state);
+    const filePaths = await listFiles(storageRoot);
+    if (filePaths.length > MAX_BACKUP_FILES) {
+      backupLimit("备份文件数量超过安全限制");
+    }
+    const files: BackupEnvelope["files"] = [];
+    const manifestFiles: BackupEnvelope["manifest"]["files"] = [];
+    let totalFileBytes = 0;
+    for (const relative of filePaths) {
+      const safe = safeRelativePath(relative);
+      const fileStat = await stat(path.join(storageRoot, safe));
+      if (fileStat.size > MAX_BACKUP_SINGLE_FILE_BYTES) {
+        backupLimit("备份包含超过单文件限制的内容");
+      }
+      totalFileBytes += fileStat.size;
+      if (totalFileBytes > MAX_BACKUP_TOTAL_FILE_BYTES) {
+        backupLimit("备份文件总大小超过安全限制");
+      }
+      const content = await readFile(path.join(storageRoot, safe));
+      files.push({ path: safe, contentBase64: content.toString("base64") });
+      manifestFiles.push({
+        path: safe,
+        size: content.byteLength,
+        sha256: sha256(content)
+      });
+    }
+    const envelope: BackupEnvelope = {
+      format: "ou-image-backup-v1",
+      createdAt: timestamp.toISOString(),
+      manifest: { stateSha256: sha256(stateJson), files: manifestFiles },
+      state,
+      files
+    };
+    const envelopeBuffer = Buffer.from(JSON.stringify(envelope));
+    if (envelopeBuffer.byteLength > MAX_BACKUP_ENVELOPE_BYTES) {
+      backupLimit("备份解压后大小超过安全限制");
+    }
+    const archive = await gzipAsync(envelopeBuffer, { level: 6 });
+    if (archive.byteLength > MAX_BACKUP_ARCHIVE_BYTES) {
+      backupLimit("备份归档大小超过安全限制");
+    }
+    const archivePath = safeDataPath(dataDirectory, backup.archiveKey);
+    await mkdir(path.dirname(archivePath), { recursive: true });
+    await writeFile(archivePath, archive, { mode: 0o600 });
+    const completedAt = now().toISOString();
+    const completed = await store.update((draft) => {
+      const current = draft.backups.find((item) => item.id === backup.id)!;
+      current.status = "completed";
+      current.completedAt = completedAt;
+      current.size = archive.byteLength;
+      current.fileCount = files.length;
+      current.checksum = sha256(archive);
+      draft.backupSettings.lastBackupAt = completedAt;
+      return current;
+    });
+
+    await cleanupExpiredBackups({
+      store,
+      dataDirectory,
+      createdBy,
+      now
+    }).catch(() => undefined);
+    return completed;
+  } catch (error) {
+    await store.update((state) => {
+      const current = state.backups.find((item) => item.id === backup.id);
+      if (!current) return;
+      current.status = "failed";
+      current.completedAt = now().toISOString();
+      current.error = error instanceof Error ? error.message : "备份创建失败";
+    });
+    throw error;
+  }
 }
 
 function publicMigration(migration: StoredStorageMigration) {
@@ -849,6 +1006,83 @@ export function registerInfrastructureRoutes(
   const { store, dataDirectory, now, authenticate, maintenance } = options;
   const storageRoot = path.join(dataDirectory, "storage");
   const backupsRoot = path.join(dataDirectory, "backups");
+  let backupInFlight = false;
+  let backupPreflightInFlight = false;
+  let lastScheduledAttemptAt = 0;
+
+  const runBackup = async (createdBy: string, skipIfBusy = false) => {
+    if (backupInFlight) {
+      if (skipIfBusy) return null;
+      throw new PublicError(409, "BACKUP_IN_PROGRESS", "已有备份任务正在执行");
+    }
+    backupInFlight = true;
+    try {
+      const releaseBackup = await maintenance.beginBackup();
+      try {
+        return await createBackupArchive({
+          store,
+          dataDirectory,
+          storageRoot,
+          backupsRoot,
+          now,
+          createdBy
+        });
+      } finally {
+        releaseBackup();
+      }
+    } finally {
+      backupInFlight = false;
+    }
+  };
+
+  const scheduledBackupTick = async () => {
+    const state = store.snapshot();
+    const settings = state.backupSettings;
+    if (!state.setupComplete || !settings.scheduleEnabled || backupInFlight) return;
+    const owner = state.users.find((user) => user.role === "owner");
+    if (!owner) return;
+    const lastBackupAt = settings.lastBackupAt
+      ? Date.parse(settings.lastBackupAt)
+      : Number.NaN;
+    const intervalMs = settings.intervalHours * 60 * 60 * 1000;
+    const dueAt = Math.max(
+      Number.isFinite(lastBackupAt) ? lastBackupAt + intervalMs : 0,
+      lastScheduledAttemptAt ? lastScheduledAttemptAt + intervalMs : 0
+    );
+    if (now().getTime() < dueAt) return;
+    lastScheduledAttemptAt = now().getTime();
+    try {
+      await runBackup(owner.id, true);
+    } catch (error) {
+      await store.update((draft) => {
+        const workspaceId =
+          draft.workspaces.find(
+            (workspace) => workspace.ownerUserId === owner.id && workspace.personal
+          )?.id ?? `personal-${owner.id}`;
+        addAuditEvent(draft, {
+          workspaceId,
+          action: "backup.schedule.failure",
+          result: "failure",
+          resourceType: "backup",
+          metadata: {
+            message: error instanceof Error ? error.message : "自动备份失败"
+          },
+          createdAt: now().toISOString()
+        });
+      });
+    }
+  };
+
+  const schedulerInterval = setInterval(
+    () => void scheduledBackupTick(),
+    options.backupSchedulerIntervalMs === undefined
+      ? 60_000
+      : Math.max(10, options.backupSchedulerIntervalMs)
+  );
+  schedulerInterval.unref();
+  app.addHook("onClose", async () => {
+    clearInterval(schedulerInterval);
+  });
 
   app.get("/storage/settings", async (request) => {
     requireOwner(request, authenticate);
@@ -1251,125 +1485,8 @@ export function registerInfrastructureRoutes(
 
   app.post("/backups", async (request, reply) => {
     const { user } = requireOwner(request, authenticate);
-    const timestamp = now();
-    const backup: StoredBackup = {
-      id: randomUUID(),
-      status: "running",
-      archiveKey: `backups/${randomUUID()}.oubackup.gz`,
-      createdBy: user.id,
-      createdAt: timestamp.toISOString(),
-      fileCount: 0
-    };
-    await store.update((state) => {
-      state.backups.push(backup);
-    });
-
-    try {
-      await mkdir(backupsRoot, { recursive: true });
-      const state = store.snapshot();
-      state.backups = state.backups.filter((item) => item.id !== backup.id);
-      const stateJson = JSON.stringify(state);
-      const filePaths = await listFiles(storageRoot);
-      if (filePaths.length > MAX_BACKUP_FILES) {
-        backupLimit("备份文件数量超过安全限制");
-      }
-      const files: BackupEnvelope["files"] = [];
-      const manifestFiles: BackupEnvelope["manifest"]["files"] = [];
-      let totalFileBytes = 0;
-      for (const relative of filePaths) {
-        const safe = safeRelativePath(relative);
-        const fileStat = await stat(path.join(storageRoot, safe));
-        if (fileStat.size > MAX_BACKUP_SINGLE_FILE_BYTES) {
-          backupLimit("备份包含超过单文件限制的内容");
-        }
-        totalFileBytes += fileStat.size;
-        if (totalFileBytes > MAX_BACKUP_TOTAL_FILE_BYTES) {
-          backupLimit("备份文件总大小超过安全限制");
-        }
-        const content = await readFile(path.join(storageRoot, safe));
-        files.push({
-          path: safe,
-          contentBase64: content.toString("base64")
-        });
-        manifestFiles.push({
-          path: safe,
-          size: content.byteLength,
-          sha256: sha256(content)
-        });
-      }
-      const envelope: BackupEnvelope = {
-        format: "ou-image-backup-v1",
-        createdAt: timestamp.toISOString(),
-        manifest: {
-          stateSha256: sha256(stateJson),
-          files: manifestFiles
-        },
-        state,
-        files
-      };
-      const envelopeBuffer = Buffer.from(JSON.stringify(envelope));
-      if (envelopeBuffer.byteLength > MAX_BACKUP_ENVELOPE_BYTES) {
-        backupLimit("备份解压后大小超过安全限制");
-      }
-      const archive = await gzipAsync(envelopeBuffer, {
-        level: 6
-      });
-      if (archive.byteLength > MAX_BACKUP_ARCHIVE_BYTES) {
-        backupLimit("备份归档大小超过安全限制");
-      }
-      const archivePath = safeDataPath(dataDirectory, backup.archiveKey);
-      await mkdir(path.dirname(archivePath), { recursive: true });
-      await writeFile(archivePath, archive, { mode: 0o600 });
-      const completedAt = now().toISOString();
-      const completed = await store.update((draft) => {
-        const current = draft.backups.find(
-          (item) => item.id === backup.id
-        )!;
-        current.status = "completed";
-        current.completedAt = completedAt;
-        current.size = archive.byteLength;
-        current.fileCount = files.length;
-        current.checksum = sha256(archive);
-        draft.backupSettings.lastBackupAt = completedAt;
-        return current;
-      });
-
-      const completedBackups = store
-        .snapshot()
-        .backups.filter((item) => item.status === "completed")
-        .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-      const expired = completedBackups.slice(
-        store.snapshot().backupSettings.retentionCount
-      );
-      for (const item of expired) {
-        try {
-          await unlink(safeDataPath(dataDirectory, item.archiveKey));
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-        }
-      }
-      if (expired.length > 0) {
-        const expiredIds = new Set(expired.map((item) => item.id));
-        await store.update((draft) => {
-          draft.backups = draft.backups.filter(
-            (item) => !expiredIds.has(item.id)
-          );
-        });
-      }
-      return reply.status(201).send({
-        backup: publicBackup(completed)
-      });
-    } catch (error) {
-      await store.update((state) => {
-        const current = state.backups.find((item) => item.id === backup.id);
-        if (!current) return;
-        current.status = "failed";
-        current.completedAt = now().toISOString();
-        current.error =
-          error instanceof Error ? error.message : "备份创建失败";
-      });
-      throw error;
-    }
+    const completed = await runBackup(user.id);
+    return reply.status(201).send({ backup: publicBackup(completed!) });
   });
 
   app.get<{ Params: IdParams }>(
@@ -1388,6 +1505,59 @@ export function registerInfrastructureRoutes(
         safeDataPath(dataDirectory, backup.archiveKey),
         backup
       );
+    }
+  );
+
+  app.post<{ Params: IdParams }>(
+    "/backups/:id/preflight",
+    {
+      config: { rateLimit: { max: 3, timeWindow: "1 minute" } },
+      schema: { params: idParamsSchema }
+    },
+    async (request) => {
+      requireOwner(request, authenticate);
+      if (backupPreflightInFlight) {
+        throw new PublicError(
+          409,
+          "BACKUP_PREFLIGHT_IN_PROGRESS",
+          "已有备份预检正在执行"
+        );
+      }
+      const backup = store
+        .snapshot()
+        .backups.find((item) => item.id === request.params.id);
+      if (!backup || backup.status !== "completed") {
+        throw new PublicError(404, "BACKUP_NOT_FOUND", "备份不存在");
+      }
+      const stagingRoot = path.join(
+        dataDirectory,
+        `.backup-preflight-${randomUUID()}`
+      );
+      backupPreflightInFlight = true;
+      try {
+        const staged = await stageBackupArchive(
+          safeDataPath(dataDirectory, backup.archiveKey),
+          backup,
+          stagingRoot
+        );
+        return {
+          compatible: true,
+          checksumVerified: Boolean(backup.checksum),
+          manifestVerified: true,
+          format: "ou-image-backup-v1",
+          sourceSchemaVersion: staged.sourceSchemaVersion,
+          currentSchemaVersion: 8,
+          archiveCreatedAt: staged.archiveCreatedAt,
+          fileCount: staged.fileCount,
+          size: backup.size
+        };
+      } finally {
+        try {
+          await rm(stagingRoot, { recursive: true, force: true });
+        } finally {
+          backupPreflightInFlight = false;
+        }
+      }
     }
   );
 

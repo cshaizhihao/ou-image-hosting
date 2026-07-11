@@ -38,6 +38,15 @@ import {
 } from "react";
 import { ApiError } from "@/lib/api";
 import { paginationWindow } from "@/lib/pagination";
+import {
+  DEFAULT_SITE_BRANDING,
+  bindSiteAppearance,
+  normalizeSiteBranding,
+  storedThemePreference,
+  useFallbackLogo,
+  type AccentPreset,
+  type SiteThemePreference
+} from "@/lib/site-branding";
 
 type PublicConfig = {
   setupComplete: boolean;
@@ -55,6 +64,8 @@ type PublicConfig = {
     publicUploadHumanVerificationEnabled: boolean;
     publicHeroTitle: string;
     publicHeroDescription: string;
+    theme: SiteThemePreference;
+    accentPreset: AccentPreset;
   } | null;
 };
 
@@ -97,9 +108,9 @@ type UploadQueueItem = UploadResult & {
 const fallbackConfig: PublicConfig = {
   setupComplete: false,
   site: {
-    siteName: "OU-Image Hosting",
-    siteDescription: "欧记图床",
-    siteLogoUrl: "/brand/ou-image-hosting-logo.jpg",
+    siteName: DEFAULT_SITE_BRANDING.siteName,
+    siteDescription: DEFAULT_SITE_BRANDING.siteDescription,
+    siteLogoUrl: DEFAULT_SITE_BRANDING.siteLogoUrl,
     publicUploadEnabled: true,
     publicUploadRequiresLogin: false,
     publicGalleryEnabled: true,
@@ -108,9 +119,10 @@ const fallbackConfig: PublicConfig = {
     publicGalleryShowUploadTime: true,
     publicUploadDefaultPublic: true,
     publicUploadHumanVerificationEnabled: false,
-    publicHeroTitle: "把图片放进来，剩下的交给队列。",
-    publicHeroDescription:
-      "拖拽、选择或粘贴图片，即可生成可分享链接。公开展示可以在后台关闭，上传时也能自己决定是否出现在公共图床里。"
+    publicHeroTitle: DEFAULT_SITE_BRANDING.publicHeroTitle,
+    publicHeroDescription: DEFAULT_SITE_BRANDING.publicHeroDescription,
+    theme: DEFAULT_SITE_BRANDING.theme,
+    accentPreset: DEFAULT_SITE_BRANDING.accentPreset
   }
 };
 
@@ -255,14 +267,13 @@ export function PublicUploadLanding() {
   );
 
   useEffect(() => {
-    const saved = window.localStorage.getItem("ou-theme");
-    const nextDark =
-      saved === "dark" ||
-      (saved !== "light" &&
-        window.matchMedia("(prefers-color-scheme: dark)").matches);
-    setDark(nextDark);
-    document.documentElement.dataset.theme = nextDark ? "dark" : "light";
-  }, []);
+    const explicit = storedThemePreference(
+      window.localStorage.getItem("ou-theme")
+    );
+    return bindSiteAppearance(site, explicit, (theme) =>
+      setDark(theme === "dark")
+    );
+  }, [site]);
 
   const refreshPublicGallery = useCallback(async (fresh = false) => {
     if (!site.publicGalleryEnabled) {
@@ -324,7 +335,17 @@ export function PublicUploadLanding() {
             .catch(() => ({ authenticated: false }))
         ]);
         if (!alive) return;
-        setConfig(payload);
+        setConfig(
+          payload.site
+            ? {
+                ...payload,
+                site: {
+                  ...payload.site,
+                  ...normalizeSiteBranding(payload.site)
+                }
+              }
+            : payload
+        );
         setSession(sessionPayload);
         setPublicVisible(
           payload.site?.publicUploadDefaultPublic ??
@@ -703,6 +724,7 @@ export function PublicUploadLanding() {
             <img
               alt={`${site.siteName} Logo`}
               height={46}
+              onError={(event) => useFallbackLogo(event.currentTarget)}
               src={site.siteLogoUrl || fallbackConfig.site!.siteLogoUrl}
               width={46}
             />

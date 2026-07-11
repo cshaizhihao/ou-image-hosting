@@ -8,7 +8,9 @@ import { createHash, randomInt, randomUUID } from "node:crypto";
 import { lookup } from "node:dns/promises";
 import { createReadStream } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
-import { isIP } from "node:net";
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
+import { BlockList, isIP } from "node:net";
 import path from "node:path";
 import sharp from "sharp";
 import {
@@ -43,6 +45,32 @@ import {
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
 const MAX_REMOTE_SIZE = 20 * 1024 * 1024;
 const MAX_PIXELS = 80_000_000;
+const REMOTE_UPLOAD_TIMEOUT_MS = 10_000;
+const remoteAddressBlockList = new BlockList();
+
+remoteAddressBlockList.addSubnet("0.0.0.0", 8, "ipv4");
+remoteAddressBlockList.addSubnet("10.0.0.0", 8, "ipv4");
+remoteAddressBlockList.addSubnet("100.64.0.0", 10, "ipv4");
+remoteAddressBlockList.addSubnet("127.0.0.0", 8, "ipv4");
+remoteAddressBlockList.addSubnet("169.254.0.0", 16, "ipv4");
+remoteAddressBlockList.addSubnet("172.16.0.0", 12, "ipv4");
+remoteAddressBlockList.addSubnet("192.0.0.0", 24, "ipv4");
+remoteAddressBlockList.addSubnet("192.0.2.0", 24, "ipv4");
+remoteAddressBlockList.addSubnet("192.168.0.0", 16, "ipv4");
+remoteAddressBlockList.addSubnet("198.18.0.0", 15, "ipv4");
+remoteAddressBlockList.addSubnet("198.51.100.0", 24, "ipv4");
+remoteAddressBlockList.addSubnet("203.0.113.0", 24, "ipv4");
+remoteAddressBlockList.addSubnet("224.0.0.0", 4, "ipv4");
+remoteAddressBlockList.addSubnet("240.0.0.0", 4, "ipv4");
+remoteAddressBlockList.addAddress("::", "ipv6");
+remoteAddressBlockList.addAddress("::1", "ipv6");
+remoteAddressBlockList.addSubnet("::ffff:0:0", 96, "ipv6");
+remoteAddressBlockList.addSubnet("64:ff9b::", 96, "ipv6");
+remoteAddressBlockList.addSubnet("100::", 64, "ipv6");
+remoteAddressBlockList.addSubnet("2001:db8::", 32, "ipv6");
+remoteAddressBlockList.addSubnet("fc00::", 7, "ipv6");
+remoteAddressBlockList.addSubnet("fe80::", 10, "ipv6");
+remoteAddressBlockList.addSubnet("ff00::", 8, "ipv6");
 const supportedFormats = new Set(["jpeg", "png", "webp", "gif", "avif"]);
 const extensionByFormat = {
   jpeg: "jpg",
@@ -264,38 +292,10 @@ function parseChallengeToken(token: string) {
   }
 }
 
-function isPrivateIpv4(address: string) {
-  const parts = address.split(".").map(Number);
-  const [a = -1, b = -1] = parts;
-  return (
-    a === 0 ||
-    a === 10 ||
-    a === 127 ||
-    (a === 169 && b === 254) ||
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && b === 168) ||
-    (a === 100 && b >= 64 && b <= 127) ||
-    a >= 224
-  );
-}
-
 function isPrivateAddress(address: string) {
-  if (isIP(address) === 4) return isPrivateIpv4(address);
-  const normalized = address.toLowerCase();
-  return (
-    normalized === "::" ||
-    normalized === "::1" ||
-    normalized.startsWith("fc") ||
-    normalized.startsWith("fd") ||
-    normalized.startsWith("fe8") ||
-    normalized.startsWith("fe9") ||
-    normalized.startsWith("fea") ||
-    normalized.startsWith("feb") ||
-    normalized.startsWith("ff") ||
-    normalized.startsWith("::ffff:127.") ||
-    normalized.startsWith("::ffff:10.") ||
-    normalized.startsWith("::ffff:192.168.")
-  );
+  const family = isIP(address);
+  if (family !== 4 && family !== 6) return true;
+  return remoteAddressBlockList.check(address, family === 4 ? "ipv4" : "ipv6");
 }
 
 async function assertRemoteUrl(rawUrl: string) {
@@ -323,50 +323,80 @@ async function assertRemoteUrl(rawUrl: string) {
   ) {
     throw new PublicError(400, "BLOCKED_URL", "该网址指向受保护的网络地址");
   }
-  return url;
+  const selected = addresses[0];
+  if (!selected) {
+    throw new PublicError(400, "REMOTE_FETCH_FAILED", "无法解析远程图片地址");
+  }
+  return { url, address: selected.address, family: selected.family };
 }
 
 async function readRemoteImage(rawUrl: string, maximumBytes: number) {
-  const url = await assertRemoteUrl(rawUrl);
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      redirect: "error",
-      signal: AbortSignal.timeout(10_000),
-      headers: {
-        accept: "image/avif,image/webp,image/png,image/jpeg,image/gif",
-        "user-agent": "OU-Image-Hosting/1.11.0"
-      }
-    });
-  } catch {
-    throw new PublicError(400, "REMOTE_FETCH_FAILED", "无法读取远程图片");
-  }
-  if (!response.ok || !response.body) {
-    throw new PublicError(400, "REMOTE_FETCH_FAILED", "远程图片响应不可用");
-  }
-  const declaredLength = Number(response.headers.get("content-length") ?? 0);
-  if (declaredLength > maximumBytes) {
-    throw new PublicError(413, "FILE_TOO_LARGE", "图片超过工作区上传上限");
-  }
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > maximumBytes) {
-      await reader.cancel();
-      throw new PublicError(413, "FILE_TOO_LARGE", "图片超过工作区上传上限");
+  const { url, address, family } = await assertRemoteUrl(rawUrl);
+  return new Promise<{ buffer: Buffer; filename: string; mime: string }>(
+    (resolve, reject) => {
+      const requestImpl = url.protocol === "https:" ? httpsRequest : httpRequest;
+      const request = requestImpl(
+        url,
+        {
+          family,
+          headers: {
+            accept: "image/avif,image/webp,image/png,image/jpeg,image/gif",
+            "user-agent": "OU-Image-Hosting/1.12.0"
+          },
+          lookup: (_hostname, _options, callback) => {
+            callback(null, address, family);
+          },
+          servername: url.hostname,
+          timeout: REMOTE_UPLOAD_TIMEOUT_MS
+        },
+        (response) => {
+          const statusCode = response.statusCode ?? 0;
+          if (statusCode < 200 || statusCode >= 300) {
+            response.resume();
+            reject(new PublicError(400, "REMOTE_FETCH_FAILED", "远程图片响应不可用"));
+            return;
+          }
+          const declaredLength = Number(response.headers["content-length"] ?? 0);
+          if (declaredLength > maximumBytes) {
+            response.destroy();
+            reject(new PublicError(413, "FILE_TOO_LARGE", "图片超过工作区上传上限"));
+            return;
+          }
+          const chunks: Buffer[] = [];
+          let total = 0;
+          response.on("data", (chunk: Buffer) => {
+            total += chunk.byteLength;
+            if (total > maximumBytes) {
+              response.destroy(
+                new PublicError(413, "FILE_TOO_LARGE", "图片超过工作区上传上限")
+              );
+              return;
+            }
+            chunks.push(Buffer.from(chunk));
+          });
+          response.on("end", () => {
+            resolve({
+              buffer: Buffer.concat(chunks),
+              filename: sanitizeFilename(path.basename(url.pathname) || "remote-image"),
+              mime: String(response.headers["content-type"] ?? "").split(";")[0] ?? ""
+            });
+          });
+          response.on("error", reject);
+        }
+      );
+      request.on("timeout", () => {
+        request.destroy(new PublicError(400, "REMOTE_FETCH_FAILED", "远程图片读取超时"));
+      });
+      request.on("error", (error) => {
+        reject(
+          error instanceof PublicError
+            ? error
+            : new PublicError(400, "REMOTE_FETCH_FAILED", "无法读取远程图片")
+        );
+      });
+      request.end();
     }
-    chunks.push(value);
-  }
-  const buffer = Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)));
-  return {
-    buffer,
-    filename: sanitizeFilename(path.basename(url.pathname) || "remote-image"),
-    mime: response.headers.get("content-type")?.split(";")[0] ?? ""
-  };
+  );
 }
 
 export async function registerUploadRoutes(
@@ -1132,7 +1162,9 @@ export async function registerUploadRoutes(
           }
         },
         publicHeroTitle: site.publicHeroTitle,
-        publicHeroDescription: site.publicHeroDescription
+        publicHeroDescription: site.publicHeroDescription,
+        theme: site.theme,
+        accentPreset: site.accentPreset
       }
     };
   });
@@ -1157,11 +1189,13 @@ export async function registerUploadRoutes(
       }
     },
     async (request, reply) => {
+      const state = store.snapshot();
       reply.header(
         "cache-control",
-        "public, max-age=20, stale-while-revalidate=60"
+        state.deliverySettings.signedUrls
+          ? "no-store"
+          : "public, max-age=20, stale-while-revalidate=60"
       );
-      const state = store.snapshot();
       const page = Math.max(1, Number(request.query.page ?? 1));
       const limit = Math.min(
         48,

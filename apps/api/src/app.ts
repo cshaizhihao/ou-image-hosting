@@ -60,6 +60,7 @@ type BuildAppOptions = {
   appOrigin?: string;
   exposeDevelopmentResetToken?: boolean;
   now?: () => Date;
+  backupSchedulerIntervalMs?: number;
 };
 
 type SetupBody = {
@@ -111,7 +112,8 @@ function publicSiteStatus(site: AppState["site"]) {
         loginHeroTitle: site.loginHeroTitle,
         loginHeroDescription: site.loginHeroDescription,
         defaultStorage: site.defaultStorage,
-        theme: site.theme
+        theme: site.theme,
+        accentPreset: site.accentPreset
       }
     : null;
 }
@@ -323,7 +325,12 @@ export async function buildApp(options: BuildAppOptions = {}) {
     const isRestoreRequest =
       request.method === "POST" &&
       /^\/backups\/[^/?]+\/restore(?:\?|$)/.test(request.url);
-    if (!isRestoreRequest) {
+    const isBackupRequest =
+      request.method === "POST" && /^\/backups(?:\?|$)/.test(request.url);
+    const isBackupRetryRequest =
+      request.method === "POST" &&
+      /^\/jobs\/backup\/[^/?]+\/retry(?:\?|$)/.test(request.url);
+    if (!isRestoreRequest && !isBackupRequest && !isBackupRetryRequest) {
       writeReleases.set(request, maintenance.beginWrite());
     }
     const origin = request.headers.origin;
@@ -649,13 +656,13 @@ export async function buildApp(options: BuildAppOptions = {}) {
   app.get("/health", async () => ({
     status: "ok",
     service: "ou-image-api",
-    version: "1.11.0"
+    version: "1.12.0"
   }));
 
   app.get("/health/live", async () => ({
     status: "ok",
     service: "ou-image-api",
-    version: "1.11.0"
+    version: "1.12.0"
   }));
 
   const probeDirectory = async (directory: string, label: string) => {
@@ -1474,7 +1481,8 @@ export async function buildApp(options: BuildAppOptions = {}) {
     dataDirectory,
     now,
     authenticate: authenticatedUser,
-    maintenance
+    maintenance,
+    backupSchedulerIntervalMs: options.backupSchedulerIntervalMs
   });
 
   return app;

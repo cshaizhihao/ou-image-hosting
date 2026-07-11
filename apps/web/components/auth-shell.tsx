@@ -4,6 +4,15 @@ import { cn } from "@ou-image/ui";
 import { Check, ImageIcon, Moon, ShieldCheck, Sun } from "lucide-react";
 import Link from "next/link";
 import { type ReactNode, useEffect, useState } from "react";
+import {
+  DEFAULT_SITE_BRANDING,
+  bindSiteAppearance,
+  normalizeSiteBranding,
+  storedThemePreference,
+  useFallbackLogo,
+  type AccentPreset,
+  type SiteThemePreference
+} from "@/lib/site-branding";
 
 type AuthSite = {
   siteName: string;
@@ -12,17 +21,11 @@ type AuthSite = {
   loginEyebrow: string;
   loginHeroTitle: string;
   loginHeroDescription: string;
+  theme: SiteThemePreference;
+  accentPreset: AccentPreset;
 };
 
-const fallbackSite: AuthSite = {
-  siteName: "OU-Image Hosting",
-  siteDescription: "欧记图床",
-  siteLogoUrl: "/brand/ou-image-hosting-logo.jpg",
-  loginEyebrow: "BEAUTIFUL SELF-HOSTED IMAGE HUB",
-  loginHeroTitle: "让图片管理，从第一眼就舒服。",
-  loginHeroDescription:
-    "上传、整理、分享和维护图片资产。清晰的操作路径，加上克制、耐看的界面。"
-};
+const fallbackSite: AuthSite = DEFAULT_SITE_BRANDING;
 
 export function BrandLockup({
   compact = false,
@@ -37,6 +40,7 @@ export function BrandLockup({
         <img
           alt={`${site.siteName} Logo`}
           height={62}
+          onError={(event) => useFallbackLogo(event.currentTarget)}
           src={site.siteLogoUrl || fallbackSite.siteLogoUrl}
           width={62}
         />
@@ -60,14 +64,13 @@ export function AuthShell({
   const [site, setSite] = useState<AuthSite>(fallbackSite);
 
   useEffect(() => {
-    const saved = window.localStorage.getItem("ou-theme");
-    const nextDark =
-      saved === "dark" ||
-      (saved !== "light" &&
-        window.matchMedia("(prefers-color-scheme: dark)").matches);
-    setDark(nextDark);
-    document.documentElement.dataset.theme = nextDark ? "dark" : "light";
-  }, []);
+    const explicit = storedThemePreference(
+      window.localStorage.getItem("ou-theme")
+    );
+    return bindSiteAppearance(site, explicit, (theme) =>
+      setDark(theme === "dark")
+    );
+  }, [site]);
 
   useEffect(() => {
     let alive = true;
@@ -81,10 +84,7 @@ export function AuthShell({
           site?: Partial<AuthSite> | null;
         };
         if (!alive || !payload.site) return;
-        setSite({
-          ...fallbackSite,
-          ...payload.site
-        });
+        setSite(normalizeSiteBranding(payload.site));
       } catch {
         // 登录页文案读取失败时保持默认品牌文案。
       }

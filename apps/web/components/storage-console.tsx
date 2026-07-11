@@ -129,7 +129,22 @@ type Backup = {
   fileCount: number;
   createdAt: string;
   completedAt?: string;
+  format?: "ou-image-backup-v1";
+  checksumStatus?: "recorded" | "missing";
+  compatibilityStatus?: "unchecked";
   error?: string;
+};
+
+type BackupPreflight = {
+  compatible: boolean;
+  checksumVerified: boolean;
+  manifestVerified: boolean;
+  format: "ou-image-backup-v1";
+  sourceSchemaVersion: number;
+  currentSchemaVersion: number;
+  archiveCreatedAt: string;
+  fileCount: number;
+  size?: number;
 };
 
 const emptySettings: StorageSettings = {
@@ -672,6 +687,8 @@ export function StorageConsole() {
   const [refererInput, setRefererInput] = useState("");
   const [migrationTarget, setMigrationTarget] = useState<ProviderKey>("s3");
   const [pendingRestore, setPendingRestore] = useState<Backup | null>(null);
+  const [restorePreflight, setRestorePreflight] =
+    useState<BackupPreflight | null>(null);
   const [pendingDelete, setPendingDelete] = useState<Backup | null>(null);
   const [migrationDialog, setMigrationDialog] = useState(false);
   const [guideProvider, setGuideProvider] =
@@ -939,9 +956,27 @@ export function StorageConsole() {
         body: JSON.stringify({})
       });
       setPendingRestore(null);
+      setRestorePreflight(null);
       setNotice("备份已恢复，请刷新页面确认数据状态");
     } catch (requestError) {
       setError(requestMessage(requestError, "备份恢复失败"));
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const prepareRestore = async (backup: Backup) => {
+    setBusy(`backup-preflight-${backup.id}`);
+    setError("");
+    try {
+      const preflight = await apiRequest<BackupPreflight>(
+        `/backups/${backup.id}/preflight`,
+        { method: "POST", body: JSON.stringify({}) }
+      );
+      setRestorePreflight(preflight);
+      setPendingRestore(backup);
+    } catch (requestError) {
+      setError(requestMessage(requestError, "备份校验失败，暂时不能恢复"));
     } finally {
       setBusy("");
     }
@@ -1834,7 +1869,8 @@ export function StorageConsole() {
                               </Button>
                               <Button
                                 aria-label="恢复备份"
-                                onClick={() => setPendingRestore(backup)}
+                                disabled={busy === `backup-preflight-${backup.id}`}
+                                onClick={() => void prepareRestore(backup)}
                                 size="icon"
                                 variant="ghost"
                               >
@@ -1877,10 +1913,23 @@ export function StorageConsole() {
       <ConfirmDialog
         busy={busy === "backup-restore"}
         confirmLabel="确认恢复"
-        description="恢复会替换当前配置与图片索引。系统会先保护当前状态，再执行恢复。"
+        description={
+          restorePreflight
+            ? `归档格式兼容，${
+                restorePreflight.checksumVerified
+                  ? "归档校验和与文件清单均已验证"
+                  : "文件清单已验证，但旧备份没有归档校验和"
+              }。来源数据版本 ${restorePreflight.sourceSchemaVersion}，共 ${restorePreflight.fileCount} 个文件。恢复会替换当前配置与图片索引。`
+            : "正在检查归档兼容性与校验和。"
+        }
         icon={ArchiveRestore}
         onConfirm={() => void restoreBackup()}
-        onOpenChange={(open) => !open && setPendingRestore(null)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPendingRestore(null);
+            setRestorePreflight(null);
+          }
+        }}
         open={Boolean(pendingRestore)}
         title="从这个备份恢复？"
       />

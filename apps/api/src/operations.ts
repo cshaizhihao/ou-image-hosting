@@ -22,6 +22,7 @@ import { PublicError } from "./errors.js";
 import { requireBackofficeAccess } from "./site-access.js";
 import {
   calculateImageStorageBytes,
+  defaultSiteConfig,
   defaultWorkspaceSettings,
   type AppState,
   type AppStore,
@@ -158,7 +159,9 @@ function publicSiteSettings(site: AppState["site"]) {
     publicHeroDescription: site.publicHeroDescription,
     loginEyebrow: site.loginEyebrow,
     loginHeroTitle: site.loginHeroTitle,
-    loginHeroDescription: site.loginHeroDescription
+    loginHeroDescription: site.loginHeroDescription,
+    theme: site.theme,
+    accentPreset: site.accentPreset
   };
 }
 
@@ -980,6 +983,8 @@ export function registerOperationsRoutes(
       loginEyebrow?: string;
       loginHeroTitle?: string;
       loginHeroDescription?: string;
+      theme?: "light" | "dark" | "system";
+      accentPreset?: "coral" | "forest" | "ocean" | "amber";
     };
   }>(
     "/site/settings",
@@ -1012,7 +1017,12 @@ export function registerOperationsRoutes(
             publicHeroDescription: { type: "string", minLength: 1, maxLength: 260 },
             loginEyebrow: { type: "string", minLength: 1, maxLength: 80 },
             loginHeroTitle: { type: "string", minLength: 1, maxLength: 80 },
-            loginHeroDescription: { type: "string", minLength: 1, maxLength: 260 }
+            loginHeroDescription: { type: "string", minLength: 1, maxLength: 260 },
+            theme: { type: "string", enum: themes },
+            accentPreset: {
+              type: "string",
+              enum: ["coral", "forest", "ocean", "amber"]
+            }
           }
         }
       }
@@ -1097,6 +1107,12 @@ export function registerOperationsRoutes(
         if (request.body.loginHeroDescription !== undefined) {
           site.loginHeroDescription =
             request.body.loginHeroDescription.trim();
+        }
+        if (request.body.theme !== undefined) {
+          site.theme = request.body.theme;
+        }
+        if (request.body.accentPreset !== undefined) {
+          site.accentPreset = request.body.accentPreset;
         }
         addAuditEvent(state, {
           principal,
@@ -1227,6 +1243,35 @@ export function registerOperationsRoutes(
       return { blockedIps: store.snapshot().site!.publicUploadBlockedIps };
     }
   );
+
+  app.post("/site/settings/reset-branding", async (request) => {
+    const principal = requireSiteOwner(request, authenticate);
+    const timestamp = now().toISOString();
+    await store.update((state) => {
+      const site = state.site!;
+      const defaults = defaultSiteConfig();
+      site.siteName = defaults.siteName;
+      site.siteDescription = defaults.siteDescription;
+      site.siteLogoUrl = defaults.siteLogoUrl;
+      site.publicHeroTitle = defaults.publicHeroTitle;
+      site.publicHeroDescription = defaults.publicHeroDescription;
+      site.loginEyebrow = defaults.loginEyebrow;
+      site.loginHeroTitle = defaults.loginHeroTitle;
+      site.loginHeroDescription = defaults.loginHeroDescription;
+      site.theme = defaults.theme;
+      site.accentPreset = defaults.accentPreset;
+      addAuditEvent(state, {
+        principal,
+        global: true,
+        action: "site.branding.reset",
+        result: "success",
+        resourceType: "site",
+        ipHash: hashRequestIp(request),
+        createdAt: timestamp
+      });
+    });
+    return { settings: publicSiteSettings(store.snapshot().site!) };
+  });
 
   app.get("/workspace/settings", async (request) => {
     const principal = authenticate(request);

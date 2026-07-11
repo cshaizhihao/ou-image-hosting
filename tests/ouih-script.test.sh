@@ -52,7 +52,7 @@ EOF
 }
 
 mkdir -p "$MOCK_BIN" "$SHIM_BIN"
-for shim_command in bash cat chmod cp curl dirname env grep head install mktemp mkdir mv openssl printf realpath readlink rm sed; do
+for shim_command in awk bash cat chmod cp curl date dirname env find grep gzip head id install mktemp mkdir mv openssl printf realpath readlink rm sed sort tail tar; do
   shim_target="$(command -v "$shim_command" 2>/dev/null || true)"
   [[ -n "$shim_target" ]] || continue
   ln -s "$shim_target" "$SHIM_BIN/$shim_command"
@@ -68,6 +68,9 @@ fi
 if [[ "$*" == *"ps --status running --services"* ]]; then
   printf 'api\nweb\ncaddy\n'
 fi
+if [[ "$*" == *"tar -czf -"* ]]; then
+  printf 'mock-volume-backup\n'
+fi
 exit 0
 EOF
 
@@ -79,7 +82,10 @@ if [[ "$*" == *"status --porcelain"* ]]; then
   [[ "${MOCK_GIT_DIRTY:-0}" == "1" ]] && printf ' M local-change\n'
 fi
 if [[ "$*" == *"rev-parse HEAD"* ]]; then
-  printf 'previous-revision\n'
+  printf '%s\n' "${MOCK_GIT_HEAD:-1111111111111111111111111111111111111111}"
+fi
+if [[ "$*" == *"cat-file -e"* ]]; then
+  exit "${MOCK_GIT_CAT_FILE_EXIT:-0}"
 fi
 if [[ "$*" == *"reset --hard origin/main"* ]]; then
   if [[ "${MOCK_GIT_OVERWRITE_ENV:-0}" == "1" ]]; then
@@ -175,7 +181,7 @@ fi
   fail "同步失败后未恢复生产配置"
 assert_contains "$(cat "$TEST_ROOT/sync-fail.out")" "生产配置已恢复"
 assert_contains "$(cat "$TEST_ROOT/sync-fail.out")" "修复原因后可重试：ouih update"
-assert_contains "$(cat "$TEST_ROOT/sync-fail.out")" "如需回退代码"
+assert_contains "$(cat "$TEST_ROOT/sync-fail.out")" "如更新已完成过且需要回退"
 if grep -F "build api" "$MOCK_LOG" >/dev/null; then
   fail "同步失败后不应开始构建"
 fi
@@ -207,7 +213,7 @@ PATH="$MOCK_BIN:$SHIM_BIN" HIDDEN_MOCK_BIN="$hidden_mock_bin" \
 env_after="$(cat "$install_one/.env.production")"
 [[ "$env_before" == "$env_after" ]] || fail "自动补 Git 更新未保留生产配置"
 assert_log_contains "apt-get update"
-assert_log_contains "apt-get install -y git curl openssl coreutils ca-certificates"
+assert_log_contains "apt-get install -y git curl openssl coreutils tar gzip ca-certificates"
 assert_log_contains "git -C $install_one fetch --depth 1 origin main"
 rm -f "$MOCK_BIN/apt-get"
 rm -f "$MOCK_BIN/sudo"
@@ -225,6 +231,112 @@ assert_log_contains "docker compose --env-file .env.production -f docker-compose
 assert_log_contains "docker compose --env-file .env.production -f docker-compose.yml --profile https stop"
 
 reset_log
+output="$(OUIH_INSTALL_DIR="$install_one" "$SOURCE_SCRIPT" backup)"
+assert_contains "$output" "数据卷备份已创建"
+backup_file="$(find "${install_one}.backups" -maxdepth 1 -type f -name '*-manual-*.tar.gz' | head -n 1)"
+[[ -s "$backup_file" ]] || fail "backup 未生成非空归档"
+assert_log_contains "docker compose --env-file .env.production -f docker-compose.yml --profile https stop"
+assert_log_contains "run --rm --no-deps -T --user 0:0"
+assert_log_contains "tar -czf -"
+assert_log_contains "docker compose --env-file .env.production -f docker-compose.yml --profile https up -d"
+
+restore_source="$TEST_ROOT/restore-source"
+restore_archive="$TEST_ROOT/valid-restore.tar.gz"
+mkdir -p "$restore_source/data"
+cat > "$restore_source/.ouih-backup-manifest" <<'EOF'
+format=ouih-volume-backup-v1
+product=OU-Image Hosting
+created_at=20260101T000000Z
+reason=test
+version=1.12.0
+revision=test-revision
+EOF
+printf '{"schemaVersion":8}\n' > "$restore_source/data/ou-image.json"
+tar -czf "$restore_archive" \
+  -C "$restore_source" .ouih-backup-manifest \
+  -C "$restore_source/data" .
+reset_log
+env_before="$(cat "$install_one/.env.production")"
+printf 'y\nRESTORE\n' |
+  OUIH_INSTALL_DIR="$install_one" INPUT_DEVICE=/dev/stdin \
+    "$SOURCE_SCRIPT" restore "$restore_archive" > "$TEST_ROOT/restore.out"
+assert_contains "$(cat "$TEST_ROOT/restore.out")" "恢复完成"
+[[ "$(cat "$install_one/.env.production")" == "$env_before" ]] ||
+  fail "restore 未保留生产配置"
+assert_log_contains "tar -xzf - -C /restore-staging --no-same-owner --no-same-permissions"
+assert_log_contains "cp -a /restore-staging/. /data/"
+
+invalid_archive="$TEST_ROOT/invalid-restore.tar.gz"
+tar -czf "$invalid_archive" -C "$restore_source/data" ou-image.json
+reset_log
+if OUIH_INSTALL_DIR="$install_one" "$SOURCE_SCRIPT" restore "$invalid_archive" \
+  > "$TEST_ROOT/invalid-restore.out" 2>&1; then
+  fail "缺少备份标识的归档应拒绝恢复"
+fi
+assert_contains "$(cat "$TEST_ROOT/invalid-restore.out")" "备份内容检查失败"
+if grep -F "tar -xzf -" "$MOCK_LOG" >/dev/null; then
+  fail "无效归档不应进入数据卷恢复"
+fi
+
+reset_log
+if OUIH_MAX_BACKUP_ARCHIVE_BYTES=1 OUIH_INSTALL_DIR="$install_one" \
+  "$SOURCE_SCRIPT" restore "$restore_archive" > "$TEST_ROOT/archive-limit.out" 2>&1; then
+  fail "超过压缩文件预算的归档应拒绝恢复"
+fi
+assert_contains "$(cat "$TEST_ROOT/archive-limit.out")" "压缩文件超过安全上限"
+
+if OUIH_MAX_BACKUP_ENTRIES=1 OUIH_INSTALL_DIR="$install_one" \
+  "$SOURCE_SCRIPT" restore "$restore_archive" > "$TEST_ROOT/entry-limit.out" 2>&1; then
+  fail "超过条目预算的归档应拒绝恢复"
+fi
+assert_contains "$(cat "$TEST_ROOT/entry-limit.out")" "超过条目数/解压字节预算"
+
+if OUIH_MAX_BACKUP_UNCOMPRESSED_BYTES=1 OUIH_INSTALL_DIR="$install_one" \
+  "$SOURCE_SCRIPT" restore "$restore_archive" > "$TEST_ROOT/bytes-limit.out" 2>&1; then
+  fail "超过解压字节预算的归档应拒绝恢复"
+fi
+assert_contains "$(cat "$TEST_ROOT/bytes-limit.out")" "超过条目数/解压字节预算"
+
+ln -s ou-image.json "$restore_source/data/linked-state"
+symlink_archive="$TEST_ROOT/symlink-restore.tar.gz"
+tar -czf "$symlink_archive" \
+  -C "$restore_source" .ouih-backup-manifest \
+  -C "$restore_source/data" .
+if OUIH_INSTALL_DIR="$install_one" "$SOURCE_SCRIPT" restore "$symlink_archive" \
+  > "$TEST_ROOT/symlink-restore.out" 2>&1; then
+  fail "包含 symlink 的归档应拒绝恢复"
+fi
+assert_contains "$(cat "$TEST_ROOT/symlink-restore.out")" "含链接/设备/FIFO等特殊条目"
+rm -f "$restore_source/data/linked-state"
+
+mkfifo "$restore_source/data/special-pipe"
+special_archive="$TEST_ROOT/special-restore.tar.gz"
+tar -czf "$special_archive" \
+  -C "$restore_source" .ouih-backup-manifest \
+  -C "$restore_source/data" .
+if OUIH_INSTALL_DIR="$install_one" "$SOURCE_SCRIPT" restore "$special_archive" \
+  > "$TEST_ROOT/special-restore.out" 2>&1; then
+  fail "包含 FIFO 的归档应拒绝恢复"
+fi
+assert_contains "$(cat "$TEST_ROOT/special-restore.out")" "含链接/设备/FIFO等特殊条目"
+rm -f "$restore_source/data/special-pipe"
+
+reset_log
+printf 'y\n' |
+  OUIH_INSTALL_DIR="$install_one" INPUT_DEVICE=/dev/stdin \
+    "$SOURCE_SCRIPT" rollback > "$TEST_ROOT/rollback.out"
+assert_contains "$(cat "$TEST_ROOT/rollback.out")" "已回退到 1111111111111111111111111111111111111111"
+assert_log_contains "git -C $install_one cat-file -e 1111111111111111111111111111111111111111^{commit}"
+assert_log_contains "git -C $install_one reset --hard 1111111111111111111111111111111111111111"
+assert_log_contains "docker compose --env-file .env.production -f docker-compose.yml --profile https build api"
+assert_log_contains "docker compose --env-file .env.production -f docker-compose.yml --profile https build web"
+if OUIH_INSTALL_DIR="$install_one" "$SOURCE_SCRIPT" rollback \
+  > "$TEST_ROOT/rollback-again.out" 2>&1; then
+  fail "最近更新回退记录消费后不应重复回退"
+fi
+assert_contains "$(cat "$TEST_ROOT/rollback-again.out")" "没有可回退"
+
+reset_log
 output="$(OUIH_INSTALL_DIR="$install_one" "$SOURCE_SCRIPT" doctor)"
 assert_contains "$output" "系统诊断"
 assert_contains "$output" "生产配置可读取"
@@ -233,6 +345,8 @@ assert_contains "$output" "Caddy 容器正在运行"
 assert_contains "$output" "Caddy 配置校验通过"
 assert_contains "$output" "DNS 可以解析：img.example.com"
 assert_contains "$output" "公网地址可以访问：https://img.example.com"
+assert_contains "$output" "备份目录可写"
+assert_contains "$output" "最近数据卷备份"
 assert_contains "$output" "诊断摘要"
 assert_contains "$output" "0 项失败"
 assert_log_contains "curl --silent --show-error --fail --location --connect-timeout 3 --max-time 8 --output /dev/null https://img.example.com"

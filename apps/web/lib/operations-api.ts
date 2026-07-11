@@ -141,6 +141,8 @@ export type SiteSettingsData = {
   loginEyebrow: string;
   loginHeroTitle: string;
   loginHeroDescription: string;
+  theme: "light" | "dark" | "system";
+  accentPreset: "coral" | "forest" | "ocean" | "amber";
 };
 
 export type WorkspaceConfiguration = {
@@ -451,7 +453,14 @@ function parseSiteSettings(payload: unknown): SiteSettingsData {
     typeof source.publicHeroDescription !== "string" ||
     typeof source.loginEyebrow !== "string" ||
     typeof source.loginHeroTitle !== "string" ||
-    typeof source.loginHeroDescription !== "string"
+    typeof source.loginHeroDescription !== "string" ||
+    (source.theme !== "light" &&
+      source.theme !== "dark" &&
+      source.theme !== "system") ||
+    (source.accentPreset !== "coral" &&
+      source.accentPreset !== "forest" &&
+      source.accentPreset !== "ocean" &&
+      source.accentPreset !== "amber")
   ) {
     throw new Error("站点设置数据契约无效");
   }
@@ -480,7 +489,9 @@ function parseSiteSettings(payload: unknown): SiteSettingsData {
     publicHeroDescription: source.publicHeroDescription,
     loginEyebrow: source.loginEyebrow,
     loginHeroTitle: source.loginHeroTitle,
-    loginHeroDescription: source.loginHeroDescription
+    loginHeroDescription: source.loginHeroDescription,
+    theme: source.theme,
+    accentPreset: source.accentPreset
   };
 }
 
@@ -603,6 +614,15 @@ export async function updateSiteSettings(settings: SiteSettingsData) {
     await apiRequest<unknown>("/site/settings", {
       method: "PATCH",
       body: JSON.stringify(editableSettings)
+    })
+  );
+}
+
+export async function resetSiteBranding() {
+  return parseSiteSettings(
+    await apiRequest<unknown>("/site/settings/reset-branding", {
+      method: "POST",
+      body: JSON.stringify({})
     })
   );
 }

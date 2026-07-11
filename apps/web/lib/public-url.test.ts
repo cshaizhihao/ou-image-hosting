@@ -5,22 +5,22 @@ import { createPublicUrl } from "./public-url";
 describe("createPublicUrl", () => {
   it("prefers the configured public origin over the internal container port", () => {
     const url = createPublicUrl("/login", {
-      configuredOrigin: "https://you1.gay",
+      configuredOrigin: "https://images.example.com",
       requestUrl: "http://web:3000/private"
     });
 
-    expect(url.href).toBe("https://you1.gay/login");
+    expect(url.href).toBe("https://images.example.com/login");
   });
 
   it("uses explicit reverse-proxy headers when no origin is configured", () => {
     const url = createPublicUrl("/login", {
       requestUrl: "http://web:3000/private",
       forwardedProtocol: "https",
-      forwardedHost: "you1.gay",
+      forwardedHost: "images.example.com",
       host: "web:3000"
     });
 
-    expect(url.href).toBe("https://you1.gay/login");
+    expect(url.href).toBe("https://images.example.com/login");
   });
 
   it("preserves an intentional public proxy port", () => {

@@ -51,6 +51,7 @@ import {
   blockPublicUploadIp,
   getSiteSettings,
   getWorkspaceConfiguration,
+  resetSiteBranding,
   unblockPublicUploadIp,
   updateSiteSettings,
   updateWorkspaceConfiguration,
@@ -70,6 +71,12 @@ import {
   managementStyles as styles,
   requestMessage
 } from "./management-ui";
+import {
+  applySiteAppearance,
+  storedThemePreference,
+  useFallbackLogo,
+  type AccentPreset
+} from "@/lib/site-branding";
 
 type SettingsSection =
   | "profile"
@@ -94,6 +101,12 @@ const settingsSections: Array<{
 
 const supportedFormats = ["jpeg", "png", "webp", "gif", "avif"];
 const bytesPerMb = 1024 * 1024;
+const accentPresets: Array<{ value: AccentPreset; label: string }> = [
+  { value: "coral", label: "珊瑚粉" },
+  { value: "forest", label: "林间绿" },
+  { value: "ocean", label: "海湾蓝" },
+  { value: "amber", label: "暖琥珀" }
+];
 
 const notificationCategories: Array<{
   key: "security" | "collaboration" | "system";
@@ -164,6 +177,7 @@ export function SettingsConsole() {
   const [pendingSession, setPendingSession] =
     useState<ActiveSession | null>(null);
   const [revokeOthersOpen, setRevokeOthersOpen] = useState(false);
+  const [resetBrandingOpen, setResetBrandingOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -418,10 +432,34 @@ export function SettingsConsole() {
     setBusy("site-configuration");
     setError("");
     try {
-      setSiteSettings(await updateSiteSettings(siteSettings));
+      const updated = await updateSiteSettings(siteSettings);
+      setSiteSettings(updated);
+      applySiteAppearance(
+        updated,
+        storedThemePreference(window.localStorage.getItem("ou-theme"))
+      );
       setNotice("站点公开设置已保存。");
     } catch (requestError) {
       setError(requestMessage(requestError, "站点设置保存失败"));
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const executeBrandingReset = async () => {
+    setBusy("reset-branding");
+    setError("");
+    try {
+      const updated = await resetSiteBranding();
+      setSiteSettings(updated);
+      applySiteAppearance(
+        updated,
+        storedThemePreference(window.localStorage.getItem("ou-theme"))
+      );
+      setResetBrandingOpen(false);
+      setNotice("默认品牌配置已恢复，站点功能开关保持不变。");
+    } catch (requestError) {
+      setError(requestMessage(requestError, "恢复默认品牌失败"));
     } finally {
       setBusy("");
     }
@@ -1109,22 +1147,94 @@ export function SettingsConsole() {
                           <strong>站点 Logo 地址</strong>
                           <small>支持站内路径或完整 HTTPS 图片地址。</small>
                         </span>
-                        <input
-                          className={styles.input}
-                          maxLength={500}
-                          onChange={(event) =>
-                            setSiteSettings((current) =>
-                              current
-                                ? {
-                                    ...current,
-                                    siteLogoUrl: event.target.value
-                                  }
-                                : current
-                            )
-                          }
-                          value={siteSettings.siteLogoUrl}
-                        />
+                        <div className={styles.brandLogoEditor}>
+                          <span className={styles.brandLogoPreview}>
+                            <img
+                              alt="当前站点 Logo 预览"
+                              onError={(event) => useFallbackLogo(event.currentTarget)}
+                              src={siteSettings.siteLogoUrl}
+                            />
+                          </span>
+                          <input
+                            className={styles.input}
+                            maxLength={500}
+                            onChange={(event) =>
+                              setSiteSettings((current) =>
+                                current
+                                  ? {
+                                      ...current,
+                                      siteLogoUrl: event.target.value
+                                    }
+                                  : current
+                              )
+                            }
+                            value={siteSettings.siteLogoUrl}
+                          />
+                        </div>
                       </label>
+                      <div className={cn(styles.field, styles.spanFull)}>
+                        <span>
+                          <strong>访客默认外观</strong>
+                          <small>访客自己的显式选择会优先于这里的默认值。</small>
+                        </span>
+                        <div className={styles.themeChoices}>
+                          {(["light", "dark", "system"] as const).map((value) => (
+                            <button
+                              aria-pressed={siteSettings.theme === value}
+                              className={cn(
+                                siteSettings.theme === value && styles.themeChoiceActive
+                              )}
+                              key={value}
+                              onClick={() =>
+                                setSiteSettings((current) =>
+                                  current ? { ...current, theme: value } : current
+                                )
+                              }
+                              type="button"
+                            >
+                              <Palette aria-hidden="true" size={16} />
+                              {value === "light"
+                                ? "浅色"
+                                : value === "dark"
+                                  ? "深色"
+                                  : "跟随系统"}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className={cn(styles.field, styles.spanFull)}>
+                        <span>
+                          <strong>站点主题色</strong>
+                          <small>从经过设计校验的配色中选择，避免影响界面可读性。</small>
+                        </span>
+                        <div className={styles.accentChoices}>
+                          {accentPresets.map((preset) => (
+                            <button
+                              aria-pressed={siteSettings.accentPreset === preset.value}
+                              className={cn(
+                                siteSettings.accentPreset === preset.value &&
+                                  styles.accentChoiceActive
+                              )}
+                              key={preset.value}
+                              onClick={() =>
+                                setSiteSettings((current) =>
+                                  current
+                                    ? { ...current, accentPreset: preset.value }
+                                    : current
+                                )
+                              }
+                              type="button"
+                            >
+                              <span
+                                aria-hidden="true"
+                                className={styles.accentSwatch}
+                                data-accent-preview={preset.value}
+                              />
+                              {preset.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                     </div>
                     <div className={styles.preferenceRow}>
                       <div>
@@ -1640,6 +1750,14 @@ export function SettingsConsole() {
                     </div>
                     <div className={styles.cardActions}>
                       <Button
+                        disabled={busy === "reset-branding"}
+                        onClick={() => setResetBrandingOpen(true)}
+                        variant="secondary"
+                      >
+                        <RefreshCw aria-hidden="true" size={16} />
+                        恢复默认品牌
+                      </Button>
+                      <Button
                         disabled={
                           busy === "site-configuration" ||
                           !siteSettings.siteName.trim() ||
@@ -2150,6 +2268,17 @@ export function SettingsConsole() {
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
+
+      <ConfirmActionDialog
+        busy={busy === "reset-branding"}
+        confirmLabel="恢复默认品牌"
+        description="将恢复 OU-Image Hosting 的名称、文案、Logo、默认外观和主题色；注册、上传、图库及防滥用配置不会改变。"
+        icon={RefreshCw}
+        onConfirm={() => void executeBrandingReset()}
+        onOpenChange={setResetBrandingOpen}
+        open={resetBrandingOpen}
+        title="恢复默认品牌配置？"
+      />
 
       <ConfirmActionDialog
         busy={busy === "session"}

@@ -2,6 +2,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 export type ThemePreference = "light" | "dark" | "system";
+export type AccentPreset = "coral" | "forest" | "ocean" | "amber";
 
 export type NotificationPreferences = {
   security: boolean;
@@ -56,6 +57,7 @@ export type SiteConfig = {
   loginHeroDescription: string;
   defaultStorage: "local";
   theme: ThemePreference;
+  accentPreset: AccentPreset;
 };
 
 export function defaultSiteConfig(
@@ -64,7 +66,7 @@ export function defaultSiteConfig(
 ): SiteConfig {
   const base: SiteConfig = {
     siteName,
-    siteDescription: "",
+    siteDescription: "欧记图床",
     siteLogoUrl: "/brand/ou-image-hosting-logo.jpg",
     registrationEnabled: false,
     publicUploadEnabled: true,
@@ -90,7 +92,8 @@ export function defaultSiteConfig(
     loginHeroDescription:
       "上传、整理、分享和维护图片资产。清晰的操作路径，加上克制、耐看的界面。",
     defaultStorage: "local",
-    theme: "system"
+    theme: "system",
+    accentPreset: "coral"
   };
   for (const [key, value] of Object.entries(overrides) as Array<
     [keyof SiteConfig, SiteConfig[keyof SiteConfig] | undefined]
@@ -1370,7 +1373,14 @@ export function migrateAppState(parsed: MigratableAppState): AppState {
               parsed.site.theme === "dark" ||
               parsed.site.theme === "system"
                 ? parsed.site.theme
-                : "system"
+                : "system",
+            accentPreset:
+              parsed.site.accentPreset === "coral" ||
+              parsed.site.accentPreset === "forest" ||
+              parsed.site.accentPreset === "ocean" ||
+              parsed.site.accentPreset === "amber"
+                ? parsed.site.accentPreset
+                : "coral"
           }
         )
       : undefined,

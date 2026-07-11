@@ -68,6 +68,14 @@ import {
   switchShellSessionWorkspace,
   writeShellSessionSnapshot
 } from "@/lib/shell-session-cache";
+import {
+  DEFAULT_SITE_BRANDING,
+  bindSiteAppearance,
+  normalizeSiteBranding,
+  storedThemePreference,
+  useFallbackLogo,
+  type SiteBranding
+} from "@/lib/site-branding";
 
 const iconMap: Record<string, LucideIcon> = {
   overview: Activity,
@@ -132,22 +140,31 @@ function formatNotificationTime(value: string) {
   }).format(new Date(value));
 }
 
-function Brand({ compact = false }: { compact?: boolean }) {
+function Brand({
+  compact = false,
+  site
+}: {
+  compact?: boolean;
+  site: SiteBranding;
+}) {
   return (
     <Link className={cn("brand", compact && "brand--compact")} href="/">
       <span className="brand__logo-frame">
         <img
-          alt="OU-Image Hosting 官方 Logo"
+          alt={`${site.siteName} Logo`}
           className="brand__logo"
           height={48}
-          src="/brand/ou-image-hosting-logo.jpg"
+          onError={(event) => useFallbackLogo(event.currentTarget)}
+          src={site.siteLogoUrl}
           width={48}
         />
       </span>
       {!compact && (
         <span className="brand__text">
-          <strong>OU-Image Hosting</strong>
-          <small>欧记图床</small>
+          <strong>{site.siteName}</strong>
+          <small>
+            {site.siteDescription || DEFAULT_SITE_BRANDING.siteDescription}
+          </small>
         </span>
       )}
     </Link>
@@ -306,6 +323,9 @@ export function AppShell({
   const router = useRouter();
   const cachedSession = useMemo(() => readShellSessionSnapshot(), []);
   const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [siteBranding, setSiteBranding] = useState<SiteBranding>(
+    DEFAULT_SITE_BRANDING
+  );
   const [commandOpen, setCommandOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
@@ -375,18 +395,24 @@ export function AppShell({
   };
 
   useEffect(() => {
-    const saved = window.localStorage.getItem("ou-theme");
-    const preferredDark = window.matchMedia(
-      "(prefers-color-scheme: dark)"
-    ).matches;
-    const nextTheme =
-      saved === "dark" || saved === "light"
-        ? saved
-        : preferredDark
-          ? "dark"
-          : "light";
-    setTheme(nextTheme);
-    document.documentElement.dataset.theme = nextTheme;
+    const explicit = storedThemePreference(
+      window.localStorage.getItem("ou-theme")
+    );
+    return bindSiteAppearance(siteBranding, explicit, setTheme);
+  }, [siteBranding]);
+
+  useEffect(() => {
+    let active = true;
+    apiRequest<{ site?: unknown }>("/setup/status")
+      .then((payload) => {
+        if (active && payload.site) {
+          setSiteBranding(normalizeSiteBranding(payload.site));
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -527,7 +553,7 @@ export function AppShell({
         </a>
         <aside className="sidebar">
           <div className="sidebar__brand">
-            <Brand />
+            <Brand site={siteBranding} />
           </div>
           <WorkspaceSwitcher
             current={currentWorkspace}
@@ -582,7 +608,7 @@ export function AppShell({
                 >
                   <Dialog.Title className="sr-only">主导航</Dialog.Title>
                   <div className="mobile-drawer__head">
-                    <Brand />
+                    <Brand site={siteBranding} />
                     <Dialog.Close asChild>
                       <button
                         aria-label="关闭导航"
@@ -607,7 +633,7 @@ export function AppShell({
                 </Dialog.Content>
               </Dialog.Portal>
             </Dialog.Root>
-            <Brand compact />
+            <Brand compact site={siteBranding} />
           </div>
 
           <button

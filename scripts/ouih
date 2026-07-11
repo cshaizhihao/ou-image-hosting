@@ -62,6 +62,9 @@ OU-Image Hosting · 欧记图床 管理命令
 用法：
   ouih                         打开交互菜单
   ouih doctor                  检查安装、网络、资源与运行环境
+  ouih backup                  停服并创建完整数据卷备份
+  ouih restore <备份路径>      校验归档并经二次确认后恢复
+  ouih rollback                回退最近一次成功更新前的代码版本
   ouih update                  同步 main，顺序重建并启动
   ouih uninstall               安全卸载，默认保留数据卷
   ouih uninstall --purge-data  卸载并永久删除数据卷
@@ -116,27 +119,27 @@ install_base_packages() {
     apt-get)
       run_as_root apt-get update
       run_as_root env DEBIAN_FRONTEND=noninteractive \
-        apt-get install -y git curl openssl coreutils ca-certificates
+        apt-get install -y git curl openssl coreutils tar gzip ca-certificates
       ;;
     dnf)
-      run_as_root dnf install -y git curl openssl coreutils ca-certificates
+      run_as_root dnf install -y git curl openssl coreutils tar gzip ca-certificates
       ;;
     yum)
-      run_as_root yum install -y git curl openssl coreutils ca-certificates
+      run_as_root yum install -y git curl openssl coreutils tar gzip ca-certificates
       ;;
     pacman)
       run_as_root pacman -Syu --noconfirm --needed \
-        git curl openssl coreutils ca-certificates
+        git curl openssl coreutils tar gzip ca-certificates
       ;;
     zypper)
       run_as_root zypper --non-interactive install -y \
-        git curl openssl coreutils ca-certificates
+        git curl openssl coreutils tar gzip ca-certificates
       ;;
     apk)
-      run_as_root apk add --no-cache git curl openssl coreutils ca-certificates
+      run_as_root apk add --no-cache git curl openssl coreutils tar gzip ca-certificates
       ;;
     brew)
-      brew install git curl openssl@3 coreutils ca-certificates
+      brew install git curl openssl@3 coreutils gnu-tar gzip ca-certificates
       ;;
   esac
 }
@@ -144,7 +147,7 @@ install_base_packages() {
 bootstrap_base_dependencies() {
   local -a missing=()
   local command_name
-  for command_name in git curl openssl install; do
+  for command_name in git curl openssl install tar gzip; do
     if ! command_exists "$command_name"; then
       missing+=("$command_name")
     fi
@@ -159,6 +162,8 @@ bootstrap_base_dependencies() {
   command_exists curl || fatal "curl 自动安装失败，请检查包管理器输出。"
   command_exists openssl || fatal "OpenSSL 自动安装失败，请检查包管理器输出。"
   command_exists install || fatal "coreutils 自动安装失败，请检查包管理器输出。"
+  command_exists tar || fatal "tar 自动安装失败，请检查包管理器输出。"
+  command_exists gzip || fatal "gzip 自动安装失败，请检查包管理器输出。"
 }
 
 canonical_path() {
@@ -243,6 +248,29 @@ discover_install_dir() {
 
 env_file() {
   printf '%s/%s\n' "$INSTALL_DIR" "$ENV_FILE_NAME"
+}
+
+backup_directory() {
+  local directory="${OUIH_BACKUP_DIR:-${INSTALL_DIR}.backups}"
+  mkdir -p -- "$directory"
+  chmod 700 "$directory" 2>/dev/null || true
+  canonical_path "$directory"
+}
+
+operations_state_directory() {
+  local directory
+  directory="$(backup_directory)/.ouih-state"
+  mkdir -p -- "$directory"
+  chmod 700 "$directory" 2>/dev/null || true
+  printf '%s\n' "$directory"
+}
+
+write_private_file() {
+  local target="$1"
+  local value="$2"
+  local temporary="${target}.tmp.$$"
+  (umask 077 && printf '%s\n' "$value" > "$temporary")
+  mv -f -- "$temporary" "$target"
 }
 
 compose() {
@@ -545,6 +573,45 @@ doctor_application() {
     doctor_warn "Cloudflare 模式请在控制台确认小黄云已开启，SSL/TLS 使用 Full (strict)"
   fi
 
+  local configured_version package_version backup_dir latest_backup state_dir recorded_revision
+  configured_version="$(head -n 1 "$INSTALL_DIR/VERSION" 2>/dev/null || true)"
+  package_version="$(
+    sed -n 's/^[[:space:]]*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+      "$INSTALL_DIR/package.json" 2>/dev/null | head -n 1 || true
+  )"
+  if [[ -n "$configured_version" && "$configured_version" == "$package_version" ]]; then
+    doctor_ok "代码版本文件一致：${configured_version}"
+  else
+    doctor_warn "VERSION 与 package.json 版本不一致或无法读取"
+  fi
+
+  backup_dir="${OUIH_BACKUP_DIR:-${INSTALL_DIR}.backups}"
+  if [[ -d "$backup_dir" && -w "$backup_dir" ]]; then
+    doctor_ok "备份目录可写：${backup_dir}"
+    latest_backup="$(find "$backup_dir" -maxdepth 1 -type f -name '*.tar.gz' -print 2>/dev/null | sort | tail -n 1)"
+    if [[ -n "$latest_backup" ]]; then
+      doctor_ok "最近数据卷备份：${latest_backup}"
+    else
+      doctor_warn "备份目录中还没有数据卷备份，请运行 ouih backup"
+    fi
+  elif [[ -e "$backup_dir" ]]; then
+    doctor_warn "备份目录不可写：${backup_dir}"
+  else
+    doctor_warn "尚未创建备份目录，请运行 ouih backup"
+  fi
+  state_dir="$backup_dir/.ouih-state"
+  if [[ -r "$state_dir/update-pending-from" ]]; then
+    doctor_warn "发现未完成的更新记录；确认服务状态后可重试 ouih update"
+  fi
+  if [[ -r "$state_dir/last-update-to" && -d "$INSTALL_DIR/.git" ]]; then
+    recorded_revision="$(head -n 1 "$state_dir/last-update-to")"
+    if [[ "$(git -C "$INSTALL_DIR" rev-parse HEAD 2>/dev/null || true)" == "$recorded_revision" ]]; then
+      doctor_ok "当前 Git 版本与最近成功更新记录一致"
+    else
+      doctor_warn "当前 Git 版本与最近成功更新记录不一致，ouih rollback 将被保护"
+    fi
+  fi
+
   local disk_available_kb memory_available_kb
   disk_available_kb="$(df -Pk "$INSTALL_DIR" 2>/dev/null | awk 'NR==2 { print $4 }')"
   if [[ "$disk_available_kb" =~ ^[0-9]+$ ]]; then
@@ -580,8 +647,8 @@ update_recovery_hint() {
   local previous_revision="$2"
   warning "更新在“${stage}”阶段失败，生产配置已恢复并保留。"
   printf '%s\n' "修复原因后可重试：ouih update" >&2
-  printf '%s\n' "如需回退代码：git -C ${INSTALL_DIR} reset --hard ${previous_revision}" >&2
-  printf '%s\n' "回退后请顺序重建 api、web，再运行 ouih start。" >&2
+  printf '%s\n' "如更新已完成过且需要回退，请运行：ouih rollback" >&2
+  printf '%s\n' "本次更新前代码版本：${previous_revision}" >&2
 }
 
 update_application() {
@@ -592,13 +659,16 @@ update_application() {
   [[ -z "$(git -C "$INSTALL_DIR" status --porcelain)" ]] ||
     fatal "仓库存在未提交修改。请先提交、暂存或清理后再更新。"
 
-  local production_env backup_env previous_revision
+  local production_env backup_env previous_revision update_state pending_revision
   production_env="$(env_file)"
   [[ -f "$production_env" ]] ||
     fatal "缺少 ${production_env}，为避免丢失配置已停止更新。"
   backup_env="$(mktemp)"
   cp -p "$production_env" "$backup_env"
   previous_revision="$(git -C "$INSTALL_DIR" rev-parse HEAD)"
+  update_state="$(operations_state_directory)"
+  pending_revision="$update_state/update-pending-from"
+  write_private_file "$pending_revision" "$previous_revision"
   restore_configuration() {
     if [[ -f "$backup_env" ]]; then
       cp -p "$backup_env" "$production_env"
@@ -641,7 +711,73 @@ update_application() {
     update_recovery_hint "启动服务" "$previous_revision"
     return 1
   fi
+  local updated_revision
+  updated_revision="$(git -C "$INSTALL_DIR" rev-parse HEAD)"
+  write_private_file "$update_state/last-update-to" "$updated_revision"
+  mv -f -- "$pending_revision" "$update_state/last-update-from"
+  write_private_file "$update_state/last-update-at" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   success "更新完成，现有 ${ENV_FILE_NAME} 已保留。"
+}
+
+rollback_application() {
+  bootstrap_base_dependencies
+  docker_ready rollback
+  [[ -d "$INSTALL_DIR/.git" ]] ||
+    fatal "安装目录不是 Git 仓库，无法回退。"
+  [[ -z "$(git -C "$INSTALL_DIR" status --porcelain)" ]] ||
+    fatal "仓库存在未提交修改。请先处理后再回退。"
+
+  local state_dir from_file to_file previous_revision current_revision
+  local production_env env_copy rollback_status=0
+  state_dir="$(operations_state_directory)"
+  from_file="$state_dir/last-update-from"
+  to_file="$state_dir/last-update-to"
+  [[ -r "$from_file" && -r "$to_file" ]] ||
+    fatal "没有可回退的最近成功更新记录。"
+  previous_revision="$(head -n 1 "$from_file")"
+  current_revision="$(head -n 1 "$to_file")"
+  [[ "$previous_revision" =~ ^[0-9a-fA-F]{7,64}$ &&
+     "$current_revision" =~ ^[0-9a-fA-F]{7,64}$ ]] ||
+    fatal "最近更新记录包含无效 Git revision，拒绝自动回退。"
+  [[ "$(git -C "$INSTALL_DIR" rev-parse HEAD)" == "$current_revision" ]] ||
+    fatal "当前代码已不在最近更新版本，拒绝自动回退。"
+  git -C "$INSTALL_DIR" cat-file -e "${previous_revision}^{commit}" 2>/dev/null ||
+    fatal "更新前版本已不在本地 Git 历史中，无法安全回退。"
+
+  warning "即将从 ${current_revision} 回退到 ${previous_revision}；数据卷不会删除。"
+  confirm_yes "确认回退最近一次更新？" ||
+    fatal "已取消回退，没有修改代码。"
+  production_env="$(env_file)"
+  env_copy="$(mktemp)"
+  cp -p "$production_env" "$env_copy"
+  if ! git -C "$INSTALL_DIR" reset --hard "$previous_revision"; then
+    cp -p "$env_copy" "$production_env"
+    rm -f -- "$env_copy"
+    fatal "Git 无法切换到更新前版本，当前服务未变更。"
+  fi
+  cp -p "$env_copy" "$production_env"
+
+  set +e
+  compose config --quiet &&
+    COMPOSE_PARALLEL_LIMIT=1 compose build api &&
+    COMPOSE_PARALLEL_LIMIT=1 compose build web &&
+    compose up -d
+  rollback_status=$?
+  set -e
+  if ((rollback_status != 0)); then
+    warning "回退版本构建或启动失败，正在恢复更新后的代码版本。"
+    git -C "$INSTALL_DIR" reset --hard "$current_revision" || true
+    cp -p "$env_copy" "$production_env"
+    compose up -d || true
+    rm -f -- "$env_copy"
+    fatal "回退失败，已尝试恢复原代码与服务。"
+  fi
+  cp -p "$env_copy" "$production_env"
+  rm -f -- "$env_copy"
+  write_private_file "$state_dir/last-rollback" \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ) ${current_revision} -> ${previous_revision}"
+  rm -f -- "$from_file" "$to_file"
+  success "已回退到 ${previous_revision}，生产配置和数据卷均已保留。"
 }
 
 uninstall_application() {
@@ -730,6 +866,232 @@ stop_application() {
   success "${PRODUCT_CN} 已停止。"
 }
 
+CREATED_BACKUP_PATH=""
+
+create_volume_backup_archive() {
+  local reason="${1:-manual}"
+  local directory timestamp revision version archive partial manifest status
+  directory="$(backup_directory)"
+  timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  revision="$(git -C "$INSTALL_DIR" rev-parse HEAD 2>/dev/null || printf unknown)"
+  version="$(head -n 1 "$INSTALL_DIR/VERSION" 2>/dev/null || printf unknown)"
+  archive="$directory/ou-image-hosting-${timestamp}-${reason}-$$.tar.gz"
+  partial="${archive}.partial"
+  manifest="$directory/.ouih-backup-manifest"
+  [[ ! -e "$archive" && ! -e "$partial" ]] ||
+    fatal "备份文件已存在，请稍后再试：${archive}"
+
+  (umask 077 && cat > "$manifest" <<EOF
+format=ouih-volume-backup-v1
+product=OU-Image Hosting
+created_at=${timestamp}
+reason=${reason}
+version=${version}
+revision=${revision}
+EOF
+  )
+  info "正在以低优先级单线程归档 ou_data 数据卷"
+  set +e
+  compose run --rm --no-deps -T --user 0:0 \
+    --volume "$directory:/backup:ro" \
+    --entrypoint /bin/sh api -c \
+    'cd /data && nice -n 10 tar -czf - -C /backup .ouih-backup-manifest -C /data .' \
+    > "$partial"
+  status=$?
+  set -e
+  rm -f -- "$manifest"
+  if ((status != 0)) || [[ ! -s "$partial" ]]; then
+    rm -f -- "$partial"
+    return 1
+  fi
+  chmod 600 "$partial" 2>/dev/null || true
+  mv -f -- "$partial" "$archive"
+  CREATED_BACKUP_PATH="$archive"
+  success "数据卷备份已创建：${archive}"
+}
+
+backup_application() {
+  bootstrap_base_dependencies
+  docker_ready backup
+  backup_directory >/dev/null
+  info "为获得一致备份，将短暂停止服务"
+  compose stop
+  local backup_status=0 restart_status=0
+  create_volume_backup_archive manual || backup_status=$?
+  compose up -d || restart_status=$?
+  if ((backup_status != 0)); then
+    fatal "备份失败；临时文件已清理，服务已尝试重新启动。"
+  fi
+  if ((restart_status != 0)); then
+    fatal "备份已完成，但服务重新启动失败。请运行 ouih start。"
+  fi
+}
+
+validate_volume_backup_archive() {
+  local archive="$1"
+  local max_archive_bytes max_entries max_uncompressed_bytes archive_bytes
+  max_archive_bytes="${OUIH_MAX_BACKUP_ARCHIVE_BYTES:-107374182400}"
+  max_entries="${OUIH_MAX_BACKUP_ENTRIES:-1000000}"
+  max_uncompressed_bytes="${OUIH_MAX_BACKUP_UNCOMPRESSED_BYTES:-214748364800}"
+  [[ "$max_archive_bytes" =~ ^[1-9][0-9]*$ &&
+     "$max_entries" =~ ^[1-9][0-9]*$ &&
+     "$max_uncompressed_bytes" =~ ^[1-9][0-9]*$ ]] ||
+    fatal "备份安全预算必须是正整数。"
+  if archive_bytes="$(stat -c %s -- "$archive" 2>/dev/null)"; then
+    :
+  else
+    archive_bytes="$(stat -f %z -- "$archive" 2>/dev/null)" ||
+      fatal "无法读取备份文件大小。"
+  fi
+  [[ "$archive_bytes" =~ ^[0-9]+$ ]] || fatal "备份文件大小无效。"
+  ((archive_bytes <= max_archive_bytes)) ||
+    fatal "备份压缩文件超过安全上限（${max_archive_bytes} bytes）。"
+
+  local listing names
+  listing="$(mktemp)"
+  names="$(mktemp)"
+  if ! tar --numeric-owner -tvzf "$archive" > "$listing" 2>/dev/null ||
+     ! tar -tzf "$archive" > "$names" 2>/dev/null; then
+    rm -f -- "$listing" "$names"
+    fatal "备份 gzip/tar 完整性校验失败：${archive}"
+  fi
+  if ! awk -v max_entries="$max_entries" \
+      -v max_bytes="$max_uncompressed_bytes" '
+    BEGIN { entries=0; bytes=0; unsafe=0 }
+    {
+      type=substr($0, 1, 1)
+      if (type != "-" && type != "d") unsafe=1
+      entries += 1
+      if (type == "-") {
+        size=$3
+        if (size !~ /^[0-9]+$/) unsafe=1
+        else bytes += size
+      }
+      if (entries > max_entries || bytes > max_bytes) unsafe=1
+    }
+    END { exit unsafe }
+  ' "$listing"; then
+    rm -f -- "$listing" "$names"
+    fatal "备份含链接/设备/FIFO等特殊条目，或超过条目数/解压字节预算。"
+  fi
+  if ! awk '
+    BEGIN { manifest=0; state=0; unsafe=0 }
+    /^\// { unsafe=1 }
+    /(^|\/)\.\.($|\/)/ { unsafe=1 }
+    { normalized=$0; sub(/^\.\//, "", normalized); if (seen[normalized]++) unsafe=1 }
+    normalized == ".ouih-backup-manifest" { manifest=1 }
+    normalized == "ou-image.json" { state=1 }
+    END { exit !(manifest && state && !unsafe) }
+  ' "$names"; then
+    rm -f -- "$listing" "$names"
+    fatal "备份内容检查失败：缺少标识/状态文件，或包含重复/不安全路径。"
+  fi
+  rm -f -- "$listing" "$names"
+  local manifest
+  manifest="$(
+    tar -xOzf "$archive" .ouih-backup-manifest 2>/dev/null |
+      head -c 65537
+  )" ||
+    fatal "无法读取备份标识。"
+  ((${#manifest} <= 65536)) || fatal "备份标识超过 64 KiB 安全上限。"
+  grep -Fx 'format=ouih-volume-backup-v1' <<< "$manifest" >/dev/null ||
+    fatal "不支持的备份格式。"
+  grep -Fx 'product=OU-Image Hosting' <<< "$manifest" >/dev/null ||
+    fatal "归档不属于 OU-Image Hosting。"
+}
+
+clear_restore_staging() {
+  local staging="$1"
+  compose run --rm --no-deps -T --user 0:0 \
+    --volume "$staging:/restore-staging" \
+    --entrypoint /bin/sh api -c \
+    'find /restore-staging -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +' \
+    >/dev/null
+}
+
+stage_volume_backup_archive() {
+  local archive="$1"
+  local staging="$2"
+  clear_restore_staging "$staging"
+  compose run --rm --no-deps -T --user 0:0 \
+    --volume "$staging:/restore-staging" \
+    --entrypoint /bin/sh api -c \
+    'umask 077 && nice -n 10 tar -xzf - -C /restore-staging --no-same-owner --no-same-permissions && test -f /restore-staging/.ouih-backup-manifest && test ! -L /restore-staging/.ouih-backup-manifest && test -f /restore-staging/ou-image.json && test ! -L /restore-staging/ou-image.json && grep -Fx "format=ouih-volume-backup-v1" /restore-staging/.ouih-backup-manifest >/dev/null && grep -Fx "product=OU-Image Hosting" /restore-staging/.ouih-backup-manifest >/dev/null' \
+    < "$archive"
+}
+
+replace_volume_from_staging() {
+  local staging="$1"
+  compose run --rm --no-deps -T --user 0:0 \
+    --volume "$staging:/restore-staging:ro" \
+    --entrypoint /bin/sh api -c \
+    'find /data -mindepth 1 -maxdepth 1 -exec rm -rf -- {} + && cp -a /restore-staging/. /data/ && rm -f /data/.ouih-backup-manifest && chown -R 1000:1000 /data'
+}
+
+restore_application() {
+  (($# == 1)) || fatal "用法：ouih restore <备份路径>"
+  bootstrap_base_dependencies
+  docker_ready restore
+  local archive production_env env_copy safety_backup backup_dir staging restore_status=0
+  [[ -f "$1" ]] || fatal "备份文件不存在：$1"
+  archive="$(canonical_path "$1")"
+  [[ -f "$archive" && -r "$archive" ]] || fatal "备份文件不可读取：${archive}"
+  validate_volume_backup_archive "$archive"
+  backup_dir="$(backup_directory)"
+  warning "恢复会替换当前 ou_data 数据卷中的全部图片、配置状态和历史。"
+  confirm_yes "第一次确认：恢复 ${archive}？" ||
+    fatal "已取消恢复，没有修改任何数据。"
+  confirm_phrase "第二次确认：服务会短暂停止，并先自动创建安全备份。" "RESTORE" ||
+    fatal "确认文字不匹配，已取消恢复。"
+
+  staging="$(mktemp -d "$backup_dir/.restore-staging.XXXXXX")"
+  chmod 700 "$staging" 2>/dev/null || true
+  if ! stage_volume_backup_archive "$archive" "$staging"; then
+    clear_restore_staging "$staging" || true
+    rmdir "$staging" 2>/dev/null || true
+    fatal "备份无法安全解压到隔离目录，当前数据未被修改。"
+  fi
+  production_env="$(env_file)"
+  env_copy="$(mktemp)"
+  cp -p "$production_env" "$env_copy"
+  compose stop
+  if ! create_volume_backup_archive pre-restore; then
+    clear_restore_staging "$staging" || true
+    rmdir "$staging" 2>/dev/null || true
+    cp -p "$env_copy" "$production_env"
+    rm -f -- "$env_copy"
+    compose up -d || true
+    fatal "恢复前安全备份失败，当前数据未被替换。"
+  fi
+  safety_backup="$CREATED_BACKUP_PATH"
+  set +e
+  replace_volume_from_staging "$staging"
+  restore_status=$?
+  set -e
+  if ((restore_status != 0)); then
+    warning "目标备份恢复失败，正在使用恢复前安全备份回滚数据卷。"
+    if stage_volume_backup_archive "$safety_backup" "$staging"; then
+      replace_volume_from_staging "$staging" ||
+        warning "自动恢复安全备份失败，请保留现场并使用：ouih restore ${safety_backup}"
+    else
+      warning "无法展开恢复前安全备份，请保留现场并使用：ouih restore ${safety_backup}"
+    fi
+    clear_restore_staging "$staging" || true
+    rmdir "$staging" 2>/dev/null || true
+    cp -p "$env_copy" "$production_env"
+    rm -f -- "$env_copy"
+    compose up -d || true
+    fatal "恢复失败，已尝试回滚到操作前数据。"
+  fi
+  clear_restore_staging "$staging" || true
+  rmdir "$staging" 2>/dev/null || true
+  cp -p "$env_copy" "$production_env"
+  rm -f -- "$env_copy"
+  compose up -d || fatal "数据已恢复，但服务启动失败。请运行 ouih start。"
+  success "恢复完成；${ENV_FILE_NAME} 保持不变。"
+  printf '%s\n' "恢复前安全备份：${safety_backup}"
+}
+
 pause_for_menu() {
   local key=""
   printf '\n%s' "按任意键返回上级菜单..." >&2
@@ -751,10 +1113,13 @@ interactive_menu() {
   7) 显示安装目录
   8) 卸载应用
   9) 系统诊断
+ 10) 创建数据备份
+ 11) 从备份恢复
+ 12) 回退最近更新
   0) 退出
 EOF
     local choice=""
-    printf '\n请选择 [0-9]: ' >&2
+    printf '\n请选择 [0-12]: ' >&2
     if ! IFS= read -r choice < "$INPUT_DEVICE"; then
       success "输入已结束，退出管理工具。"
       return
@@ -769,6 +1134,14 @@ EOF
       7) show_dir ;;
       8) uninstall_application ;;
       9) doctor_application || true ;;
+      10) backup_application ;;
+      11)
+        local restore_path=""
+        printf '请输入备份文件绝对路径: ' >&2
+        IFS= read -r restore_path < "$INPUT_DEVICE" || true
+        restore_application "$restore_path"
+        ;;
+      12) rollback_application ;;
       0)
         success "已退出管理工具。"
         return
@@ -797,6 +1170,9 @@ main() {
   case "$command" in
     menu) interactive_menu ;;
     doctor) doctor_application ;;
+    backup) backup_application ;;
+    restore) restore_application "$@" ;;
+    rollback) rollback_application ;;
     update) update_application "$@" ;;
     uninstall) uninstall_application "$@" ;;
     url) show_url ;;

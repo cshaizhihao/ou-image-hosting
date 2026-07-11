@@ -141,11 +141,11 @@ describe("OU-Image API", () => {
     expect(health.statusCode).toBe(200);
     expect(health.json()).toMatchObject({
       status: "ok",
-      version: "1.11.0"
+      version: "1.12.0"
     });
     expect(live.json()).toMatchObject({
       status: "ok",
-      version: "1.11.0"
+      version: "1.12.0"
     });
     expect(ready.statusCode).toBe(200);
     expect(ready.json()).toMatchObject({
@@ -3372,6 +3372,49 @@ describe("OU-Image API", () => {
         })
       ).statusCode
     ).toBe(200);
+
+    process.env.OU_SECRET_KEY = "signed-gallery-cache-test-secret-2026";
+    await app.inject({
+      method: "PATCH",
+      url: "/storage/settings",
+      headers: { origin: "http://localhost:3000" },
+      cookies: { ou_session: ownerCookie },
+      payload: {
+        delivery: {
+          customDomain: "",
+          linkTemplate: "{origin}/i/{id}/{variant}",
+          hotlinkEnabled: false,
+          allowedReferers: [],
+          allowEmptyReferer: true,
+          signedUrls: true,
+          signedUrlTtlSeconds: 60
+        }
+      }
+    });
+    const signedGallery = await app.inject({
+      method: "GET",
+      url: "/public/images"
+    });
+    expect(signedGallery.statusCode).toBe(200);
+    expect(signedGallery.headers["cache-control"]).toBe("no-store");
+
+    await app.inject({
+      method: "PATCH",
+      url: "/storage/settings",
+      headers: { origin: "http://localhost:3000" },
+      cookies: { ou_session: ownerCookie },
+      payload: {
+        delivery: {
+          customDomain: "",
+          linkTemplate: "{origin}/i/{id}/{variant}",
+          hotlinkEnabled: false,
+          allowedReferers: [],
+          allowEmptyReferer: true,
+          signedUrls: false,
+          signedUrlTtlSeconds: 60
+        }
+      }
+    });
 
     const privateMetadata = await app.inject({
       method: "PATCH",
