@@ -2,6 +2,18 @@
 
 本项目遵循 Semantic Versioning。
 
+## [1.1.1] - 2026-07-11
+
+### Fixed
+
+- 修复 `ouih update` 在精简系统缺少 Git 时直接失败的问题；更新命令现在会像安装器一样自动补齐 Git、curl、OpenSSL、coreutils 和 CA 证书。
+- 清理 `ouih` 运行环境检查逻辑，避免重复 Docker 状态判断。
+
+### Tests
+
+- 新增 `ouih update` 缺 Git 自动补依赖的 mock 回归测试。
+- 安装器与 `ouih` shell 语法检查、`ouih` mock 集成测试通过。
+
 ## [1.1.0] - 2026-07-11
 
 ### Added

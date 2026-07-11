@@ -6,6 +6,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SOURCE_SCRIPT="$ROOT_DIR/scripts/ouih"
 TEST_ROOT="$(mktemp -d)"
 MOCK_BIN="$TEST_ROOT/mock-bin"
+SHIM_BIN="$TEST_ROOT/shim-bin"
 MOCK_LOG="$TEST_ROOT/mock.log"
 
 cleanup() {
@@ -48,7 +49,13 @@ OU_PROXY_MODE=cloudflare
 EOF
 }
 
-mkdir -p "$MOCK_BIN"
+mkdir -p "$MOCK_BIN" "$SHIM_BIN"
+for shim_command in bash cat chmod cp curl dirname env grep head install mktemp mkdir mv openssl printf realpath readlink rm sed; do
+  shim_target="$(command -v "$shim_command" 2>/dev/null || true)"
+  [[ -n "$shim_target" ]] || continue
+  ln -s "$shim_target" "$SHIM_BIN/$shim_command"
+done
+
 cat > "$MOCK_BIN/docker" <<'EOF'
 #!/usr/bin/env bash
 set -Eeuo pipefail
@@ -77,6 +84,7 @@ EOF
 chmod +x "$MOCK_BIN/docker" "$MOCK_BIN/git"
 
 export PATH="$MOCK_BIN:$PATH"
+export MOCK_BIN
 export MOCK_LOG
 export NO_COLOR=1
 export OUIH_DISABLE_SELF_UPDATE=true
@@ -138,6 +146,32 @@ assert_contains "$(cat "$TEST_ROOT/sync-fail.out")" "生产配置已恢复"
 if grep -F "build api" "$MOCK_LOG" >/dev/null; then
   fail "同步失败后不应开始构建"
 fi
+
+reset_log
+hidden_mock_bin="$TEST_ROOT/hidden-mock-bin"
+mkdir -p "$hidden_mock_bin"
+mv "$MOCK_BIN/git" "$hidden_mock_bin/git"
+cat > "$MOCK_BIN/apt-get" <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+printf 'apt-get %s\n' "$*" >> "$MOCK_LOG"
+cp "$HIDDEN_MOCK_BIN/git" "$MOCK_BIN/git"
+chmod +x "$MOCK_BIN/git"
+exit 0
+EOF
+chmod +x "$MOCK_BIN/apt-get"
+env_before="$(cat "$install_one/.env.production")"
+PATH="$MOCK_BIN:$SHIM_BIN" HIDDEN_MOCK_BIN="$hidden_mock_bin" \
+  MOCK_GIT_OVERWRITE_ENV=1 OUIH_INSTALL_DIR="$install_one" \
+  "$SOURCE_SCRIPT" update >/dev/null
+env_after="$(cat "$install_one/.env.production")"
+[[ "$env_before" == "$env_after" ]] || fail "自动补 Git 更新未保留生产配置"
+assert_log_contains "apt-get update"
+assert_log_contains "apt-get install -y git curl openssl coreutils ca-certificates"
+assert_log_contains "git -C $install_one fetch --depth 1 origin main"
+rm -f "$MOCK_BIN/apt-get"
+rm -f "$MOCK_BIN/git"
+mv "$hidden_mock_bin/git" "$MOCK_BIN/git"
 
 reset_log
 OUIH_INSTALL_DIR="$install_one" "$SOURCE_SCRIPT" status >/dev/null

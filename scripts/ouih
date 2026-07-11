@@ -84,6 +84,82 @@ command_exists() {
   command -v "$1" >/dev/null 2>&1
 }
 
+run_as_root() {
+  if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
+    "$@"
+  elif command_exists sudo; then
+    sudo "$@"
+  else
+    fatal "自动安装依赖需要管理员权限，请使用 root 或安装 sudo。"
+  fi
+}
+
+detect_package_manager() {
+  local manager
+  for manager in apt-get dnf yum pacman zypper apk brew; do
+    if command_exists "$manager"; then
+      printf '%s' "$manager"
+      return 0
+    fi
+  done
+  return 1
+}
+
+install_base_packages() {
+  local manager=""
+  manager="$(detect_package_manager)" ||
+    fatal "未识别到受支持的包管理器，请手动安装 Git、curl、OpenSSL 和 coreutils。"
+
+  info "检测到运行环境缺少依赖，正在使用 ${manager} 自动补齐"
+  case "$manager" in
+    apt-get)
+      run_as_root apt-get update
+      run_as_root env DEBIAN_FRONTEND=noninteractive \
+        apt-get install -y git curl openssl coreutils ca-certificates
+      ;;
+    dnf)
+      run_as_root dnf install -y git curl openssl coreutils ca-certificates
+      ;;
+    yum)
+      run_as_root yum install -y git curl openssl coreutils ca-certificates
+      ;;
+    pacman)
+      run_as_root pacman -Syu --noconfirm --needed \
+        git curl openssl coreutils ca-certificates
+      ;;
+    zypper)
+      run_as_root zypper --non-interactive install -y \
+        git curl openssl coreutils ca-certificates
+      ;;
+    apk)
+      run_as_root apk add --no-cache git curl openssl coreutils ca-certificates
+      ;;
+    brew)
+      brew install git curl openssl@3 coreutils ca-certificates
+      ;;
+  esac
+}
+
+bootstrap_base_dependencies() {
+  local -a missing=()
+  local command_name
+  for command_name in git curl openssl install; do
+    if ! command_exists "$command_name"; then
+      missing+=("$command_name")
+    fi
+  done
+
+  if ((${#missing[@]} > 0)); then
+    warning "缺少基础依赖：${missing[*]}"
+    install_base_packages
+  fi
+
+  command_exists git || fatal "Git 自动安装失败，请检查包管理器输出。"
+  command_exists curl || fatal "curl 自动安装失败，请检查包管理器输出。"
+  command_exists openssl || fatal "OpenSSL 自动安装失败，请检查包管理器输出。"
+  command_exists install || fatal "coreutils 自动安装失败，请检查包管理器输出。"
+}
+
 canonical_path() {
   local target="$1"
   if command_exists realpath; then
@@ -287,8 +363,8 @@ show_dir() {
 }
 
 update_application() {
+  bootstrap_base_dependencies
   docker_ready update
-  command_exists git || fatal "缺少 Git，无法更新。"
   [[ -d "$INSTALL_DIR/.git" ]] ||
     fatal "安装目录不是 Git 仓库，无法自动更新。"
   [[ -z "$(git -C "$INSTALL_DIR" status --porcelain)" ]] ||
