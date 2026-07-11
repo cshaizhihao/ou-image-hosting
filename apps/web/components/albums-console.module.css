@@ -68,6 +68,38 @@
   font-weight: 650;
 }
 
+.search {
+  display: inline-flex;
+  min-width: min(420px, 100%);
+  min-height: 42px;
+  flex: 1 1 320px;
+  align-items: center;
+  gap: 9px;
+  padding: 0 12px;
+  border: 1px solid var(--border-default);
+  border-radius: 14px;
+  background: var(--surface-raised);
+  color: var(--text-tertiary);
+}
+
+.search input {
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 15px;
+}
+
+.search input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.search:focus-within {
+  border-color: var(--action-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--action-primary) 13%, transparent);
+}
+
 .notice,
 .error {
   display: flex;
@@ -101,6 +133,7 @@
 .card {
   position: relative;
   display: grid;
+  grid-template-rows: auto 1fr;
   min-height: 304px;
   overflow: hidden;
   border: 1px solid var(--border-default);
@@ -131,6 +164,7 @@
   background:
     linear-gradient(135deg, color-mix(in srgb, var(--action-primary) 18%, var(--surface-panel)), transparent),
     var(--surface-muted);
+  text-decoration: none;
 }
 
 .cover img {
@@ -149,7 +183,14 @@
   padding: 18px;
 }
 
-.cardBody h2 {
+.cardTitleRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cardTitleRow h2 {
   margin: 0;
   overflow: hidden;
   font-size: 22px;
@@ -157,6 +198,20 @@
   letter-spacing: -0.04em;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.cardTitleRow > span {
+  display: inline-flex;
+  min-width: 34px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--action-primary) 30%, var(--border-default));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--action-primary) 9%, var(--surface-panel));
+  color: var(--action-primary-hover);
+  font-size: 14px;
+  font-weight: 820;
 }
 
 .cardBody p {
@@ -184,6 +239,51 @@
 .cardMeta strong {
   color: var(--action-primary-hover);
   font-size: 15px;
+}
+
+.cardActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.iconButton {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 11px;
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 750;
+  transition:
+    transform var(--motion-fast) var(--ease-out),
+    border-color var(--motion-fast),
+    background var(--motion-fast),
+    color var(--motion-fast);
+}
+
+.iconButton:hover {
+  border-color: color-mix(in srgb, var(--action-primary) 36%, var(--border-default));
+  background: var(--surface-hover);
+  color: var(--text-primary);
+  transform: translateY(-1px);
+}
+
+.dangerButton {
+  color: color-mix(in srgb, var(--action-danger) 78%, var(--text-secondary));
+}
+
+.dangerButton:hover {
+  border-color: color-mix(in srgb, var(--action-danger) 38%, var(--border-default));
+  background: color-mix(in srgb, var(--action-danger) 8%, var(--surface-panel));
+  color: var(--action-danger);
 }
 
 .empty,
@@ -242,6 +342,37 @@
   background: var(--surface-raised);
   box-shadow: var(--shadow-overlay);
   animation: albumsDialogIn var(--motion-standard) var(--ease-out);
+}
+
+.confirmDialog {
+  width: min(460px, 100%);
+  text-align: center;
+}
+
+.confirmDialog h2 {
+  margin: 10px 0 8px;
+  color: var(--text-primary);
+  font-size: 22px;
+  letter-spacing: -0.04em;
+}
+
+.confirmDialog p {
+  margin: 0 0 16px;
+  color: var(--text-secondary);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.confirmIcon {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  margin: 0 auto;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--action-danger) 35%, var(--border-default));
+  border-radius: 17px;
+  background: color-mix(in srgb, var(--action-danger) 9%, var(--surface-panel));
+  color: var(--action-danger);
 }
 
 .dialogHead {
@@ -387,6 +518,16 @@
   .header {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .summary,
+  .search {
+    width: 100%;
   }
 
   .header h1 {

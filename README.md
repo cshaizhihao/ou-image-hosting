@@ -16,7 +16,7 @@
   <a href="https://github.com/cshaizhihao/ou-image-hosting/releases">
     <img src="https://img.shields.io/github/v/release/cshaizhihao/ou-image-hosting?style=flat-square&color=ef8f8f" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-v1.1.1-ef8f8f?style=flat-square" alt="Current version v1.1.1" />
+  <img src="https://img.shields.io/badge/version-v1.2.0-ef8f8f?style=flat-square" alt="Current version v1.2.0" />
   <a href="https://github.com/cshaizhihao/ou-image-hosting/actions/workflows/check.yml">
     <img src="https://img.shields.io/github/actions/workflow/status/cshaizhihao/ou-image-hosting/check.yml?branch=main&style=flat-square&label=check" alt="Check" />
   </a>
@@ -215,7 +215,7 @@ curl --fail http://127.0.0.1:3000/api/health/ready
 ### 组织与分享
 
 - 响应式网格/列表、搜索、格式筛选、排序和分页
-- 相册主分类卡片、新建相册浮窗、图片库批量加入一个或多个相册
+- 相册主分类卡片、搜索、编辑、删除确认、新建相册浮窗、图片库批量加入一个或多个相册
 - URL、Markdown、HTML、BBCode 与二维码
 - 密码保护、有效期、访问统计、分享撤销和创建成功浮窗
 
