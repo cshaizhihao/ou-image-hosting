@@ -38,7 +38,7 @@ type LibraryImage = {
   name: string;
   size: number;
   mime: string;
-  format: "jpeg" | "png" | "webp" | "gif" | "avif";
+  format: "jpeg" | "png" | "webp" | "gif" | "avif" | "heic" | "heif";
   width: number;
   height: number;
   sha256: string;

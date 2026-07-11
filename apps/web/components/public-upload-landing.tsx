@@ -817,7 +817,7 @@ export function PublicUploadLanding() {
           onDrop={onDrop}
         >
           <input
-            accept="image/jpeg,image/png,image/webp,image/gif,image/avif"
+            accept="image/jpeg,image/png,image/webp,image/gif,image/avif,image/heic,image/heif,.heic,.heif"
             hidden
             onChange={handleFileChange}
             multiple

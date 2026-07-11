@@ -36,7 +36,7 @@ type OrganizedImage = {
   id: string;
   name: string;
   size: number;
-  format: "jpeg" | "png" | "webp" | "gif" | "avif";
+  format: "jpeg" | "png" | "webp" | "gif" | "avif" | "heic" | "heif";
   width: number;
   height: number;
   thumbnailUrl: string;

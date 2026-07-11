@@ -155,7 +155,7 @@ export type StoredImage = {
   name: string;
   size: number;
   mime: string;
-  format: "jpeg" | "png" | "webp" | "gif" | "avif";
+  format: "jpeg" | "png" | "webp" | "gif" | "avif" | "heic" | "heif";
   width: number;
   height: number;
   sha256: string;
@@ -519,7 +519,7 @@ export function defaultWorkspaceSettings(
   return {
     workspaceId,
     uploadMaxBytes: 20 * 1024 * 1024,
-    allowedFormats: ["jpeg", "png", "webp", "gif", "avif"],
+    allowedFormats: ["jpeg", "png", "webp", "gif", "avif", "heic", "heif"],
     processingQuality: 85,
     thumbnailWidth: 480,
     timezone: "Asia/Shanghai",
@@ -1058,7 +1058,7 @@ function normalizeWorkspaceSettings(
   const defaults = defaultWorkspaceSettings(workspaceId, updatedAt);
   const allowedFormats = Array.isArray(value?.allowedFormats)
     ? [...new Set(value.allowedFormats)].filter((format) =>
-        ["jpeg", "png", "webp", "gif", "avif"].includes(format)
+        ["jpeg", "png", "webp", "gif", "avif", "heic", "heif"].includes(format)
       )
     : defaults.allowedFormats;
   const integer = (

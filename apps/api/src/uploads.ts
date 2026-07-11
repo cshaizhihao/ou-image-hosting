@@ -12,6 +12,7 @@ import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { BlockList, isIP } from "node:net";
 import path from "node:path";
+import heicConvert from "heic-convert";
 import sharp from "sharp";
 import {
   assertDeliveryAccess,
@@ -71,20 +72,24 @@ remoteAddressBlockList.addSubnet("2001:db8::", 32, "ipv6");
 remoteAddressBlockList.addSubnet("fc00::", 7, "ipv6");
 remoteAddressBlockList.addSubnet("fe80::", 10, "ipv6");
 remoteAddressBlockList.addSubnet("ff00::", 8, "ipv6");
-const supportedFormats = new Set(["jpeg", "png", "webp", "gif", "avif"]);
+const supportedFormats = new Set(["jpeg", "png", "webp", "gif", "avif", "heic", "heif"]);
 const extensionByFormat = {
   jpeg: "jpg",
   png: "png",
   webp: "webp",
   gif: "gif",
-  avif: "avif"
+  avif: "avif",
+  heic: "heic",
+  heif: "heif"
 } as const;
 const mimeByFormat = {
   jpeg: "image/jpeg",
   png: "image/png",
   webp: "image/webp",
   gif: "image/gif",
-  avif: "image/avif"
+  avif: "image/avif",
+  heic: "image/heic",
+  heif: "image/heif"
 } as const;
 
 type UploadRouteOptions = {
@@ -123,6 +128,82 @@ type PublicImagesQuery = {
   page?: string;
   limit?: string;
 };
+type HeicConvertInput = {
+  buffer: Buffer;
+  format: "JPEG" | "PNG";
+  quality?: number;
+};
+
+type HeicConvert = ((input: HeicConvertInput) => Promise<Buffer>) & {
+  all?: (input: HeicConvertInput) => Promise<Buffer[]>;
+};
+
+const convertHeic = heicConvert as HeicConvert;
+
+function isAppleStillFormat(format: string | undefined): format is "heic" | "heif" {
+  return format === "heic" || format === "heif";
+}
+
+function appleStillFormatFromUpload(filename: string, mime: string) {
+  const lowerName = filename.toLowerCase();
+  const lowerMime = mime.toLowerCase();
+  if (lowerName.endsWith(".heic") || lowerMime === "image/heic") return "heic";
+  if (lowerName.endsWith(".heif") || lowerMime === "image/heif") return "heif";
+  return undefined;
+}
+
+async function convertAppleStillImage(buffer: Buffer) {
+  try {
+    return await convertHeic({
+      buffer,
+      format: "JPEG",
+      quality: 0.92
+    });
+  } catch {
+    throw new PublicError(
+      415,
+      "HEIC_CONVERSION_FAILED",
+      "这张 HEIC/HEIF 图片暂时无法转换，请在 iPhone 上另存为 JPEG 后重试"
+    );
+  }
+}
+
+async function sourceBufferForProcessing(
+  buffer: Buffer,
+  format: StoredImage["format"]
+) {
+  if (!isAppleStillFormat(format)) return buffer;
+  return convertAppleStillImage(buffer);
+}
+
+async function readImageMetadata(
+  buffer: Buffer,
+  filename: string,
+  mime: string
+) {
+  const appleFormat = appleStillFormatFromUpload(filename, mime);
+  try {
+    const metadata = await sharp(buffer, {
+      animated: true,
+      failOn: "error",
+      limitInputPixels: MAX_PIXELS
+    }).metadata();
+    return {
+      metadata,
+      format: appleFormat ?? metadata.format,
+      processingBuffer: undefined as Buffer | undefined
+    };
+  } catch (error) {
+    if (!appleFormat) throw error;
+    const processingBuffer = await convertAppleStillImage(buffer);
+    const metadata = await sharp(processingBuffer, {
+      animated: false,
+      failOn: "error",
+      limitInputPixels: MAX_PIXELS
+    }).metadata();
+    return { metadata, format: appleFormat, processingBuffer };
+  }
+}
 type BulkBody = {
   ids: string[];
   action:
@@ -340,7 +421,7 @@ async function readRemoteImage(rawUrl: string, maximumBytes: number) {
         {
           family,
           headers: {
-            accept: "image/avif,image/webp,image/png,image/jpeg,image/gif",
+            accept: "image/avif,image/heic,image/heif,image/webp,image/png,image/jpeg,image/gif",
             "user-agent": "OU-Image-Hosting/1.0.0"
           },
           lookup: (_hostname, _options, callback) => {
@@ -631,17 +712,18 @@ export async function registerUploadRoutes(
     }
 
     let metadata: sharp.Metadata;
+    let format: string | undefined;
+    let processingBuffer: Buffer | undefined;
     try {
-      metadata = await sharp(buffer, {
-        animated: true,
-        failOn: "error",
-        limitInputPixels: MAX_PIXELS
-      }).metadata();
-    } catch {
+      const imageInfo = await readImageMetadata(buffer, filename, mime);
+      metadata = imageInfo.metadata;
+      format = imageInfo.format;
+      processingBuffer = imageInfo.processingBuffer;
+    } catch (error) {
+      if (error instanceof PublicError) throw error;
       throw new PublicError(400, "INVALID_IMAGE", "文件不是有效的受支持图片");
     }
 
-    const format = metadata.format;
     const width = metadata.width;
     const height = metadata.height;
     if (
@@ -653,7 +735,7 @@ export async function registerUploadRoutes(
       throw new PublicError(
         415,
         "UNSUPPORTED_IMAGE",
-        "仅支持 JPG、PNG、WebP、GIF 和 AVIF"
+        "仅支持 JPG、PNG、WebP、GIF、AVIF、HEIC 和 HEIF"
       );
     }
 
@@ -712,7 +794,8 @@ export async function registerUploadRoutes(
     const originalPath = path.join(storageRoot, originalKey);
     const thumbnailPath = path.join(storageRoot, thumbnailKey);
 
-    const thumbnail = await sharp(buffer, {
+    processingBuffer ??= await sourceBufferForProcessing(buffer, typedFormat);
+    const thumbnail = await sharp(processingBuffer, {
       animated: false,
       failOn: "error",
       limitInputPixels: MAX_PIXELS

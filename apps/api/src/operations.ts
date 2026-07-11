@@ -44,7 +44,7 @@ type AnalyticsRange = "7d" | "30d" | "90d";
 type JobKind = "backup" | "storage-migration";
 
 const GLOBAL_UPLOAD_HARD_CAP = 20 * 1024 * 1024;
-const formats = ["jpeg", "png", "webp", "gif", "avif"] as const;
+const formats = ["jpeg", "png", "webp", "gif", "avif", "heic", "heif"] as const;
 const themes = ["light", "dark", "system"] as const;
 const jobParamsSchema = {
   type: "object",
@@ -1312,7 +1312,7 @@ export function registerOperationsRoutes(
             allowedFormats: {
               type: "array",
               minItems: 1,
-              maxItems: 5,
+              maxItems: 7,
               uniqueItems: true,
               items: { type: "string", enum: formats }
             },

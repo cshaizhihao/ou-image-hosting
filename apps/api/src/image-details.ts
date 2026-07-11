@@ -37,14 +37,18 @@ const extensionByFormat = {
   png: "png",
   webp: "webp",
   gif: "gif",
-  avif: "avif"
+  avif: "avif",
+  heic: "heic",
+  heif: "heif"
 } as const;
 const mimeByFormat = {
   jpeg: "image/jpeg",
   png: "image/png",
   webp: "image/webp",
   gif: "image/gif",
-  avif: "image/avif"
+  avif: "image/avif",
+  heic: "image/heic",
+  heif: "image/heif"
 } as const;
 
 type ImageDetailRouteOptions = {

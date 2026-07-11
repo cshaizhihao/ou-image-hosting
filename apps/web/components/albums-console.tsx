@@ -51,7 +51,7 @@ type ManageView = "overview" | "cover" | "add";
 type LibraryImage = {
   id: string;
   name: string;
-  format: "jpeg" | "png" | "webp" | "gif" | "avif";
+  format: "jpeg" | "png" | "webp" | "gif" | "avif" | "heic" | "heif";
   width: number;
   height: number;
   thumbnailUrl: string;

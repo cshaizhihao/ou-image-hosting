@@ -678,7 +678,7 @@ export function UploadWorkbench() {
 
         <section className="upload-overview" aria-label="上传入口与存储摘要">
           <input
-            accept="image/jpeg,image/png,image/webp,image/gif,image/avif"
+            accept="image/jpeg,image/png,image/webp,image/gif,image/avif,image/heic,image/heif,.heic,.heif"
             aria-label="选择本地图片"
             className="sr-only"
             multiple

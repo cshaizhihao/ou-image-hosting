@@ -100,7 +100,7 @@ const settingsSections: Array<{
   { id: "configuration", label: "站点与处理", icon: SlidersHorizontal }
 ];
 
-const supportedFormats = ["jpeg", "png", "webp", "gif", "avif"];
+const supportedFormats = ["jpeg", "png", "webp", "gif", "avif", "heic", "heif"];
 const bytesPerMb = 1024 * 1024;
 const accentPresets: Array<{ value: AccentPreset; label: string }> = [
   { value: "coral", label: "珊瑚粉" },
