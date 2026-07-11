@@ -128,6 +128,14 @@ export type SiteSettingsData = {
   publicGalleryShowFileName: boolean;
   publicGalleryShowUploadTime: boolean;
   publicUploadDefaultPublic: boolean;
+  publicUploadAnonymousPerMinute: number;
+  publicUploadAnonymousPerDay: number;
+  publicUploadAnonymousDailyBytes: number;
+  publicUploadAuthenticatedPerMinute: number;
+  publicUploadAuthenticatedPerDay: number;
+  publicUploadAuthenticatedDailyBytes: number;
+  publicUploadHumanVerificationEnabled: boolean;
+  publicUploadBlockedIps: string[];
   publicHeroTitle: string;
   publicHeroDescription: string;
   loginEyebrow: string;
@@ -430,6 +438,15 @@ function parseSiteSettings(payload: unknown): SiteSettingsData {
     typeof source.publicGalleryShowFileName !== "boolean" ||
     typeof source.publicGalleryShowUploadTime !== "boolean" ||
     typeof source.publicUploadDefaultPublic !== "boolean" ||
+    typeof source.publicUploadAnonymousPerMinute !== "number" ||
+    typeof source.publicUploadAnonymousPerDay !== "number" ||
+    typeof source.publicUploadAnonymousDailyBytes !== "number" ||
+    typeof source.publicUploadAuthenticatedPerMinute !== "number" ||
+    typeof source.publicUploadAuthenticatedPerDay !== "number" ||
+    typeof source.publicUploadAuthenticatedDailyBytes !== "number" ||
+    typeof source.publicUploadHumanVerificationEnabled !== "boolean" ||
+    !Array.isArray(source.publicUploadBlockedIps) ||
+    !source.publicUploadBlockedIps.every((item) => typeof item === "string") ||
     typeof source.publicHeroTitle !== "string" ||
     typeof source.publicHeroDescription !== "string" ||
     typeof source.loginEyebrow !== "string" ||
@@ -450,6 +467,15 @@ function parseSiteSettings(payload: unknown): SiteSettingsData {
     publicGalleryShowFileName: source.publicGalleryShowFileName,
     publicGalleryShowUploadTime: source.publicGalleryShowUploadTime,
     publicUploadDefaultPublic: source.publicUploadDefaultPublic,
+    publicUploadAnonymousPerMinute: source.publicUploadAnonymousPerMinute,
+    publicUploadAnonymousPerDay: source.publicUploadAnonymousPerDay,
+    publicUploadAnonymousDailyBytes: source.publicUploadAnonymousDailyBytes,
+    publicUploadAuthenticatedPerMinute: source.publicUploadAuthenticatedPerMinute,
+    publicUploadAuthenticatedPerDay: source.publicUploadAuthenticatedPerDay,
+    publicUploadAuthenticatedDailyBytes: source.publicUploadAuthenticatedDailyBytes,
+    publicUploadHumanVerificationEnabled:
+      source.publicUploadHumanVerificationEnabled,
+    publicUploadBlockedIps: source.publicUploadBlockedIps,
     publicHeroTitle: source.publicHeroTitle,
     publicHeroDescription: source.publicHeroDescription,
     loginEyebrow: source.loginEyebrow,
@@ -572,12 +598,27 @@ export async function getSiteSettings() {
 }
 
 export async function updateSiteSettings(settings: SiteSettingsData) {
+  const { publicUploadBlockedIps: _blockedIps, ...editableSettings } = settings;
   return parseSiteSettings(
     await apiRequest<unknown>("/site/settings", {
       method: "PATCH",
-      body: JSON.stringify(settings)
+      body: JSON.stringify(editableSettings)
     })
   );
+}
+
+export async function blockPublicUploadIp(ip: string) {
+  return apiRequest<{ blockedIps: string[] }>("/site/public-upload/ip-blocks", {
+    method: "PUT",
+    body: JSON.stringify({ ip })
+  });
+}
+
+export async function unblockPublicUploadIp(ip: string) {
+  return apiRequest<{ blockedIps: string[] }>("/site/public-upload/ip-blocks", {
+    method: "DELETE",
+    body: JSON.stringify({ ip })
+  });
 }
 
 export async function getWorkspaceConfiguration() {

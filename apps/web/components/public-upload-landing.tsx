@@ -37,6 +37,7 @@ import {
   useState
 } from "react";
 import { ApiError } from "@/lib/api";
+import { paginationWindow } from "@/lib/pagination";
 
 type PublicConfig = {
   setupComplete: boolean;
@@ -51,6 +52,7 @@ type PublicConfig = {
     publicGalleryShowFileName: boolean;
     publicGalleryShowUploadTime: boolean;
     publicUploadDefaultPublic: boolean;
+    publicUploadHumanVerificationEnabled: boolean;
     publicHeroTitle: string;
     publicHeroDescription: string;
   } | null;
@@ -105,6 +107,7 @@ const fallbackConfig: PublicConfig = {
     publicGalleryShowFileName: true,
     publicGalleryShowUploadTime: true,
     publicUploadDefaultPublic: true,
+    publicUploadHumanVerificationEnabled: false,
     publicHeroTitle: "把图片放进来，剩下的交给队列。",
     publicHeroDescription:
       "拖拽、选择或粘贴图片，即可生成可分享链接。公开展示可以在后台关闭，上传时也能自己决定是否出现在公共图床里。"
@@ -178,6 +181,10 @@ export function PublicUploadLanding() {
   });
   const [gallerySort, setGallerySort] = useState<"latest" | "hot" | "random">("latest");
   const [galleryFormat, setGalleryFormat] = useState("all");
+  const [galleryPage, setGalleryPage] = useState(1);
+  const [galleryPageSize, setGalleryPageSize] = useState(24);
+  const [galleryTotal, setGalleryTotal] = useState(0);
+  const [galleryTotalPages, setGalleryTotalPages] = useState(1);
   const [galleryLoading, setGalleryLoading] = useState(true);
   const [personalImages, setPersonalImages] = useState<PersonalImage[]>([]);
   const [selectedPersonalIds, setSelectedPersonalIds] = useState<Set<string>>(
@@ -194,9 +201,20 @@ export function PublicUploadLanding() {
   const [error, setError] = useState("");
   const [result, setResult] = useState<UploadResult | null>(null);
   const [history, setHistory] = useState<UploadQueueItem[]>([]);
+  const [humanChallenge, setHumanChallenge] = useState<{
+    token: string;
+    question: string;
+    expiresAt: string;
+  } | null>(null);
+  const [humanAnswer, setHumanAnswer] = useState("");
+  const [humanChallengeLoading, setHumanChallengeLoading] = useState(false);
 
   const site = config.site ?? fallbackConfig.site!;
-  const galleryItems = useMemo(() => gallery.slice(0, 24), [gallery]);
+  const galleryItems = gallery;
+  const galleryPages = useMemo(
+    () => paginationWindow(galleryPage, galleryTotalPages),
+    [galleryPage, galleryTotalPages]
+  );
   const uploadEnabled = Boolean(
     config.setupComplete &&
       site.publicUploadEnabled &&
@@ -207,6 +225,9 @@ export function PublicUploadLanding() {
       site.publicUploadEnabled &&
       site.publicUploadRequiresLogin &&
       !session.authenticated
+  );
+  const requiresHumanChallenge = Boolean(
+    site.publicUploadHumanVerificationEnabled && !session.authenticated
   );
   const previewImage =
     previewIndex === null ? null : galleryItems.at(previewIndex) ?? null;
@@ -243,9 +264,11 @@ export function PublicUploadLanding() {
     document.documentElement.dataset.theme = nextDark ? "dark" : "light";
   }, []);
 
-  const refreshPublicGallery = useCallback(async () => {
+  const refreshPublicGallery = useCallback(async (fresh = false) => {
     if (!site.publicGalleryEnabled) {
       setGallery([]);
+      setGalleryTotal(0);
+      setGalleryTotalPages(1);
       setGalleryLoading(false);
       return;
     }
@@ -254,13 +277,22 @@ export function PublicUploadLanding() {
       const payload = await apiJson<{
         images: PublicImage[];
         preferences?: GalleryPreferences;
-      }>(`/public/images?sort=${gallerySort}&format=${galleryFormat}`);
+        page?: number;
+        total?: number;
+        totalPages?: number;
+      }>(
+        `/public/images?sort=${gallerySort}&format=${galleryFormat}&page=${galleryPage}&limit=${galleryPageSize}`,
+        { cache: fresh ? "reload" : "default" }
+      );
       setGallery(payload.images);
+      setGalleryPage(payload.page ?? galleryPage);
+      setGalleryTotal(payload.total ?? payload.images.length);
+      setGalleryTotalPages(payload.totalPages ?? 1);
       if (payload.preferences) setGalleryPreferences(payload.preferences);
     } finally {
       setGalleryLoading(false);
     }
-  }, [galleryFormat, gallerySort, site.publicGalleryEnabled]);
+  }, [galleryFormat, galleryPage, galleryPageSize, gallerySort, site.publicGalleryEnabled]);
 
   const refreshPersonalImages = useCallback(async () => {
     if (!session.authenticated) return;
@@ -360,8 +392,27 @@ export function PublicUploadLanding() {
           ? `已公开 ${payload.updated} 张图片。`
           : `已隐藏 ${payload.updated} 张图片。`
       );
+      const selectedIds = new Set(selectedPersonalIds);
+      setPersonalImages((current) =>
+        current.map((image) =>
+          selectedIds.has(image.id)
+            ? { ...image, publicVisible: publicVisibleNext }
+            : image
+        )
+      );
       setSelectedPersonalIds(new Set());
-      await Promise.all([refreshPersonalImages(), refreshPublicGallery()]);
+      if (publicVisibleNext) {
+        await refreshPublicGallery(true);
+      } else {
+        setGallery((current) =>
+          current.filter((image) => !selectedIds.has(image.id))
+        );
+        setGalleryTotal((current) =>
+          Math.max(0, current - [...selectedIds].filter((id) =>
+            gallery.some((image) => image.id === id)
+          ).length)
+        );
+      }
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -408,6 +459,46 @@ export function PublicUploadLanding() {
     setNotice(message);
   };
 
+  const refreshHumanChallenge = useCallback(async () => {
+    if (!requiresHumanChallenge || !uploadEnabled) {
+      setHumanChallenge(null);
+      setHumanAnswer("");
+      return;
+    }
+    setHumanChallengeLoading(true);
+    try {
+      const challenge = await apiJson<{
+        enabled: boolean;
+        token?: string;
+        question?: string;
+        expiresAt?: string;
+      }>("/public/upload-challenge");
+      setHumanChallenge(
+        challenge.enabled && challenge.token && challenge.question && challenge.expiresAt
+          ? {
+              token: challenge.token,
+              question: challenge.question,
+              expiresAt: challenge.expiresAt
+            }
+          : null
+      );
+      setHumanAnswer("");
+    } catch (requestError) {
+      setHumanChallenge(null);
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "人机验证加载失败"
+      );
+    } finally {
+      setHumanChallengeLoading(false);
+    }
+  }, [requiresHumanChallenge, uploadEnabled]);
+
+  useEffect(() => {
+    void refreshHumanChallenge();
+  }, [refreshHumanChallenge]);
+
   const hidePreviewImage = async () => {
     if (!previewImage || !session.backoffice?.allowed) return;
     setVisibilityBusy(true);
@@ -418,7 +509,10 @@ export function PublicUploadLanding() {
       });
       closePreview();
       setNotice("图片已从公共图库隐藏，原上传者仍可在自己的历史记录中看到它。");
-      await refreshPublicGallery();
+      setGallery((current) =>
+        current.filter((image) => image.id !== previewImage.id)
+      );
+      setGalleryTotal((current) => Math.max(0, current - 1));
     } catch (requestError) {
       setError(
         requestError instanceof Error ? requestError.message : "隐藏图片失败"
@@ -431,17 +525,33 @@ export function PublicUploadLanding() {
   const uploadSingleFile = useCallback(
     async (file?: File) => {
       if (!file || uploading || !uploadEnabled) return;
+      if (requiresHumanChallenge && (!humanChallenge || !humanAnswer.trim())) {
+        throw new ApiError("请先完成人机验证", 400, "HUMAN_CHALLENGE_REQUIRED");
+      }
       setError("");
       setNotice("");
       const body = new FormData();
       body.append("file", file);
-      const payload = await apiJson<UploadResult>(
-        `/public/uploads?publicVisible=${publicVisible ? "true" : "false"}`,
-        {
-          method: "POST",
-          body
+      let payload: UploadResult;
+      try {
+        payload = await apiJson<UploadResult>(
+          `/public/uploads?publicVisible=${publicVisible ? "true" : "false"}`,
+          {
+            method: "POST",
+            body,
+            headers: requiresHumanChallenge
+              ? {
+                  "x-ou-challenge-token": humanChallenge!.token,
+                  "x-ou-challenge-answer": humanAnswer.trim()
+                }
+              : undefined
+          }
+        );
+      } finally {
+        if (requiresHumanChallenge) {
+          await refreshHumanChallenge();
         }
-      );
+      }
       setResult(payload);
       setHistory((current) => [
         {
@@ -452,7 +562,15 @@ export function PublicUploadLanding() {
       ].slice(0, 8));
       return payload;
     },
-    [publicVisible, uploadEnabled, uploading]
+    [
+      humanAnswer,
+      humanChallenge,
+      publicVisible,
+      refreshHumanChallenge,
+      requiresHumanChallenge,
+      uploadEnabled,
+      uploading
+    ]
   );
 
   const uploadFiles = useCallback(
@@ -463,6 +581,10 @@ export function PublicUploadLanding() {
       );
       if (imageFiles.length === 0) {
         setError("没有发现可上传的图片文件。");
+        return;
+      }
+      if (requiresHumanChallenge && imageFiles.length > 1) {
+        setError("启用人机验证时请每次上传一张图片。");
         return;
       }
 
@@ -488,7 +610,7 @@ export function PublicUploadLanding() {
             : `已处理 ${completed} 张图片，其中 ${duplicates} 张为已存在图片。`
         );
         if (publicVisible && site.publicGalleryEnabled) {
-          await refreshPublicGallery();
+          await refreshPublicGallery(true);
         }
         if (session.authenticated) {
           await refreshPersonalImages();
@@ -515,6 +637,7 @@ export function PublicUploadLanding() {
     },
     [
       publicVisible,
+      requiresHumanChallenge,
       refreshPersonalImages,
       refreshPublicGallery,
       session.authenticated,
@@ -713,8 +836,44 @@ export function PublicUploadLanding() {
                 : "公共展示已关闭，本次上传不会进入图库。"}
             </span>
           </label>
+          {requiresHumanChallenge && (
+            <div className="public-upload-challenge">
+              <label htmlFor="public-upload-challenge-answer">
+                <span>简单验证</span>
+                <strong>
+                  {humanChallengeLoading
+                    ? "正在出题..."
+                    : humanChallenge?.question ?? "暂时无法获取题目"}
+                </strong>
+              </label>
+              <input
+                autoComplete="off"
+                disabled={humanChallengeLoading || !humanChallenge}
+                id="public-upload-challenge-answer"
+                inputMode="numeric"
+                maxLength={3}
+                onChange={(event) =>
+                  setHumanAnswer(event.target.value.replace(/\D/g, ""))
+                }
+                placeholder="答案"
+                value={humanAnswer}
+              />
+              <button
+                disabled={humanChallengeLoading}
+                onClick={() => void refreshHumanChallenge()}
+                type="button"
+              >
+                换一题
+              </button>
+            </div>
+          )}
           <Button
-            disabled={!uploadEnabled || uploading}
+            disabled={
+              !uploadEnabled ||
+              uploading ||
+              (requiresHumanChallenge &&
+                (!humanChallenge || !humanAnswer.trim()))
+            }
             onClick={() => inputRef.current?.click()}
             type="button"
           >
@@ -874,7 +1033,14 @@ export function PublicUploadLanding() {
                   onChange={() => togglePersonalSelection(image.id)}
                   type="checkbox"
                 />
-                <img alt={image.name} loading="lazy" src={image.thumbnailUrl} />
+                <img
+                  alt={image.name}
+                  decoding="async"
+                  height={image.height}
+                  loading="lazy"
+                  src={image.thumbnailUrl}
+                  width={image.width}
+                />
                 <span>
                   <strong title={image.name}>{image.name}</strong>
                   <small>{image.publicVisible ? "正在公共图床展示" : "仅自己可见"}</small>
@@ -903,7 +1069,10 @@ export function PublicUploadLanding() {
                   <button
                     aria-pressed={gallerySort === value}
                     key={value}
-                    onClick={() => setGallerySort(value)}
+                    onClick={() => {
+                      setGallerySort(value);
+                      setGalleryPage(1);
+                    }}
                     type="button"
                   >
                     <Icon aria-hidden="true" size={15} />{label}
@@ -913,13 +1082,35 @@ export function PublicUploadLanding() {
               <label>
                 <FileType2 aria-hidden="true" size={16} />
                 <span className="sr-only">筛选图片格式</span>
-                <select onChange={(event) => setGalleryFormat(event.target.value)} value={galleryFormat}>
+                <select
+                  onChange={(event) => {
+                    setGalleryFormat(event.target.value);
+                    setGalleryPage(1);
+                  }}
+                  value={galleryFormat}
+                >
                   <option value="all">全部格式</option>
                   <option value="jpeg">JPG</option>
                   <option value="png">PNG</option>
                   <option value="webp">WebP</option>
                   <option value="gif">GIF</option>
                   <option value="avif">AVIF</option>
+                </select>
+              </label>
+              <label>
+                <Images aria-hidden="true" size={16} />
+                <span className="sr-only">每页图片数量</span>
+                <select
+                  aria-label="公共图库每页图片数量"
+                  onChange={(event) => {
+                    setGalleryPageSize(Number(event.target.value));
+                    setGalleryPage(1);
+                  }}
+                  value={galleryPageSize}
+                >
+                  <option value={12}>12 张</option>
+                  <option value={24}>24 张</option>
+                  <option value={36}>36 张</option>
                 </select>
               </label>
             </div>
@@ -945,7 +1136,14 @@ export function PublicUploadLanding() {
                     onClick={() => setPreviewIndex(index)}
                     type="button"
                   >
-                    <img alt={displayName} loading="lazy" src={image.thumbnailUrl} />
+                    <img
+                      alt={displayName}
+                      decoding="async"
+                      height={image.height}
+                      loading="lazy"
+                      src={image.thumbnailUrl}
+                      width={image.width}
+                    />
                     {(galleryPreferences.showFileName || galleryPreferences.showUploader || galleryPreferences.showUploadTime) && (
                       <span>
                         {galleryPreferences.showFileName && <strong>{displayName}</strong>}
@@ -961,6 +1159,43 @@ export function PublicUploadLanding() {
                 );
               })}
             </div>
+          )}
+          {!galleryLoading && galleryTotal > 0 && (
+            <nav className="public-gallery__pagination" aria-label="公共图库分页">
+              <button
+                disabled={galleryPage <= 1}
+                onClick={() =>
+                  setGalleryPage((current) => Math.max(1, current - 1))
+                }
+                type="button"
+              >
+                <ArrowLeft aria-hidden="true" size={16} />上一页
+              </button>
+              <span>{galleryTotal} 张公开图片</span>
+              <div aria-label="选择页码">
+                {galleryPages.map((pageNumber) => (
+                  <button
+                    aria-current={pageNumber === galleryPage ? "page" : undefined}
+                    key={pageNumber}
+                    onClick={() => setGalleryPage(pageNumber)}
+                    type="button"
+                  >
+                    {pageNumber}
+                  </button>
+                ))}
+              </div>
+              <button
+                disabled={galleryPage >= galleryTotalPages}
+                onClick={() =>
+                  setGalleryPage((current) =>
+                    Math.min(galleryTotalPages, current + 1)
+                  )
+                }
+                type="button"
+              >
+                下一页<ArrowRight aria-hidden="true" size={16} />
+              </button>
+            </nav>
           )}
         </section>
       )}

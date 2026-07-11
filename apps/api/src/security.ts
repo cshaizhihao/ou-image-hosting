@@ -52,10 +52,28 @@ export function hashOpaqueToken(token: string) {
   return createHash("sha256").update(token).digest("base64url");
 }
 
-function secretKey() {
+function hmacSecret() {
   const secret = process.env.OU_SECRET_KEY;
   if (!secret) throw new Error("OU_SECRET_KEY is required");
   return createHash("sha256").update(secret).digest();
+}
+
+export function signOpaquePayload(payload: string) {
+  return createHmac("sha256", hmacSecret())
+    .update(payload)
+    .digest("base64url");
+}
+
+export function verifyOpaquePayloadSignature(payload: string, signature: string) {
+  const expected = Buffer.from(signOpaquePayload(payload));
+  const actual = Buffer.from(signature);
+  return (
+    expected.length === actual.length && timingSafeEqual(expected, actual)
+  );
+}
+
+function secretKey() {
+  return hmacSecret();
 }
 
 export function encryptSensitive(value: string) {

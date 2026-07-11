@@ -48,8 +48,10 @@ import {
 } from "@/lib/admin-api";
 import { ApiError, applyTheme } from "@/lib/api";
 import {
+  blockPublicUploadIp,
   getSiteSettings,
   getWorkspaceConfiguration,
+  unblockPublicUploadIp,
   updateSiteSettings,
   updateWorkspaceConfiguration,
   type SiteSettingsData,
@@ -147,6 +149,7 @@ export function SettingsConsole() {
   const [newPassword, setNewPassword] = useState("");
   const [workspaceName, setWorkspaceName] = useState("");
   const [workspaceDescription, setWorkspaceDescription] = useState("");
+  const [blockedIpInput, setBlockedIpInput] = useState("");
   const [twoFactorOpen, setTwoFactorOpen] = useState(false);
   const [twoFactorPassword, setTwoFactorPassword] = useState("");
   const [twoFactorChallenge, setTwoFactorChallenge] = useState("");
@@ -419,6 +422,46 @@ export function SettingsConsole() {
       setNotice("站点公开设置已保存。");
     } catch (requestError) {
       setError(requestMessage(requestError, "站点设置保存失败"));
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const blockUploadIp = async () => {
+    const ip = blockedIpInput.trim();
+    if (!ip || !siteSettings) return;
+    setBusy("block-upload-ip");
+    setError("");
+    try {
+      const payload = await blockPublicUploadIp(ip);
+      setSiteSettings((current) =>
+        current
+          ? { ...current, publicUploadBlockedIps: payload.blockedIps }
+          : current
+      );
+      setBlockedIpInput("");
+      setNotice(`已禁止 ${ip} 使用公共上传。`);
+    } catch (requestError) {
+      setError(requestMessage(requestError, "IP 封禁失败"));
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const unblockUploadIp = async (ip: string) => {
+    if (!siteSettings) return;
+    setBusy(`unblock-${ip}`);
+    setError("");
+    try {
+      const payload = await unblockPublicUploadIp(ip);
+      setSiteSettings((current) =>
+        current
+          ? { ...current, publicUploadBlockedIps: payload.blockedIps }
+          : current
+      );
+      setNotice(`已恢复 ${ip} 的公共上传权限。`);
+    } catch (requestError) {
+      setError(requestMessage(requestError, "解除 IP 封禁失败"));
     } finally {
       setBusy("");
     }
@@ -1181,6 +1224,147 @@ export function SettingsConsole() {
                       >
                         <span />
                       </button>
+                    </div>
+                    <div className={styles.preferenceRow}>
+                      <div>
+                        <strong>访客简单人机验证</strong>
+                        <span>开启后，未登录访客每次上传前需要完成一道短时效算术题。</span>
+                      </div>
+                      <button
+                        aria-label={
+                          siteSettings.publicUploadHumanVerificationEnabled
+                            ? "关闭访客人机验证"
+                            : "开启访客人机验证"
+                        }
+                        aria-pressed={siteSettings.publicUploadHumanVerificationEnabled}
+                        className={cn(
+                          styles.preferenceSwitch,
+                          siteSettings.publicUploadHumanVerificationEnabled &&
+                            styles.preferenceSwitchActive
+                        )}
+                        onClick={() =>
+                          setSiteSettings((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  publicUploadHumanVerificationEnabled:
+                                    !current.publicUploadHumanVerificationEnabled
+                                }
+                              : current
+                          )
+                        }
+                        type="button"
+                      >
+                        <span />
+                      </button>
+                    </div>
+                    <div className={styles.formGrid}>
+                      {([
+                        ["访客每分钟", "publicUploadAnonymousPerMinute", 1, 1000],
+                        ["访客每日张数", "publicUploadAnonymousPerDay", 1, 10000],
+                        ["登录用户每分钟", "publicUploadAuthenticatedPerMinute", 1, 1000],
+                        ["登录用户每日张数", "publicUploadAuthenticatedPerDay", 1, 10000]
+                      ] as const).map(([label, key, minimum, maximum]) => (
+                        <label className={styles.field} key={key}>
+                          <span><strong>{label}</strong><small>按来源 IP 统计。</small></span>
+                          <input
+                            className={styles.input}
+                            max={maximum}
+                            min={minimum}
+                            onChange={(event) =>
+                              setSiteSettings((current) =>
+                                current
+                                  ? {
+                                      ...current,
+                                      [key]: Math.min(
+                                        maximum,
+                                        Math.max(minimum, Number(event.target.value) || minimum)
+                                      )
+                                    }
+                                  : current
+                              )
+                            }
+                            type="number"
+                            value={siteSettings[key]}
+                          />
+                        </label>
+                      ))}
+                      {([
+                        ["访客每日流量（MB）", "publicUploadAnonymousDailyBytes"],
+                        ["登录用户每日流量（MB）", "publicUploadAuthenticatedDailyBytes"]
+                      ] as const).map(([label, key]) => (
+                        <label className={styles.field} key={key}>
+                          <span><strong>{label}</strong><small>按来源 IP 统计，最少 1 MB。</small></span>
+                          <input
+                            className={styles.input}
+                            max={1048576}
+                            min={1}
+                            onChange={(event) =>
+                              setSiteSettings((current) =>
+                                current
+                                  ? {
+                                      ...current,
+                                      [key]: Math.min(
+                                        1024 * 1024 * 1024 * 1024,
+                                        Math.max(1, Number(event.target.value) || 1) * 1024 * 1024
+                                      )
+                                    }
+                                  : current
+                              )
+                            }
+                            type="number"
+                            value={Math.round(siteSettings[key] / 1024 / 1024)}
+                          />
+                        </label>
+                      ))}
+                    </div>
+                    <div className={styles.formGrid}>
+                      <label className={cn(styles.field, styles.spanFull)}>
+                        <span>
+                          <strong>禁止指定 IP 上传</strong>
+                          <small>支持完整 IPv4 或 IPv6；反向代理部署需正确配置 TRUST_PROXY。</small>
+                        </span>
+                        <div className={styles.inlineForm}>
+                          <input
+                            className={styles.input}
+                            maxLength={64}
+                            onChange={(event) => setBlockedIpInput(event.target.value)}
+                            placeholder="例如 203.0.113.10"
+                            value={blockedIpInput}
+                          />
+                          <Button
+                            disabled={!blockedIpInput.trim() || busy === "block-upload-ip"}
+                            onClick={() => void blockUploadIp()}
+                            size="compact"
+                            type="button"
+                            variant="secondary"
+                          >
+                            禁止上传
+                          </Button>
+                        </div>
+                      </label>
+                      {siteSettings.publicUploadBlockedIps.length > 0 && (
+                        <div className={cn(styles.field, styles.spanFull)}>
+                          <span>
+                            <strong>当前已封禁</strong>
+                            <small>点击地址即可解除。</small>
+                          </span>
+                          <div className={styles.blockedIpList}>
+                            {siteSettings.publicUploadBlockedIps.map((ip) => (
+                              <button
+                                aria-label={`解除 ${ip} 的上传封禁`}
+                                disabled={busy === `unblock-${ip}`}
+                                key={ip}
+                                onClick={() => void unblockUploadIp(ip)}
+                                type="button"
+                              >
+                                <X aria-hidden="true" size={14} />
+                                {ip}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                     <div className={styles.preferenceRow}>
                       <div>

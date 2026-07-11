@@ -1124,6 +1124,46 @@
   gap: 7px;
 }
 
+.inlineForm {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.blockedIpList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.blockedIpList button {
+  display: inline-flex;
+  min-height: 40px;
+  max-width: 100%;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-page);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.blockedIpList button:hover:not(:disabled) {
+  border-color: var(--action-danger);
+  color: var(--action-danger);
+}
+
+@media (max-width: 640px) {
+  .inlineForm {
+    grid-template-columns: 1fr;
+  }
+}
+
 .themeChoices button {
   display: flex;
   min-height: 48px;

@@ -3395,6 +3395,165 @@ describe("OU-Image API", () => {
     ).toHaveLength(0);
   });
 
+  it("enforces public upload challenges, quotas, IP blocks and backoffice-only audits", async () => {
+    process.env.OU_SECRET_KEY = "public-upload-security-test-secret-2026";
+    const store = new AppStore(null);
+    const app = await createTestApp({ store });
+    const setup = await app.inject({
+      method: "POST",
+      url: "/setup",
+      payload: owner
+    });
+    const ownerCookie = setup.cookies.find(
+      (item) => item.name === "ou_session"
+    )!.value;
+    const settings = await app.inject({
+      method: "PATCH",
+      url: "/site/settings",
+      cookies: { ou_session: ownerCookie },
+      payload: {
+        publicUploadHumanVerificationEnabled: true,
+        publicUploadAnonymousPerMinute: 10,
+        publicUploadAnonymousPerDay: 1,
+        publicUploadAnonymousDailyBytes: 1024 * 1024
+      }
+    });
+    expect(settings.statusCode).toBe(200);
+
+    const image = await sharp({
+      create: {
+        width: 20,
+        height: 20,
+        channels: 3,
+        background: "#cc7788"
+      }
+    }).png().toBuffer();
+    const makeForm = (filename: string) => {
+      const form = new FormData();
+      form.append("file", image, { filename, contentType: "image/png" });
+      return form;
+    };
+
+    const missingChallengeForm = makeForm("missing-challenge.png");
+    const missingChallenge = await app.inject({
+      method: "POST",
+      url: "/public/uploads",
+      headers: missingChallengeForm.getHeaders(),
+      payload: missingChallengeForm.getBuffer()
+    });
+    expect(missingChallenge.statusCode).toBe(400);
+    expect(missingChallenge.json().error.code).toBe("HUMAN_CHALLENGE_REQUIRED");
+
+    const challenge = await app.inject({
+      method: "GET",
+      url: "/public/upload-challenge"
+    });
+    const challengeBody = challenge.json();
+    const operands = String(challengeBody.question).match(/(\d+) \+ (\d+)/)!;
+    const answer = String(Number(operands[1]) + Number(operands[2]));
+    const acceptedForm = makeForm("..\u202e unsafe   name.png");
+    const accepted = await app.inject({
+      method: "POST",
+      url: "/public/uploads?publicVisible=false",
+      headers: {
+        ...acceptedForm.getHeaders(),
+        "x-ou-challenge-token": challengeBody.token,
+        "x-ou-challenge-answer": answer
+      },
+      payload: acceptedForm.getBuffer()
+    });
+    expect(accepted.statusCode).toBe(201);
+    expect(accepted.json().image.name).toBe("unsafe name.png");
+
+    const reusedForm = makeForm("reused.png");
+    const reused = await app.inject({
+      method: "POST",
+      url: "/public/uploads",
+      headers: {
+        ...reusedForm.getHeaders(),
+        "x-ou-challenge-token": challengeBody.token,
+        "x-ou-challenge-answer": answer
+      },
+      payload: reusedForm.getBuffer()
+    });
+    expect(reused.statusCode).toBe(400);
+    expect(reused.json().error.code).toBe("HUMAN_CHALLENGE_INVALID");
+
+    await app.inject({
+      method: "PATCH",
+      url: "/site/settings",
+      cookies: { ou_session: ownerCookie },
+      payload: { publicUploadHumanVerificationEnabled: false }
+    });
+    const limitedForm = makeForm("daily-limit.png");
+    const limited = await app.inject({
+      method: "POST",
+      url: "/public/uploads",
+      headers: limitedForm.getHeaders(),
+      payload: limitedForm.getBuffer()
+    });
+    expect(limited.statusCode).toBe(429);
+    expect(limited.json().error.code).toBe("PUBLIC_UPLOAD_DAILY_LIMIT");
+
+    const audits = await app.inject({
+      method: "GET",
+      url: "/site/public-upload/audits",
+      cookies: { ou_session: ownerCookie }
+    });
+    expect(audits.statusCode).toBe(200);
+    expect(audits.json().events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceIp: "127.0.0.1",
+          imageId: accepted.json().image.id,
+          status: "success",
+          publicVisible: false,
+          authenticated: false
+        }),
+        expect.objectContaining({
+          sourceIp: "127.0.0.1",
+          status: "failure",
+          failureCode: "PUBLIC_UPLOAD_DAILY_LIMIT"
+        })
+      ])
+    );
+    expect(
+      (
+        await app.inject({
+          method: "GET",
+          url: "/site/public-upload/audits"
+        })
+      ).statusCode
+    ).toBe(401);
+
+    const blocked = await app.inject({
+      method: "PUT",
+      url: "/site/public-upload/ip-blocks",
+      cookies: { ou_session: ownerCookie },
+      payload: { ip: "127.0.0.1" }
+    });
+    expect(blocked.statusCode).toBe(200);
+    expect(blocked.json().blockedIps).toContain("127.0.0.1");
+    const blockedForm = makeForm("blocked.png");
+    const blockedUpload = await app.inject({
+      method: "POST",
+      url: "/public/uploads",
+      headers: blockedForm.getHeaders(),
+      payload: blockedForm.getBuffer()
+    });
+    expect(blockedUpload.statusCode).toBe(403);
+    expect(blockedUpload.json().error.code).toBe("PUBLIC_UPLOAD_IP_BLOCKED");
+
+    const unblocked = await app.inject({
+      method: "DELETE",
+      url: "/site/public-upload/ip-blocks",
+      cookies: { ou_session: ownerCookie },
+      payload: { ip: "127.0.0.1" }
+    });
+    expect(unblocked.statusCode).toBe(200);
+    expect(unblocked.json().blockedIps).not.toContain("127.0.0.1");
+  });
+
   it("returns workspace-isolated analytics from real uploads and daily share aggregates", async () => {
     const timestamp = new Date("2026-07-11T12:00:00.000Z");
     const store = new AppStore(null);

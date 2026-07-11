@@ -4,7 +4,7 @@ import type {
   FastifyReply,
   FastifyRequest
 } from "fastify";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomInt, randomUUID } from "node:crypto";
 import { lookup } from "node:dns/promises";
 import { createReadStream } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -24,6 +24,11 @@ import {
 } from "./access.js";
 import { backofficeAccessFor } from "./site-access.js";
 import { PublicError } from "./errors.js";
+import {
+  hashOpaqueToken,
+  signOpaquePayload,
+  verifyOpaquePayloadSignature
+} from "./security.js";
 import { registerImageDetailRoutes } from "./image-details.js";
 import { registerOrganizationRoutes } from "./organization.js";
 import {
@@ -87,6 +92,8 @@ type PublicUploadQuery = {
 type PublicImagesQuery = {
   sort?: "latest" | "hot" | "random";
   format?: "all" | StoredImage["format"];
+  page?: string;
+  limit?: string;
 };
 type BulkBody = {
   ids: string[];
@@ -202,9 +209,59 @@ function publicUploadPrincipal(state: AppState): Principal {
 function sanitizeFilename(value: string) {
   const cleaned = path
     .basename(value)
-    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .normalize("NFC")
+    .replace(/[\u0000-\u001f\u007f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/g, "")
+    .replace(/\s+/g, " ")
+    .replace(/^\.+/, "")
     .trim();
   return (cleaned || `image-${Date.now()}`).slice(0, 180);
+}
+
+function normalizedSourceIp(value: string) {
+  const normalized = value.trim().toLowerCase();
+  const mapped = normalized.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/)?.[1];
+  return mapped ?? normalized;
+}
+
+function minuteBucket(timestamp: Date) {
+  return timestamp.toISOString().slice(0, 16);
+}
+
+function challengeToken(
+  first: number,
+  second: number,
+  expiresAt: number
+) {
+  const payload = Buffer.from(
+    JSON.stringify({ id: randomUUID(), first, second, expiresAt })
+  ).toString("base64url");
+  return `${payload}.${signOpaquePayload(payload)}`;
+}
+
+function parseChallengeToken(token: string) {
+  const [payload, signature] = token.split(".");
+  if (!payload || !signature || !verifyOpaquePayloadSignature(payload, signature)) {
+    throw new PublicError(400, "HUMAN_CHALLENGE_INVALID", "人机验证已失效，请重新获取");
+  }
+  try {
+    const value = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as {
+      id?: unknown;
+      first?: unknown;
+      second?: unknown;
+      expiresAt?: unknown;
+    };
+    if (
+      typeof value.id !== "string" ||
+      typeof value.first !== "number" ||
+      typeof value.second !== "number" ||
+      typeof value.expiresAt !== "number"
+    ) {
+      throw new Error("invalid challenge payload");
+    }
+    return value as { id: string; first: number; second: number; expiresAt: number };
+  } catch {
+    throw new PublicError(400, "HUMAN_CHALLENGE_INVALID", "人机验证已失效，请重新获取");
+  }
 }
 
 function isPrivateIpv4(address: string) {
@@ -334,6 +391,188 @@ export async function registerUploadRoutes(
       parts: 5
     }
   });
+
+  const consumeHumanChallenge = async (request: FastifyRequest) => {
+    const token = request.headers["x-ou-challenge-token"];
+    const answer = request.headers["x-ou-challenge-answer"];
+    if (typeof token !== "string" || typeof answer !== "string") {
+      throw new PublicError(400, "HUMAN_CHALLENGE_REQUIRED", "请先完成人机验证");
+    }
+    const challenge = parseChallengeToken(token);
+    const timestamp = now();
+    if (challenge.expiresAt <= timestamp.getTime()) {
+      throw new PublicError(400, "HUMAN_CHALLENGE_EXPIRED", "人机验证已过期，请重试");
+    }
+    const tokenHash = hashOpaqueToken(token);
+    const accepted = await store.update((state) => {
+      state.publicUploadChallengeUses = state.publicUploadChallengeUses.filter(
+        (item) => Date.parse(item.expiresAt) > timestamp.getTime()
+      );
+      if (
+        state.publicUploadChallengeUses.some(
+          (item) => item.tokenHash === tokenHash
+        )
+      ) {
+        return false;
+      }
+      state.publicUploadChallengeUses.push({
+        tokenHash,
+        expiresAt: new Date(challenge.expiresAt).toISOString()
+      });
+      return /^\d{1,3}$/.test(answer.trim()) &&
+        Number(answer.trim()) === challenge.first + challenge.second;
+    });
+    if (!accepted) {
+      throw new PublicError(400, "HUMAN_CHALLENGE_INVALID", "人机验证答案不正确或已使用");
+    }
+  };
+
+  const beginPublicUpload = async (input: {
+    sourceIp: string;
+    authenticated: boolean;
+    actorUserId?: string;
+    publicVisible: boolean;
+  }) => {
+    const timestamp = now();
+    const minute = minuteBucket(timestamp);
+    return store.update((state) => {
+      const site = state.site!;
+      if (
+        site.publicUploadBlockedIps.some(
+          (item) => normalizedSourceIp(item) === input.sourceIp
+        )
+      ) {
+        throw new PublicError(403, "PUBLIC_UPLOAD_IP_BLOCKED", "当前网络地址已被禁止上传");
+      }
+      const perMinute = input.authenticated
+        ? site.publicUploadAuthenticatedPerMinute
+        : site.publicUploadAnonymousPerMinute;
+      let usage = state.publicUploadUsage.find(
+        (item) =>
+          item.sourceIp === input.sourceIp &&
+          item.authenticated === input.authenticated &&
+          item.minute === minute
+      );
+      if (!usage) {
+        usage = {
+          sourceIp: input.sourceIp,
+          authenticated: input.authenticated,
+          minute,
+          attempts: 0,
+          uploads: 0,
+          bytes: 0
+        };
+        state.publicUploadUsage.push(usage);
+      }
+      if (usage.attempts >= perMinute) {
+        throw new PublicError(
+          429,
+          "PUBLIC_UPLOAD_MINUTE_LIMIT",
+          "上传过于频繁，请在一分钟后重试"
+        );
+      }
+      usage.attempts += 1;
+      const auditId = randomUUID();
+      state.publicUploadAudits.push({
+        id: auditId,
+        sourceIp: input.sourceIp,
+        actorUserId: input.actorUserId,
+        fileSize: 0,
+        publicVisible: input.publicVisible,
+        authenticated: input.authenticated,
+        status: "pending",
+        createdAt: timestamp.toISOString()
+      });
+      state.publicUploadAudits = state.publicUploadAudits.slice(-50_000);
+      const cutoffMinute = minuteBucket(
+        new Date(timestamp.getTime() - 2 * 24 * 60 * 60 * 1000)
+      );
+      state.publicUploadUsage = state.publicUploadUsage.filter(
+        (item) => item.minute >= cutoffMinute
+      );
+      return { auditId, minute };
+    });
+  };
+
+  const reservePublicUploadQuota = async (input: {
+    auditId: string;
+    sourceIp: string;
+    authenticated: boolean;
+    minute: string;
+    bytes: number;
+  }) => {
+    await store.update((state) => {
+      const site = state.site!;
+      const day = input.minute.slice(0, 10);
+      const daily = state.publicUploadUsage.filter(
+        (item) =>
+          item.sourceIp === input.sourceIp &&
+          item.authenticated === input.authenticated &&
+          item.minute.startsWith(day)
+      );
+      const uploadCount = daily.reduce((total, item) => total + item.uploads, 0);
+      const uploadedBytes = daily.reduce((total, item) => total + item.bytes, 0);
+      const dailyLimit = input.authenticated
+        ? site.publicUploadAuthenticatedPerDay
+        : site.publicUploadAnonymousPerDay;
+      const byteLimit = input.authenticated
+        ? site.publicUploadAuthenticatedDailyBytes
+        : site.publicUploadAnonymousDailyBytes;
+      if (uploadCount >= dailyLimit) {
+        throw new PublicError(429, "PUBLIC_UPLOAD_DAILY_LIMIT", "今日上传数量已达上限，请明天再试");
+      }
+      if (uploadedBytes + input.bytes > byteLimit) {
+        throw new PublicError(429, "PUBLIC_UPLOAD_DAILY_BYTES_LIMIT", "今日上传流量已达上限，请明天再试");
+      }
+      const usage = state.publicUploadUsage.find(
+        (item) =>
+          item.sourceIp === input.sourceIp &&
+          item.authenticated === input.authenticated &&
+          item.minute === input.minute
+      );
+      if (!usage) {
+        throw new PublicError(409, "PUBLIC_UPLOAD_RESERVATION_LOST", "上传状态已失效，请重试");
+      }
+      usage.uploads += 1;
+      usage.bytes += input.bytes;
+      const audit = state.publicUploadAudits.find((item) => item.id === input.auditId);
+      if (audit) audit.fileSize = input.bytes;
+    });
+  };
+
+  const finishPublicUpload = async (input: {
+    auditId: string;
+    sourceIp: string;
+    authenticated: boolean;
+    minute: string;
+    bytes: number;
+    imageId?: string;
+    duplicate?: boolean;
+    failureCode?: string;
+    quotaReserved: boolean;
+  }) => {
+    await store.update((state) => {
+      const audit = state.publicUploadAudits.find((item) => item.id === input.auditId);
+      if (audit) {
+        audit.status = input.failureCode ? "failure" : "success";
+        audit.imageId = input.imageId;
+        audit.failureCode = input.failureCode;
+        audit.completedAt = now().toISOString();
+      }
+      if (input.quotaReserved && (input.failureCode || input.duplicate)) {
+        const usage = state.publicUploadUsage.find(
+          (item) =>
+            item.sourceIp === input.sourceIp &&
+            item.authenticated === input.authenticated &&
+            item.minute === input.minute
+        );
+        if (usage) {
+          usage.uploads = Math.max(0, usage.uploads - 1);
+          usage.bytes = Math.max(0, usage.bytes - input.bytes);
+        }
+      }
+    });
+  };
 
   const ingest = async ({
     buffer,
@@ -878,6 +1117,20 @@ export async function registerUploadRoutes(
         publicGalleryShowFileName: site.publicGalleryShowFileName,
         publicGalleryShowUploadTime: site.publicGalleryShowUploadTime,
         publicUploadDefaultPublic: site.publicUploadDefaultPublic,
+        publicUploadHumanVerificationEnabled:
+          site.publicUploadHumanVerificationEnabled,
+        publicUploadLimits: {
+          anonymous: {
+            perMinute: site.publicUploadAnonymousPerMinute,
+            perDay: site.publicUploadAnonymousPerDay,
+            dailyBytes: site.publicUploadAnonymousDailyBytes
+          },
+          authenticated: {
+            perMinute: site.publicUploadAuthenticatedPerMinute,
+            perDay: site.publicUploadAuthenticatedPerDay,
+            dailyBytes: site.publicUploadAuthenticatedDailyBytes
+          }
+        },
         publicHeroTitle: site.publicHeroTitle,
         publicHeroDescription: site.publicHeroDescription
       }
@@ -896,31 +1149,50 @@ export async function registerUploadRoutes(
             format: {
               type: "string",
               enum: ["all", "jpeg", "png", "webp", "gif", "avif"]
-            }
+            },
+            page: { type: "string", pattern: "^[0-9]+$" },
+            limit: { type: "string", pattern: "^[0-9]+$" }
           }
         }
       }
     },
-    async (request) => {
-    const state = store.snapshot();
-    if (!state.site?.publicGalleryEnabled) {
-      return { images: [] };
-    }
-    const sort = request.query.sort ?? "latest";
-    const format = request.query.format ?? "all";
-    return {
-      images: state.images
+    async (request, reply) => {
+      reply.header(
+        "cache-control",
+        "public, max-age=20, stale-while-revalidate=60"
+      );
+      const state = store.snapshot();
+      const page = Math.max(1, Number(request.query.page ?? 1));
+      const limit = Math.min(
+        48,
+        Math.max(1, Number(request.query.limit ?? 24))
+      );
+      if (!state.site?.publicGalleryEnabled) {
+        return {
+          images: [],
+          page: 1,
+          limit,
+          total: 0,
+          totalPages: 1
+        };
+      }
+      const sort = request.query.sort ?? "latest";
+      const format = request.query.format ?? "all";
+      const timestamp = now();
+      const dateSeed = timestamp.toISOString().slice(0, 10);
+      const shareViews = new Map<string, number>();
+      for (const daily of state.analyticsDaily) {
+        for (const [imageId, views] of Object.entries(daily.imageShareViews)) {
+          shareViews.set(imageId, (shareViews.get(imageId) ?? 0) + views);
+        }
+      }
+      const candidates = state.images
         .filter((image) => image.publicVisible && !image.deletedAt)
         .filter((image) => format === "all" || image.format === format)
         .map((image) => ({
           image,
-          shareViews: state.analyticsDaily.reduce(
-            (total, item) =>
-              item.workspaceId === image.workspaceId
-                ? total + (item.imageShareViews[image.id] ?? 0)
-                : total,
-            0
-          )
+          shareViews: shareViews.get(image.id) ?? 0,
+          randomRank: seededRandom(`${image.id}:${dateSeed}`)
         }))
         .sort((a, b) => {
           if (sort === "hot") {
@@ -930,20 +1202,30 @@ export async function registerUploadRoutes(
             );
           }
           if (sort === "random") {
-            return seededRandom(`${b.image.id}:${now().toISOString().slice(0, 10)}`) -
-              seededRandom(`${a.image.id}:${now().toISOString().slice(0, 10)}`);
+            return b.randomRank - a.randomRank;
           }
           return b.image.createdAt.localeCompare(a.image.createdAt);
-        })
-        .slice(0, 60)
-        .map(({ image }) => publicImageCard(image, state, now())),
-      preferences: {
-        showUploader: state.site.publicGalleryShowUploader,
-        showFileName: state.site.publicGalleryShowFileName,
-        showUploadTime: state.site.publicGalleryShowUploadTime
-      }
-    };
-  });
+        });
+      const total = candidates.length;
+      const totalPages = Math.max(1, Math.ceil(total / limit));
+      const safePage = Math.min(page, totalPages);
+      const start = (safePage - 1) * limit;
+      return {
+        images: candidates
+          .slice(start, start + limit)
+          .map(({ image }) => publicImageCard(image, state, timestamp)),
+        page: safePage,
+        limit,
+        total,
+        totalPages,
+        preferences: {
+          showUploader: state.site.publicGalleryShowUploader,
+          showFileName: state.site.publicGalleryShowFileName,
+          showUploadTime: state.site.publicGalleryShowUploadTime
+        }
+      };
+    }
+  );
 
   app.post<{ Params: { id: string } }>(
     "/public/images/:id/hide",
@@ -1001,10 +1283,29 @@ export async function registerUploadRoutes(
     }
   );
 
+  app.get("/public/upload-challenge", async () => {
+    const state = store.snapshot();
+    if (!state.site?.publicUploadEnabled) {
+      throw new PublicError(403, "PUBLIC_UPLOAD_DISABLED", "公共上传入口已关闭");
+    }
+    if (!state.site.publicUploadHumanVerificationEnabled) {
+      return { enabled: false };
+    }
+    const first = randomInt(2, 10);
+    const second = randomInt(1, 10);
+    const expiresAt = now().getTime() + 5 * 60 * 1000;
+    return {
+      enabled: true,
+      question: `${first} + ${second} = ?`,
+      token: challengeToken(first, second, expiresAt),
+      expiresAt: new Date(expiresAt).toISOString()
+    };
+  });
+
   app.post<{ Querystring: PublicUploadQuery }>(
     "/public/uploads",
     {
-      config: { rateLimit: { max: 20, timeWindow: "1 minute" } },
+      config: { rateLimit: { max: 1_000, timeWindow: "1 minute" } },
       bodyLimit: MAX_FILE_SIZE + 1024 * 1024,
       schema: {
         querystring: {
@@ -1042,35 +1343,101 @@ export async function registerUploadRoutes(
           "管理员已开启登录后上传，请先登录再上传图片"
         );
       }
+      const authenticated = Boolean(principal);
+      if (!authenticated && state.site.publicUploadHumanVerificationEnabled) {
+        await consumeHumanChallenge(request);
+      }
+      const actorUserId = principal?.user.id;
       principal ??= publicUploadPrincipal(state);
+      const sourceIp = normalizedSourceIp(request.ip);
+      const publicVisible =
+        request.query.publicVisible === undefined
+          ? state.site.publicUploadDefaultPublic
+          : request.query.publicVisible === "true" ||
+            request.query.publicVisible === "1";
+      const reservation = await beginPublicUpload({
+        sourceIp,
+        authenticated,
+        actorUserId,
+        publicVisible
+      });
       let part;
       try {
         part = await request.file();
       } catch {
+        await finishPublicUpload({
+          ...reservation,
+          sourceIp,
+          authenticated,
+          bytes: 0,
+          failureCode: "FILE_TOO_LARGE",
+          quotaReserved: false
+        });
         throw new PublicError(413, "FILE_TOO_LARGE", "图片不能超过 20 MB");
       }
       if (!part || part.fieldname !== "file") {
+        await finishPublicUpload({
+          ...reservation,
+          sourceIp,
+          authenticated,
+          bytes: 0,
+          failureCode: "FILE_REQUIRED",
+          quotaReserved: false
+        });
         throw new PublicError(400, "FILE_REQUIRED", "请选择需要上传的图片");
       }
       let buffer: Buffer;
       try {
         buffer = await part.toBuffer();
       } catch {
+        await finishPublicUpload({
+          ...reservation,
+          sourceIp,
+          authenticated,
+          bytes: 0,
+          failureCode: "FILE_TOO_LARGE",
+          quotaReserved: false
+        });
         throw new PublicError(413, "FILE_TOO_LARGE", "图片不能超过 20 MB");
       }
-      const publicVisible =
-        request.query.publicVisible === undefined
-          ? state.site.publicUploadDefaultPublic
-          : request.query.publicVisible === "true" ||
-            request.query.publicVisible === "1";
-      const result = await ingest({
-        buffer,
-        filename: part.filename,
-        mime: part.mimetype,
-        principal,
-        publicVisible
-      });
-      return reply.status(result.duplicate ? 200 : 201).send(result);
+      let quotaReserved = false;
+      try {
+        await reservePublicUploadQuota({
+          ...reservation,
+          sourceIp,
+          authenticated,
+          bytes: buffer.byteLength
+        });
+        quotaReserved = true;
+        const result = await ingest({
+          buffer,
+          filename: part.filename,
+          mime: part.mimetype,
+          principal,
+          publicVisible
+        });
+        await finishPublicUpload({
+          ...reservation,
+          sourceIp,
+          authenticated,
+          bytes: buffer.byteLength,
+          imageId: result.image.id,
+          duplicate: result.duplicate,
+          quotaReserved
+        });
+        return reply.status(result.duplicate ? 200 : 201).send(result);
+      } catch (error) {
+        await finishPublicUpload({
+          ...reservation,
+          sourceIp,
+          authenticated,
+          bytes: buffer.byteLength,
+          failureCode:
+            error instanceof PublicError ? error.code : "UPLOAD_FAILED",
+          quotaReserved
+        });
+        throw error;
+      }
     }
   );
 

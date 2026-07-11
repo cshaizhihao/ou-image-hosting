@@ -9,6 +9,7 @@ import {
   writeFile
 } from "node:fs/promises";
 import path from "node:path";
+import { isIP } from "node:net";
 import sharp from "sharp";
 import {
   addAuditEvent,
@@ -73,6 +74,27 @@ function requireSiteOwner(
   return principal;
 }
 
+function requireSiteBackoffice(
+  request: FastifyRequest,
+  authenticate: Options["authenticate"],
+  state: AppState
+) {
+  const principal = authenticate(request);
+  requireSession(principal);
+  requireBackofficeAccess(state, principal);
+  return principal;
+}
+
+function normalizePublicUploadIp(value: string) {
+  const normalized = value.trim().toLowerCase();
+  const mapped = normalized.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/)?.[1];
+  const result = mapped ?? normalized;
+  if (isIP(result) === 0) {
+    throw new PublicError(400, "INVALID_IP_ADDRESS", "请输入有效的 IPv4 或 IPv6 地址");
+  }
+  return result;
+}
+
 function assertTimezone(timezone: string) {
   try {
     new Intl.DateTimeFormat("en-US", { timeZone: timezone }).format(
@@ -124,6 +146,14 @@ function publicSiteSettings(site: AppState["site"]) {
     publicGalleryShowFileName: site.publicGalleryShowFileName,
     publicGalleryShowUploadTime: site.publicGalleryShowUploadTime,
     publicUploadDefaultPublic: site.publicUploadDefaultPublic,
+    publicUploadAnonymousPerMinute: site.publicUploadAnonymousPerMinute,
+    publicUploadAnonymousPerDay: site.publicUploadAnonymousPerDay,
+    publicUploadAnonymousDailyBytes: site.publicUploadAnonymousDailyBytes,
+    publicUploadAuthenticatedPerMinute: site.publicUploadAuthenticatedPerMinute,
+    publicUploadAuthenticatedPerDay: site.publicUploadAuthenticatedPerDay,
+    publicUploadAuthenticatedDailyBytes: site.publicUploadAuthenticatedDailyBytes,
+    publicUploadHumanVerificationEnabled: site.publicUploadHumanVerificationEnabled,
+    publicUploadBlockedIps: site.publicUploadBlockedIps,
     publicHeroTitle: site.publicHeroTitle,
     publicHeroDescription: site.publicHeroDescription,
     loginEyebrow: site.loginEyebrow,
@@ -938,6 +968,13 @@ export function registerOperationsRoutes(
       publicGalleryShowFileName?: boolean;
       publicGalleryShowUploadTime?: boolean;
       publicUploadDefaultPublic?: boolean;
+      publicUploadAnonymousPerMinute?: number;
+      publicUploadAnonymousPerDay?: number;
+      publicUploadAnonymousDailyBytes?: number;
+      publicUploadAuthenticatedPerMinute?: number;
+      publicUploadAuthenticatedPerDay?: number;
+      publicUploadAuthenticatedDailyBytes?: number;
+      publicUploadHumanVerificationEnabled?: boolean;
       publicHeroTitle?: string;
       publicHeroDescription?: string;
       loginEyebrow?: string;
@@ -964,6 +1001,13 @@ export function registerOperationsRoutes(
             publicGalleryShowFileName: { type: "boolean" },
             publicGalleryShowUploadTime: { type: "boolean" },
             publicUploadDefaultPublic: { type: "boolean" },
+            publicUploadAnonymousPerMinute: { type: "integer", minimum: 1, maximum: 1000 },
+            publicUploadAnonymousPerDay: { type: "integer", minimum: 1, maximum: 10000 },
+            publicUploadAnonymousDailyBytes: { type: "integer", minimum: 1048576, maximum: 1099511627776 },
+            publicUploadAuthenticatedPerMinute: { type: "integer", minimum: 1, maximum: 1000 },
+            publicUploadAuthenticatedPerDay: { type: "integer", minimum: 1, maximum: 10000 },
+            publicUploadAuthenticatedDailyBytes: { type: "integer", minimum: 1048576, maximum: 1099511627776 },
+            publicUploadHumanVerificationEnabled: { type: "boolean" },
             publicHeroTitle: { type: "string", minLength: 1, maxLength: 80 },
             publicHeroDescription: { type: "string", minLength: 1, maxLength: 260 },
             loginEyebrow: { type: "string", minLength: 1, maxLength: 80 },
@@ -1016,6 +1060,27 @@ export function registerOperationsRoutes(
           site.publicUploadDefaultPublic =
             request.body.publicUploadDefaultPublic;
         }
+        if (request.body.publicUploadAnonymousPerMinute !== undefined) {
+          site.publicUploadAnonymousPerMinute = request.body.publicUploadAnonymousPerMinute;
+        }
+        if (request.body.publicUploadAnonymousPerDay !== undefined) {
+          site.publicUploadAnonymousPerDay = request.body.publicUploadAnonymousPerDay;
+        }
+        if (request.body.publicUploadAnonymousDailyBytes !== undefined) {
+          site.publicUploadAnonymousDailyBytes = request.body.publicUploadAnonymousDailyBytes;
+        }
+        if (request.body.publicUploadAuthenticatedPerMinute !== undefined) {
+          site.publicUploadAuthenticatedPerMinute = request.body.publicUploadAuthenticatedPerMinute;
+        }
+        if (request.body.publicUploadAuthenticatedPerDay !== undefined) {
+          site.publicUploadAuthenticatedPerDay = request.body.publicUploadAuthenticatedPerDay;
+        }
+        if (request.body.publicUploadAuthenticatedDailyBytes !== undefined) {
+          site.publicUploadAuthenticatedDailyBytes = request.body.publicUploadAuthenticatedDailyBytes;
+        }
+        if (request.body.publicUploadHumanVerificationEnabled !== undefined) {
+          site.publicUploadHumanVerificationEnabled = request.body.publicUploadHumanVerificationEnabled;
+        }
         if (request.body.publicHeroTitle !== undefined) {
           site.publicHeroTitle = request.body.publicHeroTitle.trim();
         }
@@ -1047,6 +1112,119 @@ export function registerOperationsRoutes(
       return {
         settings: publicSiteSettings(site)
       };
+    }
+  );
+
+  app.get<{
+    Querystring: {
+      page?: string;
+      limit?: string;
+      status?: "all" | "success" | "failure";
+    };
+  }>(
+    "/site/public-upload/audits",
+    {
+      schema: {
+        querystring: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            page: { type: "string", pattern: "^[0-9]+$" },
+            limit: { type: "string", pattern: "^[0-9]+$" },
+            status: { type: "string", enum: ["all", "success", "failure"] }
+          }
+        }
+      }
+    },
+    async (request) => {
+      requireSiteBackoffice(request, authenticate, store.snapshot());
+      const page = Math.max(1, Number(request.query.page ?? 1));
+      const limit = Math.min(100, Math.max(1, Number(request.query.limit ?? 30)));
+      const status = request.query.status ?? "all";
+      const state = store.snapshot();
+      const events = state.publicUploadAudits
+        .filter((item) => item.status !== "pending")
+        .filter((item) => status === "all" || item.status === status)
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      const total = events.length;
+      const totalPages = Math.max(1, Math.ceil(total / limit));
+      const safePage = Math.min(page, totalPages);
+      return {
+        events: events.slice((safePage - 1) * limit, safePage * limit),
+        page: safePage,
+        limit,
+        total,
+        totalPages
+      };
+    }
+  );
+
+  app.put<{ Body: { ip: string } }>(
+    "/site/public-upload/ip-blocks",
+    {
+      schema: {
+        body: {
+          type: "object",
+          additionalProperties: false,
+          required: ["ip"],
+          properties: { ip: { type: "string", minLength: 2, maxLength: 64 } }
+        }
+      }
+    },
+    async (request) => {
+      const principal = requireSiteBackoffice(request, authenticate, store.snapshot());
+      const ip = normalizePublicUploadIp(request.body.ip);
+      await store.update((state) => {
+        const blocked = state.site!.publicUploadBlockedIps;
+        if (!blocked.includes(ip)) {
+          if (blocked.length >= 500) {
+            throw new PublicError(409, "IP_BLOCKLIST_FULL", "IP 封禁列表已达上限");
+          }
+          blocked.push(ip);
+        }
+        addAuditEvent(state, {
+          principal,
+          global: true,
+          action: "public_upload.ip.block",
+          result: "success",
+          resourceType: "network_address",
+          ipHash: hashRequestIp(request),
+          createdAt: now().toISOString()
+        });
+      });
+      return { blockedIps: store.snapshot().site!.publicUploadBlockedIps };
+    }
+  );
+
+  app.delete<{ Body: { ip: string } }>(
+    "/site/public-upload/ip-blocks",
+    {
+      schema: {
+        body: {
+          type: "object",
+          additionalProperties: false,
+          required: ["ip"],
+          properties: { ip: { type: "string", minLength: 2, maxLength: 64 } }
+        }
+      }
+    },
+    async (request) => {
+      const principal = requireSiteBackoffice(request, authenticate, store.snapshot());
+      const ip = normalizePublicUploadIp(request.body.ip);
+      await store.update((state) => {
+        state.site!.publicUploadBlockedIps =
+          state.site!.publicUploadBlockedIps.filter((item) => item !== ip);
+        addAuditEvent(state, {
+          principal,
+          global: true,
+          action: "public_upload.ip.unblock",
+          result: "success",
+          resourceType: "network_address",
+          ipHash: hashRequestIp(request),
+          createdAt: now().toISOString()
+        });
+      });
+      return { blockedIps: store.snapshot().site!.publicUploadBlockedIps };
     }
   );
 

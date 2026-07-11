@@ -41,6 +41,14 @@ export type SiteConfig = {
   publicGalleryShowFileName: boolean;
   publicGalleryShowUploadTime: boolean;
   publicUploadDefaultPublic: boolean;
+  publicUploadAnonymousPerMinute: number;
+  publicUploadAnonymousPerDay: number;
+  publicUploadAnonymousDailyBytes: number;
+  publicUploadAuthenticatedPerMinute: number;
+  publicUploadAuthenticatedPerDay: number;
+  publicUploadAuthenticatedDailyBytes: number;
+  publicUploadHumanVerificationEnabled: boolean;
+  publicUploadBlockedIps: string[];
   publicHeroTitle: string;
   publicHeroDescription: string;
   loginEyebrow: string;
@@ -66,6 +74,14 @@ export function defaultSiteConfig(
     publicGalleryShowFileName: true,
     publicGalleryShowUploadTime: true,
     publicUploadDefaultPublic: true,
+    publicUploadAnonymousPerMinute: 10,
+    publicUploadAnonymousPerDay: 100,
+    publicUploadAnonymousDailyBytes: 1024 * 1024 * 1024,
+    publicUploadAuthenticatedPerMinute: 30,
+    publicUploadAuthenticatedPerDay: 500,
+    publicUploadAuthenticatedDailyBytes: 5 * 1024 * 1024 * 1024,
+    publicUploadHumanVerificationEnabled: false,
+    publicUploadBlockedIps: [],
     publicHeroTitle: "把图片放进来，剩下的交给队列。",
     publicHeroDescription:
       "拖拽、选择或粘贴图片，即可生成可分享链接。公开展示可以在后台关闭，上传时也能自己决定是否出现在公共图床里。",
@@ -433,6 +449,34 @@ export type StoredAuditEvent = {
   createdAt: string;
 };
 
+export type StoredPublicUploadAudit = {
+  id: string;
+  sourceIp: string;
+  actorUserId?: string;
+  imageId?: string;
+  fileSize: number;
+  publicVisible: boolean;
+  authenticated: boolean;
+  status: "pending" | "success" | "failure";
+  failureCode?: string;
+  createdAt: string;
+  completedAt?: string;
+};
+
+export type StoredPublicUploadUsage = {
+  sourceIp: string;
+  authenticated: boolean;
+  minute: string;
+  attempts: number;
+  uploads: number;
+  bytes: number;
+};
+
+export type StoredPublicUploadChallengeUse = {
+  tokenHash: string;
+  expiresAt: string;
+};
+
 export type AppState = {
   schemaVersion: 8;
   setupComplete: boolean;
@@ -456,6 +500,9 @@ export type AppState = {
   apiTokens: StoredApiToken[];
   loginChallenges: StoredLoginChallenge[];
   auditEvents: StoredAuditEvent[];
+  publicUploadAudits: StoredPublicUploadAudit[];
+  publicUploadUsage: StoredPublicUploadUsage[];
+  publicUploadChallengeUses: StoredPublicUploadChallengeUse[];
   systemEvents: StoredSystemEvent[];
   analyticsDaily: StoredAnalyticsDaily[];
   analyticsCoverage: StoredAnalyticsCoverage[];
@@ -526,6 +573,9 @@ const initialState = (): AppState => ({
   apiTokens: [],
   loginChallenges: [],
   auditEvents: [],
+  publicUploadAudits: [],
+  publicUploadUsage: [],
+  publicUploadChallengeUses: [],
   systemEvents: [],
   analyticsDaily: [],
   analyticsCoverage: [],
@@ -1256,6 +1306,39 @@ export function migrateAppState(parsed: MigratableAppState): AppState {
               parsed.site.publicGalleryShowUploadTime !== false,
             publicUploadDefaultPublic:
               parsed.site.publicUploadDefaultPublic !== false,
+            publicUploadAnonymousPerMinute: normalizeSafeInteger(
+              parsed.site.publicUploadAnonymousPerMinute ?? 10,
+              1_000
+            ) || 10,
+            publicUploadAnonymousPerDay: normalizeSafeInteger(
+              parsed.site.publicUploadAnonymousPerDay ?? 100,
+              10_000
+            ) || 100,
+            publicUploadAnonymousDailyBytes: normalizeSafeInteger(
+              parsed.site.publicUploadAnonymousDailyBytes ?? 1024 * 1024 * 1024,
+              1024 * 1024 * 1024 * 1024
+            ) || 1024 * 1024 * 1024,
+            publicUploadAuthenticatedPerMinute: normalizeSafeInteger(
+              parsed.site.publicUploadAuthenticatedPerMinute ?? 30,
+              1_000
+            ) || 30,
+            publicUploadAuthenticatedPerDay: normalizeSafeInteger(
+              parsed.site.publicUploadAuthenticatedPerDay ?? 500,
+              10_000
+            ) || 500,
+            publicUploadAuthenticatedDailyBytes: normalizeSafeInteger(
+              parsed.site.publicUploadAuthenticatedDailyBytes ?? 5 * 1024 * 1024 * 1024,
+              1024 * 1024 * 1024 * 1024
+            ) || 5 * 1024 * 1024 * 1024,
+            publicUploadHumanVerificationEnabled:
+              parsed.site.publicUploadHumanVerificationEnabled === true,
+            publicUploadBlockedIps: Array.isArray(parsed.site.publicUploadBlockedIps)
+              ? parsed.site.publicUploadBlockedIps
+                  .filter((value): value is string => typeof value === "string")
+                  .map((value) => value.trim().toLowerCase())
+                  .filter(Boolean)
+                  .slice(0, 500)
+              : [],
             publicHeroTitle:
               typeof parsed.site.publicHeroTitle === "string" &&
               parsed.site.publicHeroTitle.trim()
@@ -1355,6 +1438,18 @@ export function migrateAppState(parsed: MigratableAppState): AppState {
     })),
     loginChallenges: parsed.loginChallenges ?? [],
     auditEvents: parsed.auditEvents ?? [],
+    publicUploadAudits: (Array.isArray(parsed.publicUploadAudits)
+      ? parsed.publicUploadAudits
+      : []
+    ).slice(-50_000),
+    publicUploadUsage: (Array.isArray(parsed.publicUploadUsage)
+      ? parsed.publicUploadUsage
+      : []
+    ).slice(-100_000),
+    publicUploadChallengeUses: (Array.isArray(parsed.publicUploadChallengeUses)
+      ? parsed.publicUploadChallengeUses
+      : []
+    ).slice(-10_000),
     systemEvents: (parsed.systemEvents ?? [])
       .filter(
         (event) =>
@@ -1439,6 +1534,9 @@ export class AppStore {
         !parsed.apiTokens ||
         !parsed.loginChallenges ||
         !parsed.auditEvents ||
+        !parsed.publicUploadAudits ||
+        !parsed.publicUploadUsage ||
+        !parsed.publicUploadChallengeUses ||
         !parsed.systemEvents ||
         !parsed.analyticsDaily ||
         !parsed.analyticsCoverage ||
