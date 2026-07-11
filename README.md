@@ -16,7 +16,7 @@
   <a href="https://github.com/cshaizhihao/ou-image-hosting/releases">
     <img src="https://img.shields.io/github/v/release/cshaizhihao/ou-image-hosting?style=flat-square&color=ef8f8f" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-v1.8.0-ef8f8f?style=flat-square" alt="Current version v1.8.0" />
+  <img src="https://img.shields.io/badge/version-v1.9.0-ef8f8f?style=flat-square" alt="Current version v1.9.0" />
   <a href="https://github.com/cshaizhihao/ou-image-hosting/actions/workflows/check.yml">
     <img src="https://img.shields.io/github/actions/workflow/status/cshaizhihao/ou-image-hosting/check.yml?branch=main&style=flat-square&label=check" alt="Check" />
   </a>
@@ -206,6 +206,8 @@ curl --fail http://127.0.0.1:3000/api/health/ready
 ### 图片工作流
 
 - 公共上传首页、访客批量上传、剪贴板粘贴、公开展示勾选、最近上传结果和缩略图公共图库
+- 访客直传 / 登录后上传开关、登录用户上传历史、批量公开或隐藏自己的图片
+- 公共图库站内浮窗预览，支持键盘左右键、鼠标滚轮、按钮和移动端滑动切换
 - 本地选择、拖拽、剪贴板粘贴、URL 与批量上传
 - 队列进度、暂停、继续、取消、失败重试与内容去重
 - JPEG、PNG、WebP、GIF、AVIF 内容识别和尺寸限制
@@ -216,6 +218,7 @@ curl --fail http://127.0.0.1:3000/api/health/ready
 
 - 响应式网格/列表、搜索、格式筛选、排序和分页
 - 相册主分类卡片、搜索、编辑、删除确认、新建相册浮窗、图片库批量加入一个或多个相册
+- 相册详情批量移出图片、封面选中态和失效封面自动清理
 - URL、Markdown、HTML、BBCode 与二维码
 - 密码保护、有效期、访问统计、分享撤销和创建成功浮窗
 
