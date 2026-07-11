@@ -56,7 +56,7 @@ export default function OnboardingPage() {
         body: JSON.stringify({ theme, onboardingCompleted: true })
       });
       applyTheme(theme);
-      window.location.replace("/");
+      window.location.replace("/overview");
     } catch (requestError) {
       setError(requestError instanceof ApiError ? requestError.message : "保存失败");
       setSubmitting(false);

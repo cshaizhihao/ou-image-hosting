@@ -241,7 +241,7 @@ async function readRemoteImage(rawUrl: string, maximumBytes: number) {
       signal: AbortSignal.timeout(10_000),
       headers: {
         accept: "image/avif,image/webp,image/png,image/jpeg,image/gif",
-        "user-agent": "OU-Image-Hosting/1.4.0"
+        "user-agent": "OU-Image-Hosting/1.4.1"
       }
     });
   } catch {

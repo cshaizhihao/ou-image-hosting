@@ -42,7 +42,7 @@ export default function LoginPage() {
         })
       });
       window.location.replace(
-        response.user.onboardingCompleted ? "/" : "/onboarding"
+        response.user.onboardingCompleted ? "/overview" : "/onboarding"
       );
     } catch (requestError) {
       setError(

@@ -12,11 +12,8 @@ setup("安装、首次引导与重新登录", async ({ page }) => {
   );
   expect(fontResponse.status()).toBe(200);
 
-  const anonymousRoot = await page.request.get("/", { maxRedirects: 0 });
-  expect(anonymousRoot.status()).toBe(307);
-  const redirectUrl = new URL(anonymousRoot.headers().location);
-  expect(redirectUrl.origin).toBe(new URL(anonymousRoot.url()).origin);
-  expect(redirectUrl.pathname).toBe("/login");
+  const anonymousRoot = await page.request.get("/");
+  expect(anonymousRoot.status()).toBe(200);
 
   await page.goto("/install");
   await expect(
@@ -42,7 +39,7 @@ setup("安装、首次引导与重新登录", async ({ page }) => {
   await page.getByRole("button", { name: "进入工作区" }).click();
 
   await expect(
-    page.getByRole("heading", { name: "把图片放进来，剩下的交给队列。" })
+    page.getByRole("heading", { name: "概览" })
   ).toBeVisible();
   await page.getByRole("button", { name: "打开用户菜单" }).click();
   await page.getByText("退出登录", { exact: true }).click();
@@ -54,7 +51,7 @@ setup("安装、首次引导与重新登录", async ({ page }) => {
   await page.locator('input[name="password"]').fill(ownerPassword);
   await page.getByRole("button", { name: "登录" }).click();
   await expect(
-    page.getByRole("heading", { name: "把图片放进来，剩下的交给队列。" })
+    page.getByRole("heading", { name: "概览" })
   ).toBeVisible();
 
   await mkdir(path.dirname(authFile), { recursive: true });

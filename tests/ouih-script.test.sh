@@ -160,6 +160,13 @@ chmod +x "$MOCK_BIN/git"
 exit 0
 EOF
 chmod +x "$MOCK_BIN/apt-get"
+cat > "$MOCK_BIN/sudo" <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+printf 'sudo %s\n' "$*" >> "$MOCK_LOG"
+exec "$@"
+EOF
+chmod +x "$MOCK_BIN/sudo"
 env_before="$(cat "$install_one/.env.production")"
 PATH="$MOCK_BIN:$SHIM_BIN" HIDDEN_MOCK_BIN="$hidden_mock_bin" \
   MOCK_GIT_OVERWRITE_ENV=1 OUIH_INSTALL_DIR="$install_one" \
@@ -170,6 +177,7 @@ assert_log_contains "apt-get update"
 assert_log_contains "apt-get install -y git curl openssl coreutils ca-certificates"
 assert_log_contains "git -C $install_one fetch --depth 1 origin main"
 rm -f "$MOCK_BIN/apt-get"
+rm -f "$MOCK_BIN/sudo"
 rm -f "$MOCK_BIN/git"
 mv "$hidden_mock_bin/git" "$MOCK_BIN/git"
 

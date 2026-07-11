@@ -2,6 +2,18 @@
 
 本项目遵循 Semantic Versioning。
 
+## [1.4.1] - 2026-07-11
+
+### Fixed
+
+- 修复创建管理员并完成首次引导后跳回公共上传主页的问题，现在会进入后台概览页。
+- 修复登录成功后已完成引导用户被送到公共首页的问题，现在会进入 `/overview`。
+- 修复 GitHub Actions 中 `ouih` 自动补装 Git 测试在非 root 环境失败的问题。
+
+### Tests
+
+- 全量 `pnpm check` 通过：lint、typecheck、Vitest、安装脚本测试、`ouih` 测试与生产构建全部通过。
+
 ## [1.4.0] - 2026-07-11
 
 ### Added
