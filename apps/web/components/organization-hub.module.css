@@ -340,9 +340,48 @@
 }
 
 .collectionHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   min-height: 58px;
   padding: 11px 14px;
   border-bottom: 1px solid var(--border-default);
+}
+
+.collectionActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.collectionActions > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.collectionActions > button > span {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border: 1px solid var(--border-default);
+  border-radius: 5px;
+  background: var(--surface-raised);
+}
+
+.collectionActions > strong {
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-weight: 650;
 }
 
 .simplePanel {
@@ -437,6 +476,12 @@
   top: 7px;
   right: 7px;
   color: var(--action-primary-hover);
+}
+
+.coverActive {
+  border-color: color-mix(in srgb, var(--action-primary) 65%, var(--border-strong));
+  background: var(--action-primary);
+  color: var(--text-on-accent);
 }
 
 .trashToolbar {
@@ -632,6 +677,16 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
     padding: 8px;
+  }
+
+  .collectionHead {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .collectionActions {
+    justify-content: flex-start;
+    width: 100%;
   }
 
   .trashToolbar {

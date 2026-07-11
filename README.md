@@ -16,7 +16,7 @@
   <a href="https://github.com/cshaizhihao/ou-image-hosting/releases">
     <img src="https://img.shields.io/github/v/release/cshaizhihao/ou-image-hosting?style=flat-square&color=ef8f8f" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-v1.6.0-ef8f8f?style=flat-square" alt="Current version v1.6.0" />
+  <img src="https://img.shields.io/badge/version-v1.7.0-ef8f8f?style=flat-square" alt="Current version v1.7.0" />
   <a href="https://github.com/cshaizhihao/ou-image-hosting/actions/workflows/check.yml">
     <img src="https://img.shields.io/github/actions/workflow/status/cshaizhihao/ou-image-hosting/check.yml?branch=main&style=flat-square&label=check" alt="Check" />
   </a>
@@ -65,11 +65,11 @@ OU-Image Hosting 不只是一个生成图片外链的上传框。
   <tr>
     <td width="50%">
       <strong>⌘ 图片真正可管理</strong><br />
-      网格与列表、搜索、格式筛选、相册卡片、标签、收藏、回收站、批量操作和滚动位置恢复都围绕高频整理场景设计。
+      网格与列表、搜索、格式筛选、相册卡片、标签、收藏、回收站、批量加入/移出相册和滚动位置恢复都围绕高频整理场景设计。
     </td>
     <td width="50%">
       <strong>↗ 分享保持可控</strong><br />
-      提供 URL、Markdown、HTML、BBCode、二维码、访问统计、密码、有效期、公开图库预览浮窗，以及批量公开/隐藏自己的图片。
+      提供 URL、Markdown、HTML、BBCode、二维码、访问统计、密码、有效期、公开图库预览浮窗，以及批量公开/隐藏和相册归档管理。
     </td>
   </tr>
   <tr>

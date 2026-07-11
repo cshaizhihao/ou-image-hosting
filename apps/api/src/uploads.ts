@@ -83,7 +83,11 @@ type PublicUploadQuery = {
 };
 type BulkBody = {
   ids: string[];
-  action: "trash" | "add-to-albums" | "set-public-visibility";
+  action:
+    | "trash"
+    | "add-to-albums"
+    | "remove-from-albums"
+    | "set-public-visibility";
   albumIds?: string[];
   publicVisible?: boolean;
 };
@@ -242,7 +246,7 @@ async function readRemoteImage(rawUrl: string, maximumBytes: number) {
       signal: AbortSignal.timeout(10_000),
       headers: {
         accept: "image/avif,image/webp,image/png,image/jpeg,image/gif",
-        "user-agent": "OU-Image-Hosting/1.6.0"
+        "user-agent": "OU-Image-Hosting/1.7.0"
       }
     });
   } catch {
@@ -611,7 +615,12 @@ export async function registerUploadRoutes(
             },
             action: {
               type: "string",
-              enum: ["trash", "add-to-albums", "set-public-visibility"]
+              enum: [
+                "trash",
+                "add-to-albums",
+                "remove-from-albums",
+                "set-public-visibility"
+              ]
             },
             albumIds: {
               type: "array",
@@ -651,7 +660,10 @@ export async function registerUploadRoutes(
           );
         }
         const nextPublicVisible = request.body.publicVisible === true;
-        if (request.body.action === "add-to-albums") {
+        if (
+          request.body.action === "add-to-albums" ||
+          request.body.action === "remove-from-albums"
+        ) {
           if (albumIds.size === 0) {
             throw new PublicError(
               400,
@@ -690,10 +702,28 @@ export async function registerUploadRoutes(
               count += 1;
             } else {
               const nextAlbumIds = new Set(image.albumIds);
-              const before = nextAlbumIds.size;
-              albumIds.forEach((albumId) => nextAlbumIds.add(albumId));
-              if (nextAlbumIds.size !== before) {
-                image.albumIds = [...nextAlbumIds];
+              const before = image.albumIds.join("\u0000");
+              if (request.body.action === "add-to-albums") {
+                albumIds.forEach((albumId) => nextAlbumIds.add(albumId));
+              } else {
+                albumIds.forEach((albumId) => nextAlbumIds.delete(albumId));
+                albumIds.forEach((albumId) => {
+                  if (nextAlbumIds.has(albumId)) return;
+                  const album = state.albums.find(
+                    (item) =>
+                      item.id === albumId &&
+                      item.workspaceId === principal.workspaceId &&
+                      item.coverImageId === image.id
+                  );
+                  if (album) {
+                    delete album.coverImageId;
+                    album.updatedAt = timestamp;
+                  }
+                });
+              }
+              const next = [...nextAlbumIds];
+              if (next.join("\u0000") !== before) {
+                image.albumIds = next;
                 image.updatedAt = timestamp;
               }
               count += 1;
@@ -705,7 +735,8 @@ export async function registerUploadRoutes(
       return {
         updated,
         albumIds:
-          request.body.action === "add-to-albums"
+          request.body.action === "add-to-albums" ||
+          request.body.action === "remove-from-albums"
             ? [...albumIds]
             : undefined,
         publicVisible:

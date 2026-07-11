@@ -408,6 +408,49 @@ export function OrganizationHub({
     }
   };
 
+  const removeSelectedFromAlbum = async () => {
+    if (!selectedAlbum || selectedImages.size === 0) return;
+    setBusy("remove-from-album");
+    try {
+      const payload = await apiRequest<{ updated: number }>("/uploads/bulk", {
+        method: "POST",
+        body: JSON.stringify({
+          ids: Array.from(selectedImages),
+          action: "remove-from-albums",
+          albumIds: [selectedAlbum.id]
+        })
+      });
+      const affected = payload.updated ?? selectedImages.size;
+      setImages((current) =>
+        current.filter((image) => !selectedImages.has(image.id))
+      );
+      setAlbums((current) =>
+        current.map((album) =>
+          album.id === selectedAlbum.id
+            ? {
+                ...album,
+                imageCount: Math.max(0, album.imageCount - affected),
+                coverImageId:
+                  album.coverImageId && selectedImages.has(album.coverImageId)
+                    ? undefined
+                    : album.coverImageId,
+                coverThumbnailUrl:
+                  album.coverImageId && selectedImages.has(album.coverImageId)
+                    ? undefined
+                    : album.coverThumbnailUrl
+              }
+            : album
+        )
+      );
+      setSelectedImages(new Set());
+      setNotice(`已从相册移出 ${affected} 张图片，图片仍保留在图片库。`);
+    } catch (requestError) {
+      setNotice(requestMessage(requestError, "移出相册失败"));
+    } finally {
+      setBusy("");
+    }
+  };
+
   const toggleSelected = (imageId: string) => {
     setSelectedImages((current) => {
       const next = new Set(current);
@@ -655,10 +698,15 @@ export function OrganizationHub({
                     )}
                   </div>
                   <ImageCollection
+                    allSelected={allSelected}
                     busy={busy}
                     images={images}
                     mode={mode}
+                    onRemoveFromAlbum={removeSelectedFromAlbum}
                     onSetCover={setCover}
+                    onToggleAll={toggleAll}
+                    onToggleImage={toggleSelected}
+                    selectedImages={selectedImages}
                     selectedAlbum={selectedAlbum}
                   />
                 </>
@@ -793,29 +841,91 @@ export function OrganizationHub({
 }
 
 function ImageCollection({
+  allSelected,
   busy,
   images,
   mode,
+  onRemoveFromAlbum,
   onSetCover,
+  onToggleAll,
+  onToggleImage,
+  selectedImages,
   selectedAlbum
 }: {
+  allSelected: boolean;
   busy: string;
   images: OrganizedImage[];
   mode: "albums" | "tags";
+  onRemoveFromAlbum: () => Promise<void>;
   onSetCover: (imageId: string) => Promise<void>;
+  onToggleAll: () => void;
+  onToggleImage: (imageId: string) => void;
+  selectedImages: Set<string>;
   selectedAlbum?: Album;
 }) {
   if (images.length === 0) {
-    return <EmptyState copy="这个分类中还没有图片，可在图片详情页添加。" icon={ImageIcon} />;
+    return (
+      <EmptyState
+        copy={
+          mode === "albums"
+            ? "这个相册中还没有图片，可在图片库多选后加入。"
+            : "这个分类中还没有图片，可在图片详情页添加。"
+        }
+        icon={ImageIcon}
+      />
+    );
   }
   return (
     <div className={styles.collection}>
       <div className={styles.collectionHead}>
         <div><FileImage size={17} /><span><strong>分类图片</strong><small>{images.length} 张</small></span></div>
+        {mode === "albums" && (
+          <div className={styles.collectionActions}>
+            <button
+              aria-pressed={allSelected}
+              onClick={onToggleAll}
+              type="button"
+            >
+              <span>{allSelected && <Check size={13} />}</span>
+              {allSelected ? "取消全选" : "全选"}
+            </button>
+            <strong>
+              {selectedImages.size > 0
+                ? `已选择 ${selectedImages.size} 张`
+                : "可多选移出当前相册"}
+            </strong>
+            <Button
+              disabled={selectedImages.size === 0 || busy === "remove-from-album"}
+              onClick={() => void onRemoveFromAlbum()}
+              size="compact"
+              variant="secondary"
+            >
+              {busy === "remove-from-album" ? (
+                <LoaderCircle className={styles.spin} size={15} />
+              ) : (
+                <X size={15} />
+              )}
+              移出相册
+            </Button>
+          </div>
+        )}
       </div>
       <div className={styles.imageGrid}>
         {images.map((image) => (
-          <article key={image.id}>
+          <article
+            className={selectedImages.has(image.id) ? styles.imageSelected : undefined}
+            key={image.id}
+          >
+            {mode === "albums" && (
+              <button
+                aria-label={`${selectedImages.has(image.id) ? "取消选择" : "选择"} ${image.name}`}
+                className={styles.check}
+                onClick={() => onToggleImage(image.id)}
+                type="button"
+              >
+                {selectedImages.has(image.id) && <Check size={14} />}
+              </button>
+            )}
             <Link href={`/library/${image.id}`}>
               <img alt={image.name} src={image.thumbnailUrl} />
             </Link>
@@ -826,7 +936,10 @@ function ImageCollection({
             {mode === "albums" && (
               <button
                 aria-label={`设为封面 ${image.name}`}
-                className={styles.coverButton}
+                className={cn(
+                  styles.coverButton,
+                  selectedAlbum?.coverImageId === image.id && styles.coverActive
+                )}
                 disabled={busy === `cover-${image.id}`}
                 onClick={() => void onSetCover(image.id)}
                 type="button"

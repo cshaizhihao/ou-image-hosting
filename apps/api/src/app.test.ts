@@ -141,11 +141,11 @@ describe("OU-Image API", () => {
     expect(health.statusCode).toBe(200);
     expect(health.json()).toMatchObject({
       status: "ok",
-      version: "1.6.0"
+      version: "1.7.0"
     });
     expect(live.json()).toMatchObject({
       status: "ok",
-      version: "1.6.0"
+      version: "1.7.0"
     });
     expect(ready.statusCode).toBe(200);
     expect(ready.json()).toMatchObject({
@@ -1269,6 +1269,48 @@ describe("OU-Image API", () => {
     expect(albumImages.json().total).toBe(1);
     expect(tagImages.json().total).toBe(1);
 
+    const removedFromAlbum = await app.inject({
+      method: "POST",
+      url: "/uploads/bulk",
+      cookies: ownerCookies,
+      payload: {
+        ids: [imageId],
+        action: "remove-from-albums",
+        albumIds: [albumId]
+      }
+    });
+    expect(removedFromAlbum.json()).toEqual({
+      updated: 1,
+      albumIds: [albumId]
+    });
+    const emptyAlbumImages = await app.inject({
+      method: "GET",
+      url: `/albums/${albumId}/images`,
+      cookies: ownerCookies
+    });
+    expect(emptyAlbumImages.json().total).toBe(0);
+    const albumsAfterRemove = await app.inject({
+      method: "GET",
+      url: "/albums",
+      cookies: ownerCookies
+    });
+    expect(albumsAfterRemove.json().albums[0].coverImageId).toBeUndefined();
+
+    const addedBackToAlbum = await app.inject({
+      method: "POST",
+      url: "/uploads/bulk",
+      cookies: ownerCookies,
+      payload: {
+        ids: [imageId],
+        action: "add-to-albums",
+        albumIds: [albumId]
+      }
+    });
+    expect(addedBackToAlbum.json()).toEqual({
+      updated: 1,
+      albumIds: [albumId]
+    });
+
     const albums = await app.inject({
       method: "GET",
       url: "/albums",
@@ -1281,9 +1323,9 @@ describe("OU-Image API", () => {
     });
     expect(albums.json().albums[0]).toMatchObject({
       id: albumId,
-      imageCount: 1,
-      coverImageId: imageId
+      imageCount: 1
     });
+    expect(albums.json().albums[0].coverImageId).toBeUndefined();
     expect(tags.json().tags).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
