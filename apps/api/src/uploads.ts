@@ -17,9 +17,12 @@ import {
   canonicalFilePath
 } from "./delivery.js";
 import {
+  addAuditEvent,
+  hashRequestIp,
   requireCapability,
   type Principal
 } from "./access.js";
+import { backofficeAccessFor } from "./site-access.js";
 import { PublicError } from "./errors.js";
 import { registerImageDetailRoutes } from "./image-details.js";
 import { registerOrganizationRoutes } from "./organization.js";
@@ -81,6 +84,10 @@ type UploadQuery = {
 type PublicUploadQuery = {
   publicVisible?: "true" | "false" | "1" | "0";
 };
+type PublicImagesQuery = {
+  sort?: "latest" | "hot" | "random";
+  format?: "all" | StoredImage["format"];
+};
 type BulkBody = {
   ids: string[];
   action:
@@ -133,18 +140,41 @@ function publicImageCard(
   state: AppState,
   timestamp: Date
 ) {
+  const shareViews = state.analyticsDaily.reduce(
+    (total, item) =>
+      item.workspaceId === image.workspaceId
+        ? total + (item.imageShareViews[image.id] ?? 0)
+        : total,
+    0
+  );
+  const uploader = state.users.find((user) => user.id === image.userId);
   return {
     id: image.id,
-    name: image.name,
+    name: state.site?.publicGalleryShowFileName ? image.name : undefined,
     size: image.size,
     mime: image.mime,
     format: image.format,
     width: image.width,
     height: image.height,
+    shareViews,
+    uploaderName: state.site?.publicGalleryShowUploader
+      ? uploader?.displayName ?? "OU 用户"
+      : undefined,
     thumbnailUrl: buildDeliveryUrl(state, image.id, "thumbnail", timestamp),
     originalUrl: buildDeliveryUrl(state, image.id, "original", timestamp),
-    createdAt: image.createdAt
+    createdAt: state.site?.publicGalleryShowUploadTime
+      ? image.createdAt
+      : undefined
   };
+}
+
+function seededRandom(value: string) {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) / 4294967295;
 }
 
 function publicUploadPrincipal(state: AppState): Principal {
@@ -833,6 +863,9 @@ export async function registerUploadRoutes(
         publicUploadEnabled: site.publicUploadEnabled,
         publicUploadRequiresLogin: site.publicUploadRequiresLogin,
         publicGalleryEnabled: site.publicGalleryEnabled,
+        publicGalleryShowUploader: site.publicGalleryShowUploader,
+        publicGalleryShowFileName: site.publicGalleryShowFileName,
+        publicGalleryShowUploadTime: site.publicGalleryShowUploadTime,
         publicUploadDefaultPublic: site.publicUploadDefaultPublic,
         publicHeroTitle: site.publicHeroTitle,
         publicHeroDescription: site.publicHeroDescription
@@ -840,19 +873,122 @@ export async function registerUploadRoutes(
     };
   });
 
-  app.get("/public/images", async () => {
+  app.get<{ Querystring: PublicImagesQuery }>(
+    "/public/images",
+    {
+      schema: {
+        querystring: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            sort: { type: "string", enum: ["latest", "hot", "random"] },
+            format: {
+              type: "string",
+              enum: ["all", "jpeg", "png", "webp", "gif", "avif"]
+            }
+          }
+        }
+      }
+    },
+    async (request) => {
     const state = store.snapshot();
     if (!state.site?.publicGalleryEnabled) {
       return { images: [] };
     }
+    const sort = request.query.sort ?? "latest";
+    const format = request.query.format ?? "all";
     return {
       images: state.images
         .filter((image) => image.publicVisible && !image.deletedAt)
-        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+        .filter((image) => format === "all" || image.format === format)
+        .map((image) => ({
+          image,
+          shareViews: state.analyticsDaily.reduce(
+            (total, item) =>
+              item.workspaceId === image.workspaceId
+                ? total + (item.imageShareViews[image.id] ?? 0)
+                : total,
+            0
+          )
+        }))
+        .sort((a, b) => {
+          if (sort === "hot") {
+            return (
+              b.shareViews - a.shareViews ||
+              b.image.createdAt.localeCompare(a.image.createdAt)
+            );
+          }
+          if (sort === "random") {
+            return seededRandom(`${b.image.id}:${now().toISOString().slice(0, 10)}`) -
+              seededRandom(`${a.image.id}:${now().toISOString().slice(0, 10)}`);
+          }
+          return b.image.createdAt.localeCompare(a.image.createdAt);
+        })
         .slice(0, 60)
-        .map((image) => publicImageCard(image, state, now()))
+        .map(({ image }) => publicImageCard(image, state, now())),
+      preferences: {
+        showUploader: state.site.publicGalleryShowUploader,
+        showFileName: state.site.publicGalleryShowFileName,
+        showUploadTime: state.site.publicGalleryShowUploadTime
+      }
     };
   });
+
+  app.post<{ Params: { id: string } }>(
+    "/public/images/:id/hide",
+    {
+      schema: {
+        params: {
+          type: "object",
+          additionalProperties: false,
+          required: ["id"],
+          properties: {
+            id: { type: "string", minLength: 1, maxLength: 100 }
+          }
+        }
+      }
+    },
+    async (request) => {
+      const principal = authenticate(request);
+      const access = backofficeAccessFor(
+        store.snapshot(),
+        principal.user.id
+      );
+      if (principal.kind !== "session" || !access.allowed) {
+        throw new PublicError(
+          403,
+          "PUBLIC_GALLERY_MODERATOR_REQUIRED",
+          "只有管理员可以隐藏公共图片"
+        );
+      }
+      const timestamp = now().toISOString();
+      await store.update((state) => {
+        const image = state.images.find(
+          (item) => item.id === request.params.id && !item.deletedAt
+        );
+        if (!image || !image.publicVisible) {
+          throw new PublicError(
+            404,
+            "PUBLIC_IMAGE_NOT_FOUND",
+            "公共图片不存在"
+          );
+        }
+        image.publicVisible = false;
+        image.updatedAt = timestamp;
+        addAuditEvent(state, {
+          principal,
+          global: true,
+          action: "public_gallery.image.hide",
+          result: "success",
+          resourceType: "image",
+          resourceId: image.id,
+          ipHash: hashRequestIp(request),
+          createdAt: timestamp
+        });
+      });
+      return { hidden: true };
+    }
+  );
 
   app.post<{ Querystring: PublicUploadQuery }>(
     "/public/uploads",

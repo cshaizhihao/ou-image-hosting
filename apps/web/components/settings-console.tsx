@@ -1217,6 +1217,105 @@ export function SettingsConsole() {
                     </div>
                     <div className={styles.preferenceRow}>
                       <div>
+                        <strong>展示上传者</strong>
+                        <span>公共图库卡片和预览浮窗中显示上传用户名称。</span>
+                      </div>
+                      <button
+                        aria-label={
+                          siteSettings.publicGalleryShowUploader
+                            ? "关闭展示上传者"
+                            : "开启展示上传者"
+                        }
+                        aria-pressed={siteSettings.publicGalleryShowUploader}
+                        className={cn(
+                          styles.preferenceSwitch,
+                          siteSettings.publicGalleryShowUploader &&
+                            styles.preferenceSwitchActive
+                        )}
+                        onClick={() =>
+                          setSiteSettings((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  publicGalleryShowUploader:
+                                    !current.publicGalleryShowUploader
+                                }
+                              : current
+                          )
+                        }
+                        type="button"
+                      >
+                        <span />
+                      </button>
+                    </div>
+                    <div className={styles.preferenceRow}>
+                      <div>
+                        <strong>展示文件名</strong>
+                        <span>关闭后，公共图库只展示图片，不暴露原始文件名。</span>
+                      </div>
+                      <button
+                        aria-label={
+                          siteSettings.publicGalleryShowFileName
+                            ? "关闭展示文件名"
+                            : "开启展示文件名"
+                        }
+                        aria-pressed={siteSettings.publicGalleryShowFileName}
+                        className={cn(
+                          styles.preferenceSwitch,
+                          siteSettings.publicGalleryShowFileName &&
+                            styles.preferenceSwitchActive
+                        )}
+                        onClick={() =>
+                          setSiteSettings((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  publicGalleryShowFileName:
+                                    !current.publicGalleryShowFileName
+                                }
+                              : current
+                          )
+                        }
+                        type="button"
+                      >
+                        <span />
+                      </button>
+                    </div>
+                    <div className={styles.preferenceRow}>
+                      <div>
+                        <strong>展示上传时间</strong>
+                        <span>公共图库可显示上传日期，方便访客理解图片新旧。</span>
+                      </div>
+                      <button
+                        aria-label={
+                          siteSettings.publicGalleryShowUploadTime
+                            ? "关闭展示上传时间"
+                            : "开启展示上传时间"
+                        }
+                        aria-pressed={siteSettings.publicGalleryShowUploadTime}
+                        className={cn(
+                          styles.preferenceSwitch,
+                          siteSettings.publicGalleryShowUploadTime &&
+                            styles.preferenceSwitchActive
+                        )}
+                        onClick={() =>
+                          setSiteSettings((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  publicGalleryShowUploadTime:
+                                    !current.publicGalleryShowUploadTime
+                                }
+                              : current
+                          )
+                        }
+                        type="button"
+                      >
+                        <span />
+                      </button>
+                    </div>
+                    <div className={styles.preferenceRow}>
+                      <div>
                         <strong>默认公开展示</strong>
                         <span>访客上传时默认勾选“公开展示”，仍可手动取消。</span>
                       </div>

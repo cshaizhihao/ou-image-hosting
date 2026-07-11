@@ -4924,11 +4924,26 @@ kbd {
   margin-bottom: 18px;
 }
 
+.public-gallery__head--toolbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+}
+
 .public-gallery__head h2 {
   margin: 4px 0 0;
   font-size: 30px;
-  letter-spacing: -0.04em;
+  letter-spacing: 0;
 }
+
+.public-gallery__head p { margin: 6px 0 0; color: var(--text-secondary); font-size: 14px; }
+.public-gallery__filters { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 9px; }
+.public-gallery__segments { display: flex; padding: 3px; border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--surface-panel); }
+.public-gallery__segments button { display: flex; min-height: 36px; align-items: center; gap: 6px; padding: 0 11px; border: 0; border-radius: 9px; background: transparent; color: var(--text-secondary); cursor: pointer; font: inherit; font-size: 13px; }
+.public-gallery__segments button[aria-pressed="true"] { background: color-mix(in srgb, var(--action-primary) 13%, var(--surface-muted)); color: var(--text-primary); font-weight: 750; }
+.public-gallery__filters label { display: flex; min-height: 44px; align-items: center; gap: 6px; padding: 0 10px; border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--surface-panel); color: var(--text-tertiary); }
+.public-gallery__filters select { border: 0; outline: 0; background: transparent; color: var(--text-primary); font: inherit; font-size: 13px; }
 
 .public-gallery__grid {
   columns: 4 180px;
@@ -4968,14 +4983,30 @@ kbd {
   object-fit: cover;
 }
 
-.public-gallery__grid span {
+.public-gallery__grid button > span {
+  display: grid;
+  gap: 3px;
   overflow: hidden;
   padding: 10px 12px;
   color: var(--text-secondary);
   font-size: 13px;
+}
+
+.public-gallery__grid button > span strong,
+.public-gallery__grid button > span small {
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.public-gallery__grid button > span strong { color: var(--text-primary); font-size: 13px; }
+.public-gallery__grid button > span small { color: var(--text-tertiary); font-size: 11px; }
+.public-gallery__skeleton { display: inline-block; width: 100%; min-height: 210px; break-inside: avoid; margin-bottom: 14px; border-radius: 16px; background: linear-gradient(100deg, var(--surface-muted) 25%, var(--surface-hover) 45%, var(--surface-muted) 65%); background-size: 220% 100%; animation: public-gallery-shimmer 1.4s ease-in-out infinite; }
+.public-gallery__skeleton:nth-child(3n) { min-height: 270px; }
+.public-gallery__empty { display: grid; min-height: 260px; place-content: center; justify-items: center; gap: 8px; border: 1px dashed var(--border-default); border-radius: var(--radius-lg); color: var(--text-tertiary); text-align: center; }
+.public-gallery__empty strong { color: var(--text-primary); font-size: 16px; }
+.public-gallery__empty span { font-size: 13px; }
+@keyframes public-gallery-shimmer { to { background-position: -220% 0; } }
 
 .public-gallery-preview {
   position: fixed;
@@ -5052,6 +5083,10 @@ kbd {
   color: var(--text-secondary);
   font-size: 13px;
 }
+
+.public-gallery-preview figcaption > div:first-child { display: grid; min-width: 0; gap: 3px; }
+.public-gallery-preview figcaption small { color: var(--text-tertiary); font-size: 12px; }
+.public-gallery-preview__tools { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
 
 .public-gallery-preview__close,
 .public-gallery-preview__nav {
@@ -5197,6 +5232,9 @@ kbd {
     padding: 0;
   }
 
+  .public-gallery__head--toolbar { align-items: stretch; flex-direction: column; }
+  .public-gallery__filters { justify-content: flex-start; }
+
   .public-gallery-preview__panel {
     width: 100%;
     height: 100dvh;
@@ -5218,9 +5256,11 @@ kbd {
   .public-gallery-preview figcaption {
     align-items: flex-start;
     flex-direction: column;
-    gap: 4px;
+    gap: 10px;
     padding: 14px 72px 18px 16px;
   }
+
+  .public-gallery-preview__tools { justify-content: flex-start; }
 
   .public-gallery-preview__nav {
     width: 44px;

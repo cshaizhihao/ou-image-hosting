@@ -3241,6 +3241,124 @@ describe("OU-Image API", () => {
     expect(loggedInPublicUpload.statusCode).toBeLessThan(300);
   });
 
+  it("filters public gallery metadata and lets only moderators hide public images", async () => {
+    const store = new AppStore(null);
+    const app = await createTestApp({ store });
+    const setup = await app.inject({
+      method: "POST",
+      url: "/setup",
+      payload: { ...owner, registrationEnabled: true }
+    });
+    const ownerCookie = setup.cookies.find(
+      (item) => item.name === "ou_session"
+    )!.value;
+    const member = await app.inject({
+      method: "POST",
+      url: "/auth/register",
+      payload: {
+        displayName: "图库用户",
+        email: "gallery-member@example.com",
+        password: "Gallery-Member-2026!"
+      }
+    });
+    const memberCookie = member.cookies.find(
+      (item) => item.name === "ou_session"
+    )!.value;
+    const png = await sharp({
+      create: {
+        width: 18,
+        height: 12,
+        channels: 3,
+        background: "#cc7788"
+      }
+    }).png().toBuffer();
+    const form = new FormData();
+    form.append("file", png, {
+      filename: "public-gallery.png",
+      contentType: "image/png"
+    });
+    const upload = await app.inject({
+      method: "POST",
+      url: "/public/uploads?publicVisible=true",
+      headers: form.getHeaders(),
+      cookies: { ou_session: memberCookie },
+      payload: form.getBuffer()
+    });
+    const imageId = upload.json().image.id as string;
+
+    const pngGallery = await app.inject({
+      method: "GET",
+      url: "/public/images?sort=latest&format=png"
+    });
+    expect(pngGallery.statusCode).toBe(200);
+    expect(pngGallery.json()).toMatchObject({
+      images: [
+        {
+          id: imageId,
+          name: "public-gallery.png",
+          format: "png"
+        }
+      ],
+      preferences: {
+        showUploader: false,
+        showFileName: true,
+        showUploadTime: true
+      }
+    });
+    expect(
+      (
+        await app.inject({
+          method: "GET",
+          url: "/public/images?sort=hot&format=jpeg"
+        })
+      ).json().images
+    ).toHaveLength(0);
+    expect(
+      (
+        await app.inject({
+          method: "GET",
+          url: "/public/images?sort=random&format=all"
+        })
+      ).statusCode
+    ).toBe(200);
+
+    const privateMetadata = await app.inject({
+      method: "PATCH",
+      url: "/site/settings",
+      cookies: { ou_session: ownerCookie },
+      payload: {
+        publicGalleryShowFileName: false,
+        publicGalleryShowUploader: false,
+        publicGalleryShowUploadTime: false
+      }
+    });
+    expect(privateMetadata.statusCode).toBe(200);
+    const redacted = await app.inject({
+      method: "GET",
+      url: "/public/images"
+    });
+    expect(redacted.json().images[0]).not.toHaveProperty("name");
+    expect(redacted.json().images[0]).not.toHaveProperty("uploaderName");
+    expect(redacted.json().images[0]).not.toHaveProperty("createdAt");
+
+    const memberDenied = await app.inject({
+      method: "POST",
+      url: `/public/images/${imageId}/hide`,
+      cookies: { ou_session: memberCookie }
+    });
+    expect(memberDenied.statusCode).toBe(403);
+    const hidden = await app.inject({
+      method: "POST",
+      url: `/public/images/${imageId}/hide`,
+      cookies: { ou_session: ownerCookie }
+    });
+    expect(hidden.statusCode).toBe(200);
+    expect(
+      (await app.inject({ method: "GET", url: "/public/images" })).json()
+        .images
+    ).toHaveLength(0);
+  });
+
   it("returns workspace-isolated analytics from real uploads and daily share aggregates", async () => {
     const timestamp = new Date("2026-07-11T12:00:00.000Z");
     const store = new AppStore(null);

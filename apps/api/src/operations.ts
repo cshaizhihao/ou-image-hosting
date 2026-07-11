@@ -120,6 +120,9 @@ function publicSiteSettings(site: AppState["site"]) {
     publicUploadEnabled: site.publicUploadEnabled,
     publicUploadRequiresLogin: site.publicUploadRequiresLogin,
     publicGalleryEnabled: site.publicGalleryEnabled,
+    publicGalleryShowUploader: site.publicGalleryShowUploader,
+    publicGalleryShowFileName: site.publicGalleryShowFileName,
+    publicGalleryShowUploadTime: site.publicGalleryShowUploadTime,
     publicUploadDefaultPublic: site.publicUploadDefaultPublic,
     publicHeroTitle: site.publicHeroTitle,
     publicHeroDescription: site.publicHeroDescription,
@@ -931,6 +934,9 @@ export function registerOperationsRoutes(
       publicUploadEnabled?: boolean;
       publicUploadRequiresLogin?: boolean;
       publicGalleryEnabled?: boolean;
+      publicGalleryShowUploader?: boolean;
+      publicGalleryShowFileName?: boolean;
+      publicGalleryShowUploadTime?: boolean;
       publicUploadDefaultPublic?: boolean;
       publicHeroTitle?: string;
       publicHeroDescription?: string;
@@ -954,6 +960,9 @@ export function registerOperationsRoutes(
             publicUploadEnabled: { type: "boolean" },
             publicUploadRequiresLogin: { type: "boolean" },
             publicGalleryEnabled: { type: "boolean" },
+            publicGalleryShowUploader: { type: "boolean" },
+            publicGalleryShowFileName: { type: "boolean" },
+            publicGalleryShowUploadTime: { type: "boolean" },
             publicUploadDefaultPublic: { type: "boolean" },
             publicHeroTitle: { type: "string", minLength: 1, maxLength: 80 },
             publicHeroDescription: { type: "string", minLength: 1, maxLength: 260 },
@@ -990,6 +999,18 @@ export function registerOperationsRoutes(
         }
         if (request.body.publicGalleryEnabled !== undefined) {
           site.publicGalleryEnabled = request.body.publicGalleryEnabled;
+        }
+        if (request.body.publicGalleryShowUploader !== undefined) {
+          site.publicGalleryShowUploader =
+            request.body.publicGalleryShowUploader;
+        }
+        if (request.body.publicGalleryShowFileName !== undefined) {
+          site.publicGalleryShowFileName =
+            request.body.publicGalleryShowFileName;
+        }
+        if (request.body.publicGalleryShowUploadTime !== undefined) {
+          site.publicGalleryShowUploadTime =
+            request.body.publicGalleryShowUploadTime;
         }
         if (request.body.publicUploadDefaultPublic !== undefined) {
           site.publicUploadDefaultPublic =

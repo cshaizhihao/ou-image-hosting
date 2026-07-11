@@ -124,6 +124,9 @@ export type SiteSettingsData = {
   publicUploadEnabled: boolean;
   publicUploadRequiresLogin: boolean;
   publicGalleryEnabled: boolean;
+  publicGalleryShowUploader: boolean;
+  publicGalleryShowFileName: boolean;
+  publicGalleryShowUploadTime: boolean;
   publicUploadDefaultPublic: boolean;
   publicHeroTitle: string;
   publicHeroDescription: string;
@@ -423,6 +426,9 @@ function parseSiteSettings(payload: unknown): SiteSettingsData {
     typeof source.publicUploadEnabled !== "boolean" ||
     typeof source.publicUploadRequiresLogin !== "boolean" ||
     typeof source.publicGalleryEnabled !== "boolean" ||
+    typeof source.publicGalleryShowUploader !== "boolean" ||
+    typeof source.publicGalleryShowFileName !== "boolean" ||
+    typeof source.publicGalleryShowUploadTime !== "boolean" ||
     typeof source.publicUploadDefaultPublic !== "boolean" ||
     typeof source.publicHeroTitle !== "string" ||
     typeof source.publicHeroDescription !== "string" ||
@@ -440,6 +446,9 @@ function parseSiteSettings(payload: unknown): SiteSettingsData {
     publicUploadEnabled: source.publicUploadEnabled,
     publicUploadRequiresLogin: source.publicUploadRequiresLogin,
     publicGalleryEnabled: source.publicGalleryEnabled,
+    publicGalleryShowUploader: source.publicGalleryShowUploader,
+    publicGalleryShowFileName: source.publicGalleryShowFileName,
+    publicGalleryShowUploadTime: source.publicGalleryShowUploadTime,
     publicUploadDefaultPublic: source.publicUploadDefaultPublic,
     publicHeroTitle: source.publicHeroTitle,
     publicHeroDescription: source.publicHeroDescription,

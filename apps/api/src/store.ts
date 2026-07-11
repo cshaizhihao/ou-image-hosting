@@ -37,6 +37,9 @@ export type SiteConfig = {
   publicUploadEnabled: boolean;
   publicUploadRequiresLogin: boolean;
   publicGalleryEnabled: boolean;
+  publicGalleryShowUploader: boolean;
+  publicGalleryShowFileName: boolean;
+  publicGalleryShowUploadTime: boolean;
   publicUploadDefaultPublic: boolean;
   publicHeroTitle: string;
   publicHeroDescription: string;
@@ -59,6 +62,9 @@ export function defaultSiteConfig(
     publicUploadEnabled: true,
     publicUploadRequiresLogin: false,
     publicGalleryEnabled: true,
+    publicGalleryShowUploader: false,
+    publicGalleryShowFileName: true,
+    publicGalleryShowUploadTime: true,
     publicUploadDefaultPublic: true,
     publicHeroTitle: "把图片放进来，剩下的交给队列。",
     publicHeroDescription:
@@ -1241,6 +1247,12 @@ export function migrateAppState(parsed: MigratableAppState): AppState {
             publicUploadRequiresLogin:
               parsed.site.publicUploadRequiresLogin === true,
             publicGalleryEnabled: parsed.site.publicGalleryEnabled !== false,
+            publicGalleryShowUploader:
+              parsed.site.publicGalleryShowUploader === true,
+            publicGalleryShowFileName:
+              parsed.site.publicGalleryShowFileName !== false,
+            publicGalleryShowUploadTime:
+              parsed.site.publicGalleryShowUploadTime !== false,
             publicUploadDefaultPublic:
               parsed.site.publicUploadDefaultPublic !== false,
             publicHeroTitle:

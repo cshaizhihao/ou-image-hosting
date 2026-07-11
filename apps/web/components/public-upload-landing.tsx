@@ -6,7 +6,11 @@ import {
   ArrowRight,
   Check,
   Clipboard,
+  Download,
+  EyeOff,
   ExternalLink,
+  FileType2,
+  Flame,
   ImageIcon,
   Images,
   LayoutDashboard,
@@ -14,6 +18,7 @@ import {
   LogOut,
   Moon,
   ShieldCheck,
+  Shuffle,
   Sparkles,
   Sun,
   UploadCloud,
@@ -42,6 +47,9 @@ type PublicConfig = {
     publicUploadEnabled: boolean;
     publicUploadRequiresLogin: boolean;
     publicGalleryEnabled: boolean;
+    publicGalleryShowUploader: boolean;
+    publicGalleryShowFileName: boolean;
+    publicGalleryShowUploadTime: boolean;
     publicUploadDefaultPublic: boolean;
     publicHeroTitle: string;
     publicHeroDescription: string;
@@ -50,16 +58,20 @@ type PublicConfig = {
 
 type PublicImage = {
   id: string;
-  name: string;
+  name?: string;
   thumbnailUrl: string;
   originalUrl: string;
   width: number;
   height: number;
+  format?: string;
+  shareViews?: number;
+  uploaderName?: string;
   publicVisible?: boolean;
-  createdAt: string;
+  createdAt?: string;
 };
 
-type PersonalImage = PublicImage & {
+type PersonalImage = Omit<PublicImage, "name"> & {
+  name: string;
   size: number;
   mime: string;
   format: string;
@@ -89,6 +101,9 @@ const fallbackConfig: PublicConfig = {
     publicUploadEnabled: true,
     publicUploadRequiresLogin: false,
     publicGalleryEnabled: true,
+    publicGalleryShowUploader: false,
+    publicGalleryShowFileName: true,
+    publicGalleryShowUploadTime: true,
     publicUploadDefaultPublic: true,
     publicHeroTitle: "把图片放进来，剩下的交给队列。",
     publicHeroDescription:
@@ -107,6 +122,12 @@ type SessionStatus = {
     allowed: boolean;
     role: "owner" | "admin" | "member";
   };
+};
+
+type GalleryPreferences = {
+  showUploader: boolean;
+  showFileName: boolean;
+  showUploadTime: boolean;
 };
 
 async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -133,6 +154,15 @@ function publicUrl(path: string) {
   return `${window.location.origin}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
+function publicDate(value?: string) {
+  if (!value) return "";
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "short",
+    day: "numeric"
+  }).format(new Date(value));
+}
+
 export function PublicUploadLanding() {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const wheelLockRef = useRef(false);
@@ -141,6 +171,14 @@ export function PublicUploadLanding() {
   const [config, setConfig] = useState<PublicConfig>(fallbackConfig);
   const [session, setSession] = useState<SessionStatus>({ authenticated: false });
   const [gallery, setGallery] = useState<PublicImage[]>([]);
+  const [galleryPreferences, setGalleryPreferences] = useState<GalleryPreferences>({
+    showUploader: false,
+    showFileName: true,
+    showUploadTime: true
+  });
+  const [gallerySort, setGallerySort] = useState<"latest" | "hot" | "random">("latest");
+  const [galleryFormat, setGalleryFormat] = useState("all");
+  const [galleryLoading, setGalleryLoading] = useState(true);
   const [personalImages, setPersonalImages] = useState<PersonalImage[]>([]);
   const [selectedPersonalIds, setSelectedPersonalIds] = useState<Set<string>>(
     () => new Set()
@@ -158,7 +196,7 @@ export function PublicUploadLanding() {
   const [history, setHistory] = useState<UploadQueueItem[]>([]);
 
   const site = config.site ?? fallbackConfig.site!;
-  const galleryItems = useMemo(() => gallery.slice(0, 12), [gallery]);
+  const galleryItems = useMemo(() => gallery.slice(0, 24), [gallery]);
   const uploadEnabled = Boolean(
     config.setupComplete &&
       site.publicUploadEnabled &&
@@ -206,10 +244,23 @@ export function PublicUploadLanding() {
   }, []);
 
   const refreshPublicGallery = useCallback(async () => {
-    if (!site.publicGalleryEnabled) return;
-    const images = await apiJson<{ images: PublicImage[] }>("/public/images");
-    setGallery(images.images);
-  }, [site.publicGalleryEnabled]);
+    if (!site.publicGalleryEnabled) {
+      setGallery([]);
+      setGalleryLoading(false);
+      return;
+    }
+    setGalleryLoading(true);
+    try {
+      const payload = await apiJson<{
+        images: PublicImage[];
+        preferences?: GalleryPreferences;
+      }>(`/public/images?sort=${gallerySort}&format=${galleryFormat}`);
+      setGallery(payload.images);
+      if (payload.preferences) setGalleryPreferences(payload.preferences);
+    } finally {
+      setGalleryLoading(false);
+    }
+  }, [galleryFormat, gallerySort, site.publicGalleryEnabled]);
 
   const refreshPersonalImages = useCallback(async () => {
     if (!session.authenticated) return;
@@ -247,10 +298,6 @@ export function PublicUploadLanding() {
           payload.site?.publicUploadDefaultPublic ??
             fallbackConfig.site!.publicUploadDefaultPublic
         );
-        if (payload.site?.publicGalleryEnabled) {
-          const images = await apiJson<{ images: PublicImage[] }>("/public/images");
-          if (alive) setGallery(images.images);
-        }
         if (sessionPayload.authenticated) {
           const personal = await apiJson<{ images: PersonalImage[] }>(
             "/uploads?limit=18&sort=newest"
@@ -272,6 +319,14 @@ export function PublicUploadLanding() {
       alive = false;
     };
   }, []);
+
+  useEffect(() => {
+    void refreshPublicGallery().catch((requestError) => {
+      setError(
+        requestError instanceof Error ? requestError.message : "公共图库加载失败"
+      );
+    });
+  }, [refreshPublicGallery]);
 
   const togglePersonalSelection = (imageId: string) => {
     setSelectedPersonalIds((current) => {
@@ -351,6 +406,26 @@ export function PublicUploadLanding() {
   const copy = async (value: string, message: string) => {
     await navigator.clipboard.writeText(value);
     setNotice(message);
+  };
+
+  const hidePreviewImage = async () => {
+    if (!previewImage || !session.backoffice?.allowed) return;
+    setVisibilityBusy(true);
+    setError("");
+    try {
+      await apiJson(`/public/images/${encodeURIComponent(previewImage.id)}/hide`, {
+        method: "POST"
+      });
+      closePreview();
+      setNotice("图片已从公共图库隐藏，原上传者仍可在自己的历史记录中看到它。");
+      await refreshPublicGallery();
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error ? requestError.message : "隐藏图片失败"
+      );
+    } finally {
+      setVisibilityBusy(false);
+    }
   };
 
   const uploadSingleFile = useCallback(
@@ -810,25 +885,83 @@ export function PublicUploadLanding() {
         </section>
       )}
 
-      {site.publicGalleryEnabled && galleryItems.length > 0 && (
+      {site.publicGalleryEnabled && (
         <section className="public-gallery" aria-label="公共图床展示">
-          <div className="public-gallery__head">
-            <span>PUBLIC GALLERY</span>
-            <h2>最近公开的图片</h2>
+          <div className="public-gallery__head public-gallery__head--toolbar">
+            <div>
+              <span>PUBLIC GALLERY</span>
+              <h2>公共图片展台</h2>
+              <p>轻量缩略图浏览，点击后在当前页面查看。</p>
+            </div>
+            <div className="public-gallery__filters" aria-label="公共图库筛选">
+              <div className="public-gallery__segments">
+                {([
+                  ["latest", "最新", Images],
+                  ["hot", "最热", Flame],
+                  ["random", "随机", Shuffle]
+                ] as const).map(([value, label, Icon]) => (
+                  <button
+                    aria-pressed={gallerySort === value}
+                    key={value}
+                    onClick={() => setGallerySort(value)}
+                    type="button"
+                  >
+                    <Icon aria-hidden="true" size={15} />{label}
+                  </button>
+                ))}
+              </div>
+              <label>
+                <FileType2 aria-hidden="true" size={16} />
+                <span className="sr-only">筛选图片格式</span>
+                <select onChange={(event) => setGalleryFormat(event.target.value)} value={galleryFormat}>
+                  <option value="all">全部格式</option>
+                  <option value="jpeg">JPG</option>
+                  <option value="png">PNG</option>
+                  <option value="webp">WebP</option>
+                  <option value="gif">GIF</option>
+                  <option value="avif">AVIF</option>
+                </select>
+              </label>
+            </div>
           </div>
-          <div className="public-gallery__grid">
-            {galleryItems.map((image) => (
-              <button
-                aria-label={`预览 ${image.name}`}
-                key={image.id}
-                onClick={() => setPreviewIndex(galleryItems.indexOf(image))}
-                type="button"
-              >
-                <img alt={image.name} loading="lazy" src={image.thumbnailUrl} />
-                <span>{image.name}</span>
-              </button>
-            ))}
-          </div>
+          {galleryLoading ? (
+            <div className="public-gallery__grid" aria-label="正在加载公共图片">
+              {Array.from({ length: 8 }, (_, index) => <span className="public-gallery__skeleton" key={index} />)}
+            </div>
+          ) : galleryItems.length === 0 ? (
+            <div className="public-gallery__empty">
+              <Images aria-hidden="true" size={30} />
+              <strong>{galleryFormat === "all" ? "公共图库还没有图片" : "这个格式暂时没有公开图片"}</strong>
+              <span>上传时选择公开展示，图片就会来到这里。</span>
+            </div>
+          ) : (
+            <div className="public-gallery__grid">
+              {galleryItems.map((image, index) => {
+                const displayName = image.name || "公共图片";
+                return (
+                  <button
+                    aria-label={`预览 ${displayName}`}
+                    key={image.id}
+                    onClick={() => setPreviewIndex(index)}
+                    type="button"
+                  >
+                    <img alt={displayName} loading="lazy" src={image.thumbnailUrl} />
+                    {(galleryPreferences.showFileName || galleryPreferences.showUploader || galleryPreferences.showUploadTime) && (
+                      <span>
+                        {galleryPreferences.showFileName && <strong>{displayName}</strong>}
+                        <small>
+                          {[
+                            galleryPreferences.showUploader ? image.uploaderName : "",
+                            galleryPreferences.showUploadTime ? publicDate(image.createdAt) : ""
+                          ].filter(Boolean).join(" · ")}
+                        </small>
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </section>
       )}
 
@@ -885,14 +1018,28 @@ export function PublicUploadLanding() {
               <ArrowLeft aria-hidden="true" size={22} />
             </button>
             <figure>
-              <img alt={previewImage.name} src={previewImage.originalUrl} />
+              <img alt={previewImage.name || "公共图片"} src={previewImage.originalUrl} />
               <figcaption>
-                <strong>{previewImage.name}</strong>
-                <span>
-                  {previewImage.width} × {previewImage.height}
-                  {galleryItems.length > 1 &&
-                    ` · ${(previewIndex ?? 0) + 1}/${galleryItems.length}`}
-                </span>
+                <div>
+                  <strong>{previewImage.name || "公共图片"}</strong>
+                  <span>
+                    {previewImage.width} × {previewImage.height}
+                    {previewImage.format && ` · ${previewImage.format.toUpperCase()}`}
+                    {galleryItems.length > 1 && ` · ${(previewIndex ?? 0) + 1}/${galleryItems.length}`}
+                  </span>
+                  {(previewImage.uploaderName || previewImage.createdAt) && (
+                    <small>{[previewImage.uploaderName, publicDate(previewImage.createdAt)].filter(Boolean).join(" · ")}</small>
+                  )}
+                </div>
+                <div className="public-gallery-preview__tools">
+                  <Button onClick={() => void copy(publicUrl(previewImage.originalUrl), "图片链接已复制。") } size="compact" variant="secondary"><Clipboard size={15} />复制链接</Button>
+                  <Button onClick={() => void copy(`![${previewImage.name || "图片"}](${publicUrl(previewImage.originalUrl)})`, "Markdown 已复制。") } size="compact" variant="secondary"><Clipboard size={15} />Markdown</Button>
+                  <Button asChild size="compact" variant="ghost"><a download href={previewImage.originalUrl}><Download size={15} />下载</a></Button>
+                  <Button asChild size="compact" variant="ghost"><a href={previewImage.originalUrl} rel="noreferrer" target="_blank"><ExternalLink size={15} />原图</a></Button>
+                  {session.backoffice?.allowed && (
+                    <Button disabled={visibilityBusy} onClick={() => void hidePreviewImage()} size="compact" variant="ghost"><EyeOff size={15} />隐藏</Button>
+                  )}
+                </div>
               </figcaption>
             </figure>
             <button
