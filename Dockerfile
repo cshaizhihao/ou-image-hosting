@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-ARG NODE_VERSION=20.19.2
+ARG NODE_VERSION=24.21.0
 ARG PNPM_VERSION=9.15.9
 
 FROM node:${NODE_VERSION}-bookworm-slim AS toolchain

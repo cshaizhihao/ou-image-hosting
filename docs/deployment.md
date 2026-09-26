@@ -72,7 +72,7 @@ COMPOSE_PARALLEL_LIMIT=1 docker compose --env-file .env.production build api
 COMPOSE_PARALLEL_LIMIT=1 docker compose --env-file .env.production build web
 ```
 
-The images pin Node.js 20.19.2 and pnpm 9.15.9, install with the frozen lockfile,
+The images pin Node.js 24.21.0 LTS and pnpm 9.15.9, install with the frozen lockfile,
 and run as the unprivileged `node` user.
 
 On CPU-limited hosts, prefer images built by CI. `nice` does not reliably limit

@@ -102,7 +102,7 @@ services:
     <<: *runtime-defaults
     profiles:
       - https
-    image: caddy:2.10.2-alpine
+    image: caddy:2.11.4-alpine
     env_file:
       - ${OU_ENV_FILE:-.env.production}
     depends_on:
