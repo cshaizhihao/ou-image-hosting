@@ -14,9 +14,9 @@
     "@fastify/cookie": "^11.0.2",
     "@fastify/multipart": "^9.0.3",
     "@fastify/rate-limit": "^10.2.1",
-    "fastify": "^5.3.0",
+    "fastify": "^5.12.1",
     "heic-convert": "2.1.0",
-    "sharp": "^0.34.3"
+    "sharp": "^0.35.4"
   },
   "devDependencies": {
     "form-data": "^4.0.4",

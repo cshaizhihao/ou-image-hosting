@@ -98,6 +98,8 @@ const livePhotoVideoMimeTypes = new Set([
   "application/octet-stream"
 ]);
 
+type SharpMetadata = Awaited<ReturnType<ReturnType<typeof sharp>["metadata"]>>;
+
 type UploadRouteOptions = {
   store: AppStore;
   dataDirectory: string;
@@ -738,7 +740,7 @@ export async function registerUploadRoutes(
       throw new PublicError(413, "FILE_TOO_LARGE", "图片超过工作区上传上限");
     }
 
-    let metadata: sharp.Metadata;
+    let metadata: SharpMetadata;
     let format: string | undefined;
     let processingBuffer: Buffer | undefined;
     try {

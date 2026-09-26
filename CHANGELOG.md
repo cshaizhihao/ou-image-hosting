@@ -11,6 +11,10 @@
 - 公共上传增加可选 Live Photo 动态片段入口，默认关闭以避免额外流量。
 - 设置中心拆分为“站点设置 / 站点外观 / 图片处理”，高频上传开关独立展示，外观配置改为折叠分类，减少长页面瀑布流。
 
+### Security
+
+- 升级 Next.js 至 15.5.26（修复未授权远程代码执行等漏洞）、Fastify 至 5.12.5、Sharp 至 0.35.4，并通过 pnpm overrides 修复 postcss、nanoid、fast-uri、find-my-way 的已知漏洞；`pnpm audit --prod` 无已知漏洞。
+
 ### Fixed
 
 - 修复首页欢迎卡片图标浮窗被折叠面板裁剪的问题，改为 Portal 弹窗。
