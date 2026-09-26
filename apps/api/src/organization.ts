@@ -1,6 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { randomUUID } from "node:crypto";
-import { unlink } from "node:fs/promises";
 import path from "node:path";
 import {
   requireCapability,
@@ -8,6 +7,7 @@ import {
 } from "./access.js";
 import { buildDeliveryUrl } from "./delivery.js";
 import { PublicError } from "./errors.js";
+import { createObjectStorage } from "./object-storage.js";
 import type {
   AppState,
   AppStore,
@@ -280,23 +280,6 @@ function validateRelations(
   }
 }
 
-function storagePath(storageRoot: string, key: string) {
-  const root = path.resolve(storageRoot);
-  const target = path.resolve(root, key);
-  if (!target.startsWith(`${root}${path.sep}`)) {
-    throw new PublicError(500, "INVALID_STORAGE_KEY", "图片存储记录无效");
-  }
-  return target;
-}
-
-async function removeFile(filePath: string) {
-  try {
-    await unlink(filePath);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
-}
-
 function imageCollection(
   images: StoredImage[],
   state: AppState,
@@ -316,7 +299,11 @@ export function registerOrganizationRoutes(
   options: OrganizationRouteOptions
 ) {
   const { store, dataDirectory, now, authenticate } = options;
-  const storageRoot = path.join(dataDirectory, "storage");
+  const objects = createObjectStorage(
+    store,
+    path.join(dataDirectory, "storage"),
+    now
+  );
 
   app.get("/albums", async (request) => {
     const principal = authenticate(request);
@@ -945,7 +932,7 @@ export function registerOrganizationRoutes(
       });
 
       for (const key of deletion.keys) {
-        await removeFile(storagePath(storageRoot, key));
+        await objects.remove(key);
       }
       return { deleted: deletion.deleted };
     }

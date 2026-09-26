@@ -4,9 +4,8 @@ import type {
   FastifyRequest
 } from "fastify";
 import { createHash, randomUUID } from "node:crypto";
-import { createReadStream } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import type { Readable } from "node:stream";
 import sharp from "sharp";
 import {
   requireCapability,
@@ -14,6 +13,7 @@ import {
 } from "./access.js";
 import { buildDeliveryUrl } from "./delivery.js";
 import { PublicError } from "./errors.js";
+import { createObjectStorage } from "./object-storage.js";
 import {
   createOpaqueToken,
   hashOpaqueToken,
@@ -215,15 +215,6 @@ function replaceExtension(name: string, format: StoredImage["format"]) {
   return `${base}.${extension}`;
 }
 
-function storagePath(storageRoot: string, key: string) {
-  const root = path.resolve(storageRoot);
-  const target = path.resolve(root, key);
-  if (!target.startsWith(`${root}${path.sep}`)) {
-    throw new PublicError(500, "INVALID_STORAGE_KEY", "图片存储记录无效");
-  }
-  return target;
-}
-
 function findOwnedImage(store: AppStore, id: string, workspaceId: string) {
   const image = store
     .snapshot()
@@ -278,7 +269,7 @@ function workspaceDate(timestamp: Date, timezone: string) {
 
 function sendImage(
   reply: FastifyReply,
-  filePath: string,
+  body: Readable,
   mime: string,
   name: string
 ) {
@@ -289,7 +280,7 @@ function sendImage(
       "content-disposition",
       `inline; filename*=UTF-8''${encodeURIComponent(name)}`
     );
-  return reply.send(createReadStream(filePath));
+  return reply.send(body);
 }
 
 async function createThumbnail(
@@ -365,7 +356,11 @@ export function registerImageDetailRoutes(
   options: ImageDetailRouteOptions
 ) {
   const { store, dataDirectory, now, authenticate, quotaBytes } = options;
-  const storageRoot = path.join(dataDirectory, "storage");
+  const objects = createObjectStorage(
+    store,
+    path.join(dataDirectory, "storage"),
+    now
+  );
 
   app.get<{ Params: IdParams }>(
     "/uploads/:id",
@@ -508,7 +503,7 @@ export function registerImageDetailRoutes(
           processingQuality: 85,
           thumbnailWidth: 480
         };
-      const input = await readFile(storagePath(storageRoot, image.originalKey));
+      const input = await objects.read(image.originalKey);
       let transformed;
       try {
         transformed = await transformBuffer(
@@ -543,17 +538,14 @@ export function registerImageDetailRoutes(
         `versions/${image.id}/${versionId}.` +
         extensionByFormat[transformed.format];
       const thumbnailKey = `thumbnails/${image.id}-${versionId}.webp`;
-      const originalPath = storagePath(storageRoot, originalKey);
-      const thumbnailPath = storagePath(storageRoot, thumbnailKey);
       const thumbnail = await createThumbnail(
         transformed.buffer,
         settings.thumbnailWidth,
         settings.processingQuality
       );
-      await mkdir(path.dirname(originalPath), { recursive: true });
       await Promise.all([
-        writeFile(originalPath, transformed.buffer, { mode: 0o600 }),
-        writeFile(thumbnailPath, thumbnail, { mode: 0o600 })
+        objects.write(originalKey, transformed.buffer),
+        objects.write(thumbnailKey, thumbnail)
       ]);
 
       const version: StoredImageVersion = {
@@ -730,9 +722,10 @@ export function registerImageDetailRoutes(
       if (!image || !version) {
         throw new PublicError(404, "VERSION_NOT_FOUND", "图片版本不存在");
       }
+      const body = await objects.open(version.originalKey);
       return sendImage(
         reply,
-        storagePath(storageRoot, version.originalKey),
+        body,
         version.mime,
         replaceExtension(image.name, version.format)
       );
@@ -968,9 +961,10 @@ export function registerImageDetailRoutes(
             retainedDates.has(item.date)
         );
       });
+      const body = await objects.open(image.originalKey);
       return sendImage(
         reply,
-        storagePath(storageRoot, image.originalKey),
+        body,
         image.mime,
         image.name
       );

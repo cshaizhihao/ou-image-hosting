@@ -2028,16 +2028,21 @@ describe("OU-Image API", () => {
       }
     });
 
-    const unsupportedActive = await app.inject({
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 403 }))
+    );
+    const unreachableActive = await app.inject({
       method: "PATCH",
       url: "/storage/settings",
       cookies,
       payload: { storage: { active: "s3" } }
     });
-    expect(unsupportedActive.statusCode).toBe(400);
-    expect(unsupportedActive.json().error.code).toBe(
-      "REMOTE_ACTIVE_UNSUPPORTED"
+    expect(unreachableActive.statusCode).toBe(400);
+    expect(unreachableActive.json().error.code).toBe(
+      "REMOTE_ACTIVE_UNAVAILABLE"
     );
+    vi.unstubAllGlobals();
 
     const member = await app.inject({
       method: "POST",
@@ -2185,6 +2190,164 @@ describe("OU-Image API", () => {
         })
       ])
     );
+  });
+
+  it.each([
+    {
+      provider: "r2" as const,
+      config: {
+        endpoint: "https://account.r2.cloudflarestorage.com",
+        bucket: "images",
+        accessKeyId: "access-key",
+        secretAccessKey: "remote-secret",
+        pathStyle: true
+      }
+    },
+    {
+      provider: "s3" as const,
+      config: {
+        endpoint: "https://s3.us-east-1.amazonaws.com",
+        bucket: "images",
+        region: "us-east-1",
+        accessKeyId: "access-key",
+        secretAccessKey: "remote-secret",
+        pathStyle: true
+      }
+    }
+  ])("stores, serves and deletes images on active $provider storage", async ({
+    provider,
+    config
+  }) => {
+    process.env.OU_SECRET_KEY = "remote-active-master-key";
+    const store = new AppStore(null);
+    let dataDirectory = "";
+    const app = await createTestApp({
+      store,
+      onDataDirectory: (directory) => {
+        dataDirectory = directory;
+      }
+    });
+    const setup = await app.inject({
+      method: "POST",
+      url: "/setup",
+      payload: owner
+    });
+    const cookie = setup.cookies.find((item) => item.name === "ou_session")!;
+    const cookies = { ou_session: cookie.value };
+
+    const objects = new Map<string, Buffer>();
+    const requests: Array<{ method: string; path: string }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const method = init?.method ?? "GET";
+        const objectPath = new URL(input.toString()).pathname;
+        requests.push({ method, path: objectPath });
+        if (method === "PUT") {
+          objects.set(objectPath, Buffer.from(init!.body as ArrayBuffer));
+          return new Response(null, { status: 200 });
+        }
+        if (method === "GET") {
+          const body = objects.get(objectPath);
+          return body
+            ? new Response(new Uint8Array(body), { status: 200 })
+            : new Response(null, { status: 404 });
+        }
+        if (method === "DELETE") {
+          objects.delete(objectPath);
+          return new Response(null, { status: 204 });
+        }
+        return new Response(null, { status: 200 });
+      })
+    );
+
+    const activated = await app.inject({
+      method: "PATCH",
+      url: "/storage/settings",
+      cookies,
+      payload: { storage: { active: provider, [provider]: config } }
+    });
+    expect(activated.statusCode).toBe(200);
+    expect(activated.json().storage.active).toBe(provider);
+    expect(requests[0]).toMatchObject({ method: "HEAD", path: "/images" });
+
+    const png = await sharp({
+      create: {
+        width: 12,
+        height: 9,
+        channels: 3,
+        background: { r: 200, g: 60, b: 90 }
+      }
+    })
+      .png()
+      .toBuffer();
+    const form = new FormData();
+    form.append("file", png, {
+      filename: "remote.png",
+      contentType: "image/png"
+    });
+    const uploaded = await app.inject({
+      method: "POST",
+      url: "/uploads",
+      headers: form.getHeaders(),
+      cookies,
+      payload: form.getBuffer()
+    });
+    expect(uploaded.statusCode).toBe(201);
+    const imageId = uploaded.json().image.id;
+    const image = store.snapshot().images.find((item) => item.id === imageId)!;
+    expect(objects.get(`/images/${image.originalKey}`)).toEqual(png);
+    expect(objects.has(`/images/${image.thumbnailKey}`)).toBe(true);
+    await expect(
+      readFile(path.join(dataDirectory, "storage", image.originalKey))
+    ).rejects.toMatchObject({ code: "ENOENT" });
+
+    const original = await app.inject({
+      method: "GET",
+      url: `/files/${imageId}/original`
+    });
+    expect(original.statusCode).toBe(200);
+    expect(original.rawPayload).toEqual(png);
+
+    const localAgain = await app.inject({
+      method: "PATCH",
+      url: "/storage/settings",
+      cookies,
+      payload: { storage: { active: "local" } }
+    });
+    expect(localAgain.json().storage.active).toBe("local");
+    const summary = await app.inject({
+      method: "GET",
+      url: "/uploads/summary",
+      cookies
+    });
+    expect(summary.json().storageProvider).toBe("local");
+    const remoteAfterSwitch = await app.inject({
+      method: "GET",
+      url: `/files/${imageId}/thumbnail`
+    });
+    expect(remoteAfterSwitch.statusCode).toBe(200);
+    await app.inject({
+      method: "PATCH",
+      url: "/storage/settings",
+      cookies,
+      payload: { storage: { active: provider } }
+    });
+
+    await app.inject({
+      method: "POST",
+      url: "/uploads/bulk",
+      cookies,
+      payload: { ids: [imageId], action: "trash" }
+    });
+    const purged = await app.inject({
+      method: "POST",
+      url: "/trash/bulk",
+      cookies,
+      payload: { ids: [imageId], action: "delete" }
+    });
+    expect(purged.statusCode).toBe(200);
+    expect(objects.size).toBe(0);
   });
 
   it("applies custom delivery, hotlink and signed URL settings", async () => {

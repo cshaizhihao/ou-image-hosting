@@ -468,6 +468,13 @@
   margin-bottom: 15px;
 }
 
+.configActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .configHead h3 {
   margin: 1px 0 0;
   font-size: 15px;

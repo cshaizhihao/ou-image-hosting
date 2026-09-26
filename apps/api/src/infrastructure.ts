@@ -55,6 +55,7 @@ const MAX_BACKUP_TOTAL_FILE_BYTES = 128 * 1024 * 1024;
 const MAX_BACKUP_SINGLE_FILE_BYTES = 24 * 1024 * 1024;
 const MAX_BACKUP_FILES = 5000;
 const MAX_BACKUP_COMPRESSION_RATIO = 200;
+const REMOTE_REQUEST_TIMEOUT_MS = 60_000;
 
 type InfrastructureOptions = {
   store: AppStore;
@@ -110,7 +111,7 @@ type MigrationBody = {
 
 type IdParams = { id: string };
 
-type RuntimeRemoteConfig = Omit<
+export type RuntimeRemoteConfig = Omit<
   RemoteStorageSettings,
   "secretAccessKeyCiphertext"
 > & {
@@ -379,7 +380,7 @@ function publicSettings(state: AppState) {
   };
 }
 
-function runtimeRemote(
+export function runtimeRemote(
   state: AppState,
   provider: "s3" | "r2",
   override?: RemoteInput
@@ -459,9 +460,9 @@ function remoteUrl(config: RuntimeRemoteConfig, key?: string) {
   return url;
 }
 
-async function signedS3Request(
+export async function signedS3Request(
   config: RuntimeRemoteConfig,
-  method: "HEAD" | "PUT",
+  method: "HEAD" | "PUT" | "GET" | "DELETE",
   timestamp: Date,
   key?: string,
   body?: Buffer
@@ -510,15 +511,23 @@ async function signedS3Request(
       "x-amz-date": amzDate,
       ...(body ? { "content-type": "application/octet-stream" } : {})
     },
-    body: body ? new Uint8Array(body).buffer : undefined
+    body: body ? new Uint8Array(body).buffer : undefined,
+    signal: AbortSignal.timeout(REMOTE_REQUEST_TIMEOUT_MS)
   });
+  if (response.status === 404 && (method === "GET" || method === "DELETE")) {
+    await response.body?.cancel();
+    if (method === "DELETE") return response;
+    throw new PublicError(404, "FILE_NOT_FOUND", "图片文件不存在");
+  }
   if (!response.ok) {
+    await response.body?.cancel();
     throw new PublicError(
       400,
       "REMOTE_STORAGE_FAILED",
       `远端存储返回 HTTP ${response.status}`
     );
   }
+  return response;
 }
 
 async function listFiles(root: string, relative = "") {
@@ -1171,15 +1180,26 @@ export function registerInfrastructureRoutes(
     },
     async (request) => {
       requireOwner(request, authenticate);
+      const requestedActive = request.body.storage?.active;
       if (
-        request.body.storage?.active &&
-        request.body.storage.active !== "local"
+        requestedActive &&
+        requestedActive !== "local" &&
+        requestedActive !== store.snapshot().storageSettings.active
       ) {
-        throw new PublicError(
-          400,
-          "REMOTE_ACTIVE_UNSUPPORTED",
-          "当前版本仅支持本地存储作为活动写入源"
+        const config = runtimeRemote(
+          store.snapshot(),
+          requestedActive,
+          request.body.storage?.[requestedActive]
         );
+        try {
+          await signedS3Request(config, "HEAD", now());
+        } catch {
+          throw new PublicError(
+            400,
+            "REMOTE_ACTIVE_UNAVAILABLE",
+            "无法连接到该存储，已保持原有存储不变"
+          );
+        }
       }
       await store.update((state) => {
         const input = request.body;

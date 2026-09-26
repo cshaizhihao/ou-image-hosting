@@ -120,7 +120,7 @@ export default function OnboardingPage() {
           </div>
           <div className="onboarding-paths">
             <div><span><ImageUp size={19} /></span><p><strong>上传工作台</strong><small>拖入图片并检查上传队列</small></p></div>
-            <div><span><FolderCog size={19} /></span><p><strong>存储设置</strong><small>下一轮接入真实存储适配器</small></p></div>
+            <div><span><FolderCog size={19} /></span><p><strong>存储设置</strong><small>本地存储、Amazon S3 或 Cloudflare R2</small></p></div>
             <div><span><LayoutDashboard size={19} /></span><p><strong>工作区概览</strong><small>集中查看容量与活动状态</small></p></div>
           </div>
         </section>

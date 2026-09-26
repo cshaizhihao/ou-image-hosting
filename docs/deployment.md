@@ -7,19 +7,21 @@ This guide deploys OU-Image Hosting as three containers:
 - `caddy`: the optional `https` profile, terminating TLS on ports 80/443 and
   proxying to Web.
 
-The API stores metadata and image files in one Docker volume. PostgreSQL, Redis,
-S3/R2 active reads and writes, and an external job queue are not enabled by this
-deployment.
+The API stores metadata and image files in one Docker volume, or writes image
+files to Amazon S3 / Cloudflare R2 when one of them is set as the active storage.
+PostgreSQL, Redis, and an external job queue are not enabled by this deployment.
 
 ## Architecture boundaries
 
 - Metadata persistence is one JSON file managed by one API process.
-- Image originals, thumbnails, versions, and backups use the local persistent
-  volume as the authoritative source.
+- With local storage active, image originals, thumbnails, versions, and Live
+  Photo clips live in the persistent volume. Backups always stay in the volume.
 - PostgreSQL and Redis environment variables only affect status/configuration
   reporting. They do not move persistence or jobs out of the API process.
-- S3/R2 configuration, probing, and migration exist, but normal image reads and
-  writes remain local.
+- When S3 or R2 is the active storage, new uploads are written to the bucket and
+  permanent deletion also removes the remote objects. Reads prefer a local copy,
+  then fall back to the configured buckets, so images uploaded before a switch
+  keep working without migration.
 - Run exactly one API replica. Multiple API replicas can race on the same JSON
   file and are unsupported.
 

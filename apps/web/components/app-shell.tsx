@@ -78,6 +78,10 @@ import {
   writeStoredSiteBranding,
   type SiteBranding
 } from "@/lib/site-branding";
+import {
+  storageRunningLabel,
+  type StorageProviderKey
+} from "@/lib/storage-provider";
 
 const iconMap: Record<string, LucideIcon> = {
   overview: Activity,
@@ -356,6 +360,7 @@ export function AppShell({
   const [storageSummary, setStorageSummary] = useState<{
     bytes: number;
     quotaBytes: number;
+    storageProvider?: StorageProviderKey;
   } | null>(null);
 
   const loadNotifications = useCallback(async () => {
@@ -463,9 +468,11 @@ export function AppShell({
         setCurrentWorkspace(selected);
         setAccessChecked(true);
         writeShellSessionSnapshot(bootstrap, selected.id);
-        void apiRequest<{ bytes: number; quotaBytes: number }>(
-          "/uploads/summary"
-        )
+        void apiRequest<{
+          bytes: number;
+          quotaBytes: number;
+          storageProvider?: StorageProviderKey;
+        }>("/uploads/summary")
           .then(setStorageSummary)
           .catch(() => setStorageSummary(null));
       })
@@ -590,7 +597,9 @@ export function AppShell({
                 }}
               />
             </div>
-            <Link href="/storage">本地存储运行中</Link>
+            <Link href="/storage">
+              {storageRunningLabel(storageSummary?.storageProvider)}
+            </Link>
             </div>
           )}
         </aside>

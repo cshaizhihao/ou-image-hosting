@@ -6,8 +6,7 @@ import type {
 } from "fastify";
 import { createHash, randomInt, randomUUID } from "node:crypto";
 import { lookup } from "node:dns/promises";
-import { createReadStream } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { BlockList, isIP } from "node:net";
@@ -27,6 +26,7 @@ import {
 } from "./access.js";
 import { backofficeAccessFor } from "./site-access.js";
 import { PublicError } from "./errors.js";
+import { createObjectStorage } from "./object-storage.js";
 import {
   hashOpaqueToken,
   signOpaquePayload,
@@ -97,6 +97,8 @@ const livePhotoVideoMimeTypes = new Set([
   "video/mp4",
   "application/octet-stream"
 ]);
+
+type SharpMetadata = Awaited<ReturnType<ReturnType<typeof sharp>["metadata"]>>;
 
 type UploadRouteOptions = {
   store: AppStore;
@@ -507,6 +509,7 @@ export async function registerUploadRoutes(
   const storageRoot = path.join(dataDirectory, "storage");
   const originalsDirectory = path.join(storageRoot, "originals");
   const thumbnailsDirectory = path.join(storageRoot, "thumbnails");
+  const objects = createObjectStorage(store, storageRoot, now);
   const quotaBytes = Number(
     process.env.OU_STORAGE_QUOTA_BYTES ?? 2 * 1024 * 1024 * 1024
   );
@@ -738,7 +741,7 @@ export async function registerUploadRoutes(
       throw new PublicError(413, "FILE_TOO_LARGE", "图片超过工作区上传上限");
     }
 
-    let metadata: sharp.Metadata;
+    let metadata: SharpMetadata;
     let format: string | undefined;
     let processingBuffer: Buffer | undefined;
     try {
@@ -818,8 +821,6 @@ export async function registerUploadRoutes(
     const id = randomUUID();
     const originalKey = `originals/${sha256}.${extensionByFormat[typedFormat]}`;
     const thumbnailKey = `thumbnails/${id}.webp`;
-    const originalPath = path.join(storageRoot, originalKey);
-    const thumbnailPath = path.join(storageRoot, thumbnailKey);
 
     processingBuffer ??= await sourceBufferForProcessing(buffer, typedFormat);
     const thumbnail = await sharp(processingBuffer, {
@@ -838,8 +839,8 @@ export async function registerUploadRoutes(
       .toBuffer();
 
     await Promise.all([
-      writeFile(originalPath, buffer, { mode: 0o600 }),
-      writeFile(thumbnailPath, thumbnail, { mode: 0o600 })
+      objects.write(originalKey, buffer),
+      objects.write(thumbnailKey, thumbnail)
     ]);
 
     const createdAt = now();
@@ -931,16 +932,16 @@ export async function registerUploadRoutes(
   app.get("/uploads/summary", async (request) => {
     const principal = authenticate(request);
     requireCapability(principal, "read", ["analytics:read"]);
-    const images = store
-      .snapshot()
-      .images.filter(
+    const state = store.snapshot();
+    const images = state.images.filter(
         (image) =>
           image.workspaceId === principal.workspaceId && !image.publicUploadGuest
       );
     return {
       count: images.filter((image) => !image.deletedAt).length,
       bytes: calculateImageStorageBytes(images),
-      quotaBytes
+      quotaBytes,
+      storageProvider: state.storageSettings.active
     };
   });
 
@@ -1602,9 +1603,7 @@ export async function registerUploadRoutes(
             ? "mp4"
             : "mov";
           const key = `live/${videoHash}.${extension}`;
-          await writeFile(path.join(storageRoot, key), liveVideoFile.buffer, {
-            mode: 0o600
-          });
+          await objects.write(key, liveVideoFile.buffer);
           livePhotoVideo = {
             key,
             size: liveVideoFile.buffer.byteLength,
@@ -1725,11 +1724,12 @@ export async function registerUploadRoutes(
       );
       const isThumbnail = request.params.variant === "thumbnail";
       const key = isThumbnail ? image.thumbnailKey : image.originalKey;
+      const body = await objects.open(key);
       reply
         .type(isThumbnail ? "image/webp" : image.mime)
         .header("cache-control", "public, max-age=60, must-revalidate")
         .header("content-disposition", "inline");
-      return reply.send(createReadStream(path.join(storageRoot, key)));
+      return reply.send(body);
     }
   );
 

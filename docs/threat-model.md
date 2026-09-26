@@ -124,7 +124,8 @@ limits.
 
 - PostgreSQL is not the active metadata store.
 - Redis/BullMQ is not the active queue.
-- S3/R2 is not the authoritative normal read/write storage.
+- S3/R2 becomes the write target only after an Owner sets it as the active
+  storage; metadata and backups remain local either way.
 - CDN reachability does not switch delivery traffic.
 - In-volume backups do not provide host-level disaster recovery.
 - The deployment is not horizontally scalable and must not run multiple API
@@ -143,5 +144,5 @@ limits.
 ## Review triggers
 
 Update this threat model when activating PostgreSQL, Redis, external queues,
-S3/R2 reads and writes, CDN delivery, multiple API replicas, third-party identity
+CDN delivery, multiple API replicas, third-party identity
 providers, plugins, webhooks, or public API integrations.

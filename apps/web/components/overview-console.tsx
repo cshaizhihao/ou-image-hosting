@@ -39,6 +39,7 @@ import {
   selectOverviewWorkspace,
   type OverviewSummary
 } from "@/lib/overview-model";
+import { storageProviderLabel } from "@/lib/storage-provider";
 import { AppShell } from "./app-shell";
 import {
   getSiteSettings,
@@ -298,7 +299,9 @@ export function OverviewConsole() {
                 <div>
                   <span>已用存储</span>
                   <strong>{formatOverviewBytes(data.summary.bytes)}</strong>
-                  <p>包含当前工作区实际占用的图片数据。</p>
+                  <p>
+                    {`当前工作区图片占用的空间，存放在 ${storageProviderLabel(data.summary.storageProvider)}。`}
+                  </p>
                   <small>
                     平均 {formatOverviewBytes(averageImageBytes)} / 张
                   </small>
@@ -362,7 +365,10 @@ export function OverviewConsole() {
                 </h2>
                 <p>
                   {isSiteOwner
-                    ? "本地存储可直接使用；如需 Amazon S3、Cloudflare R2 或迁移数据，请前往存储中心。"
+                    ? data.summary.storageProvider &&
+                      data.summary.storageProvider !== "local"
+                      ? `图片当前存放在 ${storageProviderLabel(data.summary.storageProvider)}；可在存储中心切换提供商、检查连接或迁移数据。`
+                      : "图片当前存放在本地存储；如需 Amazon S3、Cloudflare R2 或迁移数据，请前往存储中心。"
                     : "存储连接由站点所有者管理，你可以继续浏览或上传权限范围内的图片。"}
                 </p>
               </div>

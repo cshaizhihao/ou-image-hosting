@@ -6,6 +6,9 @@ image files. The archive includes SHA-256 manifest checks.
 ## Important limitations
 
 - Backups stored inside the Docker data volume are not disaster recovery.
+- When S3 or R2 is the active storage, archives contain only the JSON state
+  and files still stored locally. Objects in the remote bucket are not copied;
+  protect them with the provider's own versioning or replication.
 - The application archive remains a bounded in-memory Base64 JSON envelope.
   v1.0 rejects archives over 64 MiB compressed or 256 MiB expanded, more than
   5,000 files, more than 128 MiB of file payloads, a file over 24 MiB, or an

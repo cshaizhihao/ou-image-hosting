@@ -19,6 +19,7 @@ import {
   type Principal
 } from "./access.js";
 import { PublicError } from "./errors.js";
+import { runtimeRemote, signedS3Request } from "./infrastructure.js";
 import { requireBackofficeAccess } from "./site-access.js";
 import {
   calculateImageStorageBytes,
@@ -29,6 +30,7 @@ import {
   type AppStore,
   type StoredBackup,
   type StoredStorageMigration,
+  type StorageProvider,
   type StoredSystemStatusResult,
   type WorkspaceSettings
 } from "./store.js";
@@ -253,6 +255,33 @@ function statusEvents(history: StoredSystemStatusResult[]) {
   }));
 }
 
+const storageServiceMeta = {
+  local: { label: "本地存储", mode: "filesystem" },
+  s3: { label: "Amazon S3", mode: "s3-compatible" },
+  r2: { label: "Cloudflare R2", mode: "s3-compatible" }
+} as const;
+
+// A check recorded before the active storage changed describes the old
+// provider, so it is shown as pending instead of reusing its label.
+function withActiveStorage(
+  services: StoredSystemStatusResult["services"],
+  active: StorageProvider
+) {
+  const expected = storageServiceMeta[active];
+  return services.map((service) =>
+    service.id === "local-storage" && service.label !== expected.label
+      ? {
+          ...service,
+          ...expected,
+          status: "unknown" as const,
+          checked: false,
+          detail: "存储方式已切换，等待重新检查",
+          latencyMs: 0
+        }
+      : service
+  );
+}
+
 function baselineServices(): StoredSystemStatusResult["services"] {
   return [
     {
@@ -336,20 +365,23 @@ function baselineServices(): StoredSystemStatusResult["services"] {
   ];
 }
 
-function publicStatus(history: StoredSystemStatusResult[]) {
+function publicStatus(
+  history: StoredSystemStatusResult[],
+  active: StorageProvider
+) {
   const latest = history[0];
   if (!latest) {
     return {
       checkedAt: null,
       overall: "unknown" as const,
-      services: baselineServices(),
+      services: withActiveStorage(baselineServices(), active),
       events: []
     };
   }
   return {
     checkedAt: latest.checkedAt,
     overall: latest.overall,
-    services: latest.services,
+    services: withActiveStorage(latest.services, active),
     events: statusEvents(history)
   };
 }
@@ -391,6 +423,7 @@ async function performSystemCheck(
 ): Promise<StoredSystemStatusResult> {
   const started = Date.now();
   const storageRoot = path.join(dataDirectory, "storage");
+  const activeStorage = store.snapshot().storageSettings.active;
   const core = await Promise.all([
     timedService(
       {
@@ -427,19 +460,32 @@ async function performSystemCheck(
         }
       }
     ),
-    timedService(
-      {
-        id: "local-storage",
-        label: "本地存储",
-        mode: "filesystem",
-        inUse: true
-      },
-      async () => {
-        await mkdir(storageRoot, { recursive: true });
-        await access(storageRoot, constants.R_OK | constants.W_OK);
-        return "可读取且可写入";
-      }
-    ),
+    activeStorage === "local"
+      ? timedService(
+          {
+            id: "local-storage",
+            label: "本地存储",
+            mode: "filesystem",
+            inUse: true
+          },
+          async () => {
+            await mkdir(storageRoot, { recursive: true });
+            await access(storageRoot, constants.R_OK | constants.W_OK);
+            return "可读取且可写入";
+          }
+        )
+      : timedService(
+          {
+            id: "local-storage",
+            ...storageServiceMeta[activeStorage],
+            inUse: true
+          },
+          async () => {
+            const config = runtimeRemote(store.snapshot(), activeStorage);
+            await signedS3Request(config, "HEAD", timestamp);
+            return `存储桶 ${config.bucket} 可访问`;
+          }
+        ),
     timedService(
       {
         id: "image-processing",
@@ -712,7 +758,7 @@ export function registerOperationsRoutes(
       .snapshot()
       .systemStatusHistory.slice()
       .sort((a, b) => b.checkedAt.localeCompare(a.checkedAt));
-    return publicStatus(history);
+    return publicStatus(history, store.snapshot().storageSettings.active);
   });
 
   app.post(
@@ -773,7 +819,8 @@ export function registerOperationsRoutes(
           store
             .snapshot()
             .systemStatusHistory.slice()
-            .sort((a, b) => b.checkedAt.localeCompare(a.checkedAt))
+            .sort((a, b) => b.checkedAt.localeCompare(a.checkedAt)),
+          store.snapshot().storageSettings.active
         );
       } finally {
         statusCheckInFlight = false;

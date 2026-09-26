@@ -30,6 +30,10 @@ import {
   useState
 } from "react";
 import { workspaceHeaders } from "@/lib/api";
+import {
+  storageProviderLabel,
+  type StorageProviderKey
+} from "@/lib/storage-provider";
 import { AppShell } from "./app-shell";
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
@@ -84,6 +88,7 @@ type UploadSummary = {
   count: number;
   bytes: number;
   quotaBytes: number;
+  storageProvider?: StorageProviderKey;
 };
 
 type AlbumOption = { id: string; name: string };
@@ -736,6 +741,9 @@ export function UploadWorkbench() {
                 <span>
                   <HardDrive aria-hidden="true" size={18} />
                   存储空间
+                  {!summaryLoading && (
+                    <small>{storageProviderLabel(summary.storageProvider)}</small>
+                  )}
                 </span>
                 <strong>{summaryLoading ? "读取中" : `${quotaPercent}%`}</strong>
               </div>
