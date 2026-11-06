@@ -30,7 +30,7 @@ process.once("SIGTERM", () => void shutdown("SIGTERM"));
 process.once("SIGINT", () => void shutdown("SIGINT"));
 
 try {
-  await app.listen({ host: "0.0.0.0", port });
+  await app.listen({ host: process.env.API_HOST ?? "0.0.0.0", port });
 } catch (error) {
   app.log.error(error);
   process.exitCode = 1;

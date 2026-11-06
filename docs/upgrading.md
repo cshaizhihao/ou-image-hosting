@@ -41,8 +41,8 @@ Owner system check.
 
 ## Schema compatibility
 
-The v1.0 release candidate migrates supported older state into schema v7.
-Application backup restore accepts schema v5, v6, and v7 archives.
+The current release migrates supported older state into schema v8.
+Application backup restore accepts schema v5, v6, v7, and v8 archives.
 
 An older application may not understand a newer schema. A Git rollback without
 a matching pre-upgrade volume snapshot is not a safe rollback.

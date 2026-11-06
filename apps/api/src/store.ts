@@ -603,6 +603,9 @@ export function calculateImageStorageBytes(images: StoredImage[]) {
         files.set(version.originalKey, version.size);
       }
     }
+    if (image.livePhotoVideoKey && image.livePhotoVideoSize) {
+      files.set(image.livePhotoVideoKey, image.livePhotoVideoSize);
+    }
   }
   return [...files.values()].reduce((total, size) => total + size, 0);
 }
@@ -1413,6 +1416,8 @@ export function migrateAppState(parsed: MigratableAppState): AppState {
             ) || 5 * 1024 * 1024 * 1024,
             publicUploadHumanVerificationEnabled:
               parsed.site.publicUploadHumanVerificationEnabled === true,
+            publicUploadLivePhotoEnabled:
+              parsed.site.publicUploadLivePhotoEnabled === true,
             publicUploadBlockedIps: Array.isArray(parsed.site.publicUploadBlockedIps)
               ? parsed.site.publicUploadBlockedIps
                   .filter((value): value is string => typeof value === "string")

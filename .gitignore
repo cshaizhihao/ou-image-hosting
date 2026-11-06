@@ -1,5 +1,9 @@
 node_modules/
 .next/
+.next-preview/
+.next-e2e/
+next-env.d.ts
+.playwright-cli/
 dist/
 coverage/
 .turbo/

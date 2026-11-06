@@ -4,6 +4,7 @@ set -Eeuo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TEMP_ROOT="$(mktemp -d)"
+TEMP_ROOT="$(cd "$TEMP_ROOT" && pwd -P)"
 MOCK_BIN="$TEMP_ROOT/bin"
 TARGET="$TEMP_ROOT/ou-image-hosting"
 OUTPUT="$TEMP_ROOT/install.log"
@@ -176,6 +177,7 @@ fi
 DOCKER_BOOTSTRAP_LOG="$TEMP_ROOT/docker-bootstrap.log"
 (
   source "$ROOT/install.sh"
+  uname() { printf '%s\n' Linux; }
   ASSUME_YES="true"
   AUTO_INSTALL_DEPS="true"
   docker_installed="true"
@@ -241,6 +243,7 @@ grep -F 'root systemctl enable --now docker' "$DOCKER_BOOTSTRAP_LOG" >/dev/null
 NATIVE_DOCKER_LOG="$TEMP_ROOT/native-docker.log"
 (
   source "$ROOT/install.sh"
+  uname() { printf '%s\n' Linux; }
   command_exists() {
     case "$1" in
       pacman) return 0 ;;
@@ -292,7 +295,8 @@ NO_COLOR=1 "$ROOT/install.sh" \
 
 ENV_FILE="$TARGET/.env.production"
 test -f "$ENV_FILE"
-test "$(stat -c '%a' "$ENV_FILE")" = "600"
+file_mode="$(stat -c '%a' "$ENV_FILE" 2>/dev/null || stat -f '%Lp' "$ENV_FILE")"
+test "$file_mode" = "600"
 grep -Fx 'APP_ORIGIN=https://img.example.com' "$ENV_FILE" >/dev/null
 grep -Fx 'OU_PROXY_MODE=caddy' "$ENV_FILE" >/dev/null
 grep -Fx 'OU_PUBLIC_HOST=img.example.com' "$ENV_FILE" >/dev/null
@@ -305,7 +309,7 @@ grep -F -- '--profile https up -d' "$DOCKER_LOG" >/dev/null
 
 FIRST_SECRET="$(sed -n 's/^OU_SECRET_KEY=//p' "$ENV_FILE")"
 test "${#FIRST_SECRET}" -eq 64
-sed -i 's|^DATABASE_URL=.*|DATABASE_URL=postgres://preserve-me|' "$ENV_FILE"
+sed -i.bak 's|^DATABASE_URL=.*|DATABASE_URL=postgres://preserve-me|' "$ENV_FILE"
 printf '%s\n' 'CUSTOM_DEPLOYMENT_FLAG=keep-me' >> "$ENV_FILE"
 
 NO_COLOR=1 "$ROOT/install.sh" \

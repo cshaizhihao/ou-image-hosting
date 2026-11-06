@@ -7,8 +7,8 @@ image files. The archive includes SHA-256 manifest checks.
 
 - Backups stored inside the Docker data volume are not disaster recovery.
 - The application archive remains a bounded in-memory Base64 JSON envelope.
-  v1.0 rejects archives over 64 MiB compressed or 256 MiB expanded, more than
-  5,000 files, more than 128 MiB of file payloads, a file over 24 MiB, or an
+  rejects archives over 64 MiB compressed or 256 MiB expanded, more than
+  5,000 files, more than 128 MiB of file payloads, a file over 64 MiB, or an
   excessive compression ratio.
 - Restore validates the archive, state, paths, sizes, Base64, and SHA-256
   manifest before installing files. It writes to a same-volume staging

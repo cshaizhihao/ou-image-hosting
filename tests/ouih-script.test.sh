@@ -5,6 +5,7 @@ set -Eeuo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SOURCE_SCRIPT="$ROOT_DIR/scripts/ouih"
 TEST_ROOT="$(mktemp -d)"
+TEST_ROOT="$(cd "$TEST_ROOT" && pwd -P)"
 MOCK_BIN="$TEST_ROOT/mock-bin"
 SHIM_BIN="$TEST_ROOT/shim-bin"
 MOCK_LOG="$TEST_ROOT/mock.log"

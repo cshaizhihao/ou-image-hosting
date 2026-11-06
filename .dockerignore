@@ -7,6 +7,10 @@
 !.env.production.example
 .next
 **/.next
+**/.next-preview
+**/.next-e2e
+**/next-env.d.ts
+.playwright-cli
 dist
 **/dist
 node_modules

@@ -478,6 +478,9 @@ export async function buildApp(options: BuildAppOptions = {}) {
     if (!user || !membership || !workspace) {
       throw new PublicError(401, "INVALID_API_TOKEN", "API Token 无效");
     }
+    if (user.disabledAt) {
+      throw new PublicError(403, "ACCOUNT_DISABLED", "账号已被停用，请联系站点管理员");
+    }
     return {
       kind: "api-token",
       user,
@@ -656,13 +659,13 @@ export async function buildApp(options: BuildAppOptions = {}) {
   app.get("/health", async () => ({
     status: "ok",
     service: "ou-image-api",
-    version: "1.0.0"
+    version: "1.1.0"
   }));
 
   app.get("/health/live", async () => ({
     status: "ok",
     service: "ou-image-api",
-    version: "1.0.0"
+    version: "1.1.0"
   }));
 
   const probeDirectory = async (directory: string, label: string) => {
@@ -1135,6 +1138,9 @@ export async function buildApp(options: BuildAppOptions = {}) {
           state.sessions = state.sessions.filter(
             (session) => session.userId !== user.id
           );
+          state.apiTokens.forEach((token) => {
+            if (token.userId === user.id && !token.revokedAt) token.revokedAt = timestamp;
+          });
         }
         addAuditEvent(state, {
           principal,
@@ -1323,7 +1329,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
       const email = normalizeEmail(request.body.email);
       const user = store.snapshot().users.find((item) => item.email === email);
       let resetToken: string | undefined;
-      if (user) {
+      if (user && exposeDevelopmentResetToken) {
         resetToken = createOpaqueToken();
         const timestamp = now();
         await store.update((state) => {
@@ -1342,7 +1348,8 @@ export async function buildApp(options: BuildAppOptions = {}) {
         });
       }
       return {
-        message: "如果该邮箱存在，我们已创建密码重置请求",
+        message: exposeDevelopmentResetToken ? "如果该邮箱存在，我们已创建密码重置请求" : "本站尚未配置邮件找回，请联系站点管理员恢复账号",
+        recoveryMethod: exposeDevelopmentResetToken ? "development" : "administrator",
         ...(resetToken && exposeDevelopmentResetToken
           ? { developmentResetToken: resetToken }
           : {})
@@ -1406,6 +1413,8 @@ export async function buildApp(options: BuildAppOptions = {}) {
         draft.sessions = draft.sessions.filter(
           (session) => session.userId !== user.id
         );
+        draft.apiTokens.forEach((token) => { if (token.userId === user.id && !token.revokedAt) token.revokedAt = timestamp.toISOString(); });
+        draft.loginChallenges = draft.loginChallenges.filter((challenge) => challenge.userId !== user.id);
       });
       return { message: "密码已更新，请使用新密码登录" };
     }

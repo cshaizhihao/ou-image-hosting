@@ -1726,7 +1726,7 @@ export function StorageConsole() {
         {activeTab === "backups" && (
           <section className={styles.tabPanel}>
             <SectionTitle
-              description="创建可下载的完整备份，并设置自动保留策略。"
+              description="备份本地图片与配置，并设置保留策略。应用内备份最多容纳 128 MiB 文件；较大的图库请由管理员创建数据卷快照。"
               eyebrow="BACKUP & RESTORE"
               icon={FileArchive}
               title="备份与恢复"

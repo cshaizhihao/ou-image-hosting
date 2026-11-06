@@ -1,11 +1,13 @@
 "use client";
 
+import * as Dialog from "@radix-ui/react-dialog";
 import { Button, cn } from "@ou-image/ui";
 import {
   Album,
   Check,
   ChevronLeft,
   ChevronRight,
+  Copy,
   ExternalLink,
   Eye,
   EyeOff,
@@ -26,11 +28,11 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState
 } from "react";
 import { workspaceHeaders } from "@/lib/api";
 import { paginationWindow } from "@/lib/pagination";
+import { imageLink, type ImageLinkFormat } from "@/lib/image-links";
 import { AppShell } from "./app-shell";
 
 type LibraryImage = {
@@ -98,7 +100,9 @@ function responseMessage(payload: unknown, fallback: string) {
 }
 
 export function ImageLibrary() {
-  const restoredRef = useRef(false);
+  const [stateReady, setStateReady] = useState(false);
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  const [copyFormat, setCopyFormat] = useState<ImageLinkFormat>("url");
   const [view, setView] = useState<ViewMode>("grid");
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -142,7 +146,7 @@ export function ImageLibrary() {
       }>;
       if (saved.view === "grid" || saved.view === "list") setView(saved.view);
       if (
-        ["all", "jpeg", "png", "webp", "gif", "avif"].includes(
+        ["all", "jpeg", "png", "webp", "gif", "avif", "heic", "heif"].includes(
           saved.format ?? ""
         )
       ) {
@@ -157,21 +161,45 @@ export function ImageLibrary() {
     } catch {
       window.localStorage.removeItem(preferencesKey);
     }
-    restoredRef.current = true;
+    const params = new URLSearchParams(window.location.search);
+    const initialQuery = params.get("q") ?? "";
+    setQuery(initialQuery);
+    setDebouncedQuery(initialQuery.trim());
+    if (params.has("format") && ["all", "jpeg", "png", "webp", "gif", "avif", "heic", "heif"].includes(params.get("format")!)) setFormat(params.get("format") as FormatFilter);
+    if (params.has("sort") && ["newest", "oldest", "name", "size"].includes(params.get("sort")!)) setSort(params.get("sort") as SortMode);
+    if (["grid", "list"].includes(params.get("view") ?? "")) setView(params.get("view") as ViewMode);
+    if ([12, 24, 48].includes(Number(params.get("limit")))) setPageSize(Number(params.get("limit")));
+    const initialPage = Number(params.get("page"));
+    if (Number.isSafeInteger(initialPage) && initialPage > 0) setPage(initialPage);
+    setStateReady(true);
   }, []);
 
   useEffect(() => {
-    if (!restoredRef.current) return;
+    if (!stateReady) return;
     window.localStorage.setItem(
       preferencesKey,
       JSON.stringify({ view, format, sort, pageSize })
     );
-  }, [view, format, sort, pageSize]);
+  }, [stateReady, view, format, sort, pageSize]);
+
+  const libraryHref = useMemo(() => {
+    const params = new URLSearchParams();
+    if (debouncedQuery) params.set("q", debouncedQuery);
+    if (format !== "all") params.set("format", format);
+    if (sort !== "newest") params.set("sort", sort);
+    if (page > 1) params.set("page", String(page));
+    if (pageSize !== 24) params.set("limit", String(pageSize));
+    if (view !== "grid") params.set("view", view);
+    return `/library${params.size ? `?${params}` : ""}`;
+  }, [debouncedQuery, format, sort, page, pageSize, view]);
+
+  useEffect(() => {
+    if (stateReady) window.history.replaceState(window.history.state, "", libraryHref);
+  }, [libraryHref, stateReady]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setDebouncedQuery(query.trim());
-      setPage(1);
     }, 260);
     return () => window.clearTimeout(timer);
   }, [query]);
@@ -237,10 +265,38 @@ export function ImageLibrary() {
   );
 
   useEffect(() => {
+    if (!stateReady) return;
     const controller = new AbortController();
     void loadImages(controller.signal);
     return () => controller.abort();
-  }, [loadImages, reloadKey]);
+  }, [loadImages, reloadKey, stateReady]);
+
+  const previewIndex = data.images.findIndex((image) => image.id === previewId);
+  const previewImage = data.images[previewIndex];
+  const movePreview = useCallback((direction: number) => {
+    setPreviewId((current) => {
+      const index = data.images.findIndex((image) => image.id === current);
+      return data.images[(index + direction + data.images.length) % data.images.length]?.id ?? null;
+    });
+  }, [data.images]);
+
+  useEffect(() => {
+    if (!previewId) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement) return;
+      if (event.key === "ArrowLeft") { event.preventDefault(); movePreview(-1); }
+      if (event.key === "ArrowRight") { event.preventDefault(); movePreview(1); }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [previewId, movePreview]);
+
+  const copyImages = async (images: LibraryImage[], format: ImageLinkFormat = copyFormat) => {
+    try {
+      await navigator.clipboard.writeText(images.map((image) => imageLink(image.name, new URL(image.originalUrl, window.location.origin).href, format)).join("\n"));
+      setNotice(`已复制 ${images.length} 张图片的${format === "url" ? "链接" : ` ${format} 内容`}。`);
+    } catch { setNotice("复制失败，请检查浏览器的剪贴板权限后重试。"); }
+  };
 
   const allSelected =
     data.images.length > 0 &&
@@ -491,9 +547,8 @@ export function ImageLibrary() {
       <main className="workspace-page library-page">
         <header className="library-header">
           <div>
-            <span className="library-eyebrow">IMAGE LIBRARY</span>
             <h1>图片库</h1>
-            <p>搜索、筛选和批量管理工作区中的图片资产。</p>
+            <p>把喜欢的画面收好，随时找到、复制和分享。</p>
           </div>
           <Button asChild>
             <Link href="/upload">
@@ -508,15 +563,17 @@ export function ImageLibrary() {
             <Search aria-hidden="true" size={17} />
             <span className="sr-only">搜索图片名称</span>
             <input
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="搜索图片名称"
+              onChange={(event) => { setQuery(event.target.value); setPage(1); }}
+              placeholder="搜索图片名称…"
+              autoComplete="off"
+              name="image-search"
               type="search"
               value={query}
             />
             {query && (
               <button
                 aria-label="清空搜索"
-                onClick={() => setQuery("")}
+                onClick={() => { setQuery(""); setPage(1); }}
                 type="button"
               >
                 <X size={15} />
@@ -540,6 +597,8 @@ export function ImageLibrary() {
               <option value="webp">WebP</option>
               <option value="gif">GIF</option>
               <option value="avif">AVIF</option>
+              <option value="heic">HEIC</option>
+              <option value="heif">HEIF</option>
             </select>
           </label>
 
@@ -620,6 +679,10 @@ export function ImageLibrary() {
           </span>
           {selected.size > 0 && (
             <>
+              <select aria-label="复制链接格式" value={copyFormat} onChange={(event) => setCopyFormat(event.target.value as ImageLinkFormat)}>
+                <option value="url">链接</option><option value="markdown">Markdown</option><option value="html">HTML</option><option value="bbcode">BBCode</option>
+              </select>
+              <Button onClick={() => void copyImages(selectedImages)} size="compact" variant="secondary"><Copy aria-hidden="true" size={15} />复制所选</Button>
               <Button
                 disabled={bulkBusy !== null}
                 onClick={() =>
@@ -765,10 +828,11 @@ export function ImageLibrary() {
                   >
                     {isSelected && <Check size={14} />}
                   </button>
-                  <Link
-                    aria-label={`查看 ${image.name} 详情`}
+                  <button
+                    aria-label={`预览 ${image.name}`}
                     className="library-item__preview"
-                    href={`/library/${image.id}`}
+                    onClick={() => { setNotice(""); setPreviewId(image.id); }}
+                    type="button"
                   >
                     <img
                       alt={image.name}
@@ -778,10 +842,10 @@ export function ImageLibrary() {
                       src={image.thumbnailUrl}
                       width={image.width}
                     />
-                  </Link>
+                  </button>
                   <div className="library-item__badges" aria-label="图片状态">
                     <span className={image.publicVisible ? "is-public" : ""}>
-                      {image.publicVisible ? "公开" : "私密"}
+                      {image.publicVisible ? "公开展示" : "未展示"}
                     </span>
                     {image.albumIds.length > 0 && (
                       <span>{image.albumIds.length} 相册</span>
@@ -789,12 +853,13 @@ export function ImageLibrary() {
                     {image.favorite && <span className="is-favorite">收藏</span>}
                   </div>
                   <div className="library-item__info">
-                    <strong title={image.name}>{image.name}</strong>
+                    <Link aria-label={`查看 ${image.name} 详情`} href={`/library/${image.id}?from=${encodeURIComponent(libraryHref)}`} prefetch={false}><strong title={image.name}>{image.name}</strong></Link>
                     <span>
                       {image.format.toUpperCase()} · {image.width} × {image.height}
                     </span>
                     <small>{formatBytes(image.size)} · {formatDate(image.createdAt)}</small>
                   </div>
+                  <button aria-label={`复制 ${image.name} 链接`} className="library-item__copy" onClick={() => void copyImages([image], "url")} type="button"><Copy aria-hidden="true" size={15} /></button>
                   <a
                     aria-label={`打开 ${image.name} 原图`}
                     className="library-item__open"
@@ -802,13 +867,32 @@ export function ImageLibrary() {
                     rel="noreferrer"
                     target="_blank"
                   >
-                    <ExternalLink size={15} />
+                    <ExternalLink aria-hidden="true" size={15} />
                   </a>
                 </li>
               );
             })}
           </ol>
         )}
+
+        <Dialog.Root open={Boolean(previewImage)} onOpenChange={(open) => { if (!open) setPreviewId(null); }}>
+          <Dialog.Portal>
+            <Dialog.Overlay className="dialog-overlay dialog-overlay--strong" />
+            <Dialog.Content className="library-preview-dialog" aria-describedby="library-preview-description">
+              {previewImage && <>
+                <header className="library-preview-heading">
+                  <div><Dialog.Title>{previewImage.name}</Dialog.Title><Dialog.Description id="library-preview-description">第 {previewIndex + 1} / {data.images.length} 张 · 使用左右方向键浏览本页</Dialog.Description></div>
+                  <Dialog.Close asChild><button aria-label="关闭快速预览" type="button"><X aria-hidden="true" size={20} /></button></Dialog.Close>
+                </header>
+                <div className="library-preview-media">
+                  <img src={["heic", "heif"].includes(previewImage.format) ? previewImage.thumbnailUrl : previewImage.originalUrl} width={previewImage.width} height={previewImage.height} alt={previewImage.name} />
+                  {data.images.length > 1 && <><button aria-label="预览上一张" className="library-preview-prev" onClick={() => movePreview(-1)} type="button"><ChevronLeft aria-hidden="true" size={22} /></button><button aria-label="预览下一张" className="library-preview-next" onClick={() => movePreview(1)} type="button"><ChevronRight aria-hidden="true" size={22} /></button></>}
+                </div>
+                <footer className="library-preview-footer"><div><strong>{previewImage.width} × {previewImage.height}</strong><span>{previewImage.format.toUpperCase()} · {formatBytes(previewImage.size)}</span><small role="status">{notice}</small></div><div><Button onClick={() => void copyImages([previewImage], "url")} variant="secondary"><Copy aria-hidden="true" size={16} />复制链接</Button><Button asChild><Link href={`/library/${previewImage.id}?from=${encodeURIComponent(libraryHref)}`}>完整详情<ExternalLink aria-hidden="true" size={15} /></Link></Button></div></footer>
+              </>}
+            </Dialog.Content>
+          </Dialog.Portal>
+        </Dialog.Root>
 
         {!loading && !error && data.total > 0 && (
           <nav className="library-pagination" aria-label="图片库分页">

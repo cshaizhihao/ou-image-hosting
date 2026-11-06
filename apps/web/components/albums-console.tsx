@@ -1,5 +1,6 @@
 "use client";
 
+import * as Dialog from "@radix-ui/react-dialog";
 import { Button, cn } from "@ou-image/ui";
 import {
   Album,
@@ -23,9 +24,12 @@ import {
 import Link from "next/link";
 import {
   type FormEvent,
+  type ReactNode,
   useCallback,
   useEffect,
+  useId,
   useMemo,
+  useRef,
   useState
 } from "react";
 import { apiRequest } from "@/lib/api";
@@ -62,7 +66,37 @@ type LibraryImage = {
 type ImageListResponse = {
   images: LibraryImage[];
   total: number;
+  page: number;
+  totalPages: number;
 };
+
+function AlbumDialog({ children, className, onClose }: {
+  children: ReactNode;
+  className?: string;
+  onClose: () => void;
+}) {
+  const returnFocus = useRef<HTMLElement | null>(null);
+  return (
+    <Dialog.Root open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <Dialog.Portal>
+        <Dialog.Overlay className={styles.dialogBackdrop}>
+          <Dialog.Content
+            className={cn(styles.dialog, className)}
+            onOpenAutoFocus={() => { returnFocus.current = document.activeElement as HTMLElement; }}
+            onCloseAutoFocus={(event) => {
+              if (returnFocus.current?.isConnected) {
+                event.preventDefault();
+                returnFocus.current.focus();
+              }
+            }}
+          >
+            {children}
+          </Dialog.Content>
+        </Dialog.Overlay>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("zh-CN", {
@@ -96,6 +130,14 @@ export function AlbumsConsole() {
   const [albumImages, setAlbumImages] = useState<LibraryImage[]>([]);
   const [libraryImages, setLibraryImages] = useState<LibraryImage[]>([]);
   const [imageQuery, setImageQuery] = useState("");
+  const [imagePage, setImagePage] = useState(1);
+  const [imageTotalPages, setImageTotalPages] = useState(1);
+  const [imageTotal, setImageTotal] = useState(0);
+  const [libraryLoading, setLibraryLoading] = useState(false);
+  const [coverPage, setCoverPage] = useState(1);
+  const [coverTotalPages, setCoverTotalPages] = useState(1);
+  const [manageRevision, setManageRevision] = useState(0);
+  const manageTabsId = useId();
   const [selectedImages, setSelectedImages] = useState<Set<string>>(new Set());
   const [manageLoading, setManageLoading] = useState(false);
   const [manageBusy, setManageBusy] = useState("");
@@ -118,19 +160,6 @@ export function AlbumsConsole() {
   useEffect(() => {
     void loadAlbums();
   }, [loadAlbums]);
-
-  useEffect(() => {
-    if (!dialogOpen && !deleteAlbum && !managingAlbumId) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setDialogOpen(false);
-        setDeleteAlbum(null);
-        setManagingAlbumId("");
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [dialogOpen, deleteAlbum, managingAlbumId]);
 
   const totalImages = useMemo(
     () => albums.reduce((total, album) => total + album.imageCount, 0),
@@ -157,45 +186,68 @@ export function AlbumsConsole() {
 
   const addableImages = useMemo(() => {
     if (!managedAlbum) return [];
-    const keyword = imageQuery.trim().toLocaleLowerCase();
     return libraryImages.filter(
-      (image) =>
-        !image.albumIds.includes(managedAlbum.id) &&
-        (!keyword || image.name.toLocaleLowerCase().includes(keyword))
+      (image) => !image.albumIds.includes(managedAlbum.id)
     );
-  }, [imageQuery, libraryImages, managedAlbum]);
+  }, [libraryImages, managedAlbum]);
 
   const allAddableSelected =
     addableImages.length > 0 &&
     addableImages.every((image) => selectedImages.has(image.id));
 
-  const loadManageImages = useCallback(async (albumId: string) => {
+  useEffect(() => {
+    if (!managingAlbumId) return;
+    const controller = new AbortController();
     setManageLoading(true);
     setManageError("");
-    try {
-      const [albumPayload, libraryPayload] = await Promise.all([
-        apiRequest<ImageListResponse>(`/albums/${albumId}/images`),
-        apiRequest<ImageListResponse>("/uploads?page=1&limit=100&sort=newest")
-      ]);
-      setAlbumImages(albumPayload.images);
-      setLibraryImages(libraryPayload.images);
-    } catch (requestError) {
-      setManageError(requestMessage(requestError, "相册图片加载失败"));
-    } finally {
-      setManageLoading(false);
-    }
-  }, []);
+    const params = new URLSearchParams({ albumId: managingAlbumId, page: String(coverPage), limit: "24" });
+    void apiRequest<ImageListResponse>(`/uploads?${params}`, { signal: controller.signal })
+      .then((payload) => {
+        if (controller.signal.aborted) return;
+        setAlbumImages(payload.images);
+        setCoverTotalPages(payload.totalPages);
+      })
+      .catch((requestError: unknown) => {
+        if (!controller.signal.aborted) setManageError(requestMessage(requestError, "相册图片加载失败"));
+      })
+      .finally(() => { if (!controller.signal.aborted) setManageLoading(false); });
+    return () => controller.abort();
+  }, [managingAlbumId, coverPage, manageRevision]);
+
+  useEffect(() => {
+    if (!managingAlbumId || manageView !== "add") return;
+    const controller = new AbortController();
+    setLibraryLoading(true);
+    setManageError("");
+    const timer = window.setTimeout(() => {
+      const params = new URLSearchParams({ excludeAlbumId: managingAlbumId, q: imageQuery.trim(), page: String(imagePage), limit: "24" });
+      void apiRequest<ImageListResponse>(`/uploads?${params}`, { signal: controller.signal })
+        .then((payload) => {
+          if (controller.signal.aborted) return;
+          setLibraryImages(payload.images);
+          setImageTotalPages(payload.totalPages);
+          setImageTotal(payload.total);
+          setImagePage(payload.page);
+        })
+        .catch((requestError: unknown) => {
+          if (!controller.signal.aborted) setManageError(requestMessage(requestError, "图片库加载失败"));
+        })
+        .finally(() => { if (!controller.signal.aborted) setLibraryLoading(false); });
+    }, 240);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [managingAlbumId, manageView, imageQuery, imagePage]);
 
   const openManageDialog = (album: AlbumItem, view: ManageView = "overview") => {
     setManagingAlbumId(album.id);
     setManageView(view);
     setImageQuery("");
+    setImagePage(1);
+    setCoverPage(1);
     setSelectedImages(new Set());
     setManageNotice("");
     setManageError("");
     setAlbumImages([]);
     setLibraryImages([]);
-    void loadManageImages(album.id);
   };
 
   const updateManagedAlbum = (album: AlbumItem) => {
@@ -303,6 +355,8 @@ export function AlbumsConsole() {
         // The images were added successfully; the optimistic summary remains usable.
       }
       setManageNotice(`已将 ${addedCount} 张图片加入相册。`);
+      setCoverPage(1);
+      setManageRevision((revision) => revision + 1);
       setSelectedImages(new Set());
       setManageView("overview");
     } catch (requestError) {
@@ -585,26 +639,15 @@ export function AlbumsConsole() {
       </main>
 
       {managedAlbum && (
-        <div
-          className={styles.dialogBackdrop}
-          onMouseDown={(event) => {
-            if (event.currentTarget === event.target) setManagingAlbumId("");
-          }}
-        >
-          <section
-            aria-labelledby="manage-album-title"
-            aria-modal="true"
-            className={cn(styles.dialog, styles.manageDialog)}
-            role="dialog"
-          >
+        <AlbumDialog className={styles.manageDialog} onClose={() => setManagingAlbumId("")}>
             <div className={styles.dialogHead}>
               <div className={styles.dialogTitle}>
                 <span>
                   <Album aria-hidden="true" size={18} />
                 </span>
                 <div>
-                  <strong id="manage-album-title">{managedAlbum.name}</strong>
-                  <small>相册详情与内容管理</small>
+                  <Dialog.Title asChild><strong>{managedAlbum.name}</strong></Dialog.Title>
+                  <Dialog.Description asChild><small>相册详情与内容管理</small></Dialog.Description>
                 </div>
               </div>
               <button
@@ -617,8 +660,20 @@ export function AlbumsConsole() {
               </button>
             </div>
 
-            <div className={styles.manageTabs} role="tablist" aria-label="相册管理">
+            <div className={styles.manageTabs} role="tablist" aria-label="相册管理" onKeyDown={(event) => {
+              if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+              const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+              const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+              if (index < 0) return;
+              event.preventDefault();
+              const next = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + buttons.length) % buttons.length;
+              buttons[next]?.focus();
+              buttons[next]?.click();
+            }}>
               <button
+                id={`${manageTabsId}-overview`}
+                aria-controls={`${manageTabsId}-panel`}
+                tabIndex={manageView === "overview" ? 0 : -1}
                 aria-selected={manageView === "overview"}
                 onClick={() => setManageView("overview")}
                 role="tab"
@@ -628,6 +683,9 @@ export function AlbumsConsole() {
                 详情
               </button>
               <button
+                id={`${manageTabsId}-cover`}
+                aria-controls={`${manageTabsId}-panel`}
+                tabIndex={manageView === "cover" ? 0 : -1}
                 aria-selected={manageView === "cover"}
                 onClick={() => setManageView("cover")}
                 role="tab"
@@ -637,6 +695,9 @@ export function AlbumsConsole() {
                 封面
               </button>
               <button
+                id={`${manageTabsId}-add`}
+                aria-controls={`${manageTabsId}-panel`}
+                tabIndex={manageView === "add" ? 0 : -1}
                 aria-selected={manageView === "add"}
                 onClick={() => setManageView("add")}
                 role="tab"
@@ -647,7 +708,7 @@ export function AlbumsConsole() {
               </button>
             </div>
 
-            <div className={styles.manageBody}>
+            <div className={styles.manageBody} id={`${manageTabsId}-panel`} role="tabpanel" aria-labelledby={`${manageTabsId}-${manageView}`} aria-busy={manageLoading || libraryLoading}>
               {manageNotice && (
                 <p className={cn(styles.notice, styles.manageFeedback)} role="status">
                   <Check aria-hidden="true" size={16} />
@@ -817,16 +878,21 @@ export function AlbumsConsole() {
                       })}
                     </div>
                   )}
+                  {coverTotalPages > 1 && <nav className={styles.pagination} aria-label="封面选图分页">
+                    <span>第 {coverPage} / {coverTotalPages} 页</span>
+                    <Button size="compact" variant="secondary" disabled={coverPage <= 1} onClick={() => setCoverPage((page) => page - 1)}>上一页</Button>
+                    <Button size="compact" variant="secondary" disabled={coverPage >= coverTotalPages} onClick={() => setCoverPage((page) => page + 1)}>下一页</Button>
+                  </nav>}
                 </div>
               ) : (
                 <div className={styles.addPanel}>
                   <div className={styles.sectionHeading}>
                     <div>
                       <strong>从图片库添加</strong>
-                      <small>可多选，图片会同时保留在图片库中</small>
+                      <small>可多选，先加入本页选择，再切换分页。图片仍保留在图片库中</small>
                     </div>
                     <div className={styles.selectionTools}>
-                      {addableImages.length > 0 && (
+                      {!libraryLoading && addableImages.length > 0 && (
                         <button
                           onClick={() =>
                             setSelectedImages((current) => {
@@ -842,7 +908,7 @@ export function AlbumsConsole() {
                         >
                           {allAddableSelected
                             ? "取消全选"
-                            : "全选当前结果"}
+                            : "全选本页"}
                         </button>
                       )}
                       <span className={styles.selectionCount}>
@@ -853,13 +919,15 @@ export function AlbumsConsole() {
                   <label className={styles.dialogSearch}>
                     <Search aria-hidden="true" size={16} />
                     <input
-                      onChange={(event) => setImageQuery(event.target.value)}
-                      placeholder="搜索最近 100 张图片"
+                      onChange={(event) => { setImageQuery(event.target.value); setImagePage(1); setSelectedImages(new Set()); }}
+                      placeholder="搜索整个图片库"
                       type="search"
                       value={imageQuery}
                     />
                   </label>
-                  {addableImages.length === 0 ? (
+                  {libraryLoading ? (
+                    <div className={styles.manageLoading} role="status"><LoaderCircle aria-hidden="true" className={styles.spin} size={22} />正在搜索图片</div>
+                  ) : addableImages.length === 0 ? (
                     <div className={styles.compactEmpty}>
                       <Check aria-hidden="true" size={24} />
                       <strong>
@@ -891,12 +959,17 @@ export function AlbumsConsole() {
                       })}
                     </div>
                   )}
+                  <nav className={styles.pagination} aria-label="选图分页">
+                    <span>共 {imageTotal} 张可添加图片 · 第 {imagePage} / {imageTotalPages} 页</span>
+                    <Button size="compact" variant="secondary" disabled={libraryLoading || imagePage <= 1} onClick={() => { setImagePage((page) => page - 1); setSelectedImages(new Set()); }}>上一页</Button>
+                    <Button size="compact" variant="secondary" disabled={libraryLoading || imagePage >= imageTotalPages} onClick={() => { setImagePage((page) => page + 1); setSelectedImages(new Set()); }}>下一页</Button>
+                  </nav>
                   <div className={styles.stickyActions}>
                     <Button onClick={() => setManageView("overview")} variant="ghost">
                       返回详情
                     </Button>
                     <Button
-                      disabled={selectedImages.size === 0 || Boolean(manageBusy)}
+                      disabled={libraryLoading || selectedImages.size === 0 || Boolean(manageBusy)}
                       onClick={() => void addImagesToAlbum()}
                     >
                       {manageBusy === "add-images" ? (
@@ -912,31 +985,19 @@ export function AlbumsConsole() {
                 </div>
               )}
             </div>
-          </section>
-        </div>
+        </AlbumDialog>
       )}
 
       {dialogOpen && (
-        <div
-          className={styles.dialogBackdrop}
-          onMouseDown={(event) => {
-            if (event.currentTarget === event.target) setDialogOpen(false);
-          }}
-        >
-          <section
-            aria-labelledby="album-dialog-title"
-            aria-modal="true"
-            className={styles.dialog}
-            role="dialog"
-          >
+        <AlbumDialog onClose={() => setDialogOpen(false)}>
             <div className={styles.dialogHead}>
               <div className={styles.dialogTitle}>
                 <span>
                   <FolderPlus aria-hidden="true" size={18} />
                 </span>
                 <div>
-                  <strong id="album-dialog-title">{dialogTitle}</strong>
-                  <small>{dialogSubtitle}</small>
+                  <Dialog.Title asChild><strong>{dialogTitle}</strong></Dialog.Title>
+                  <Dialog.Description asChild><small>{dialogSubtitle}</small></Dialog.Description>
                 </div>
               </div>
               <button
@@ -988,31 +1049,18 @@ export function AlbumsConsole() {
                 </Button>
               </div>
             </form>
-          </section>
-        </div>
+        </AlbumDialog>
       )}
 
       {deleteAlbum && (
-        <div
-          className={styles.dialogBackdrop}
-          onMouseDown={(event) => {
-            if (event.currentTarget === event.target) setDeleteAlbum(null);
-          }}
-        >
-          <section
-            aria-describedby="delete-album-description"
-            aria-labelledby="delete-album-title"
-            aria-modal="true"
-            className={cn(styles.dialog, styles.confirmDialog)}
-            role="dialog"
-          >
+        <AlbumDialog className={styles.confirmDialog} onClose={() => setDeleteAlbum(null)}>
             <div className={styles.confirmIcon}>
               <Trash2 aria-hidden="true" size={22} />
             </div>
-            <h2 id="delete-album-title">删除相册「{deleteAlbum.name}」？</h2>
-            <p id="delete-album-description">
+            <Dialog.Title asChild><h2>删除相册「{deleteAlbum.name}」？</h2></Dialog.Title>
+            <Dialog.Description asChild><p>
               这只会移除相册分类和图片归属关系，原图片仍会保留在图片库和其他相册里。
-            </p>
+            </p></Dialog.Description>
             <div className={styles.dialogActions}>
               <Button
                 disabled={deleting}
@@ -1034,8 +1082,7 @@ export function AlbumsConsole() {
                 确认删除
               </Button>
             </div>
-          </section>
-        </div>
+        </AlbumDialog>
       )}
     </AppShell>
   );
