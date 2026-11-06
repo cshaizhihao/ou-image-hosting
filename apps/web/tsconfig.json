@@ -18,12 +18,16 @@
     "strict": true
   },
   "include": [
-    "next-env.d.ts",
-    ".next/types/**/*.ts",
+    "env.d.ts",
     "**/*.ts",
-    "**/*.tsx"
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    "next-env.d.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    ".next-preview",
+    ".next-e2e",
+    "next-env.d.ts"
   ]
 }

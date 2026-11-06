@@ -1,5 +1,4 @@
-import { UploadWorkbench } from "@/components/upload-workbench";
-
 export default function UploadPage() {
-  return <UploadWorkbench />;
+  // The root layout owns this workspace so uploads continue across navigation.
+  return null;
 }

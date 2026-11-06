@@ -1,0 +1,5 @@
+services:
+  api:
+    cpus: "1.0"
+  web:
+    cpus: "1.0"

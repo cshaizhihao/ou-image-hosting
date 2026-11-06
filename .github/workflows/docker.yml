@@ -5,6 +5,9 @@ on:
     paths:
       - Dockerfile
       - docker-compose.yml
+      - compose.tunnel.yml
+      - scripts/container-smoke.mjs
+      - tests/compose-smoke.yml
       - .dockerignore
       - package.json
       - pnpm-lock.yaml
@@ -18,6 +21,9 @@ on:
     paths:
       - Dockerfile
       - docker-compose.yml
+      - compose.tunnel.yml
+      - scripts/container-smoke.mjs
+      - tests/compose-smoke.yml
       - .dockerignore
       - package.json
       - pnpm-lock.yaml
@@ -41,6 +47,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.22.1
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -51,6 +62,7 @@ jobs:
           file: Dockerfile
           target: api
           push: false
+          load: true
           tags: ou-image-hosting-api:ci
           cache-from: type=gha,scope=ou-image-hosting
           cache-to: type=gha,mode=max,scope=ou-image-hosting
@@ -62,6 +74,36 @@ jobs:
           file: Dockerfile
           target: web
           push: false
+          load: true
           tags: ou-image-hosting-web:ci
           cache-from: type=gha,scope=ou-image-hosting
           cache-to: type=gha,mode=max,scope=ou-image-hosting
+
+      - name: Start disposable production containers
+        run: |
+          umask 077
+          cat > /tmp/ouih-ci.env <<EOF
+          OU_ENV_FILE=/tmp/ouih-ci.env
+          APP_ORIGIN=http://localhost:3290
+          OU_SECRET_KEY=$(openssl rand -hex 32)
+          COOKIE_SECURE=false
+          WEB_BIND_PORT=3290
+          OU_IMAGE_TAG=ci
+          EOF
+          printf '%s\n' 'TUNNEL_TOKEN=unused-ci-validation' > .env.tunnel
+          OU_API_IMAGE=ou-image-hosting-api:ci OU_WEB_IMAGE=ou-image-hosting-web:ci docker compose -p ouih-ci --env-file /tmp/ouih-ci.env -f docker-compose.yml -f compose.tunnel.yml config --quiet
+          docker compose -p ouih-ci --env-file /tmp/ouih-ci.env -f docker-compose.yml -f tests/compose-smoke.yml up -d --no-build --wait --wait-timeout 150 api web
+
+      - name: Exercise production runtime
+        env:
+          OU_CONTAINER_SMOKE_ORIGIN: http://127.0.0.1:3290
+        run: node scripts/container-smoke.mjs
+
+      - name: Stop disposable containers
+        if: always()
+        run: |
+          if [ -f /tmp/ouih-ci.env ]; then
+            docker compose -p ouih-ci --env-file /tmp/ouih-ci.env -f docker-compose.yml -f tests/compose-smoke.yml down --volumes
+            rm -f /tmp/ouih-ci.env
+          fi
+          rm -f .env.tunnel

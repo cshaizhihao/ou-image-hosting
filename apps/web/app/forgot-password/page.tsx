@@ -12,6 +12,7 @@ export default function ForgotPasswordPage() {
   const [sent, setSent] = useState(false);
   const [developmentToken, setDevelopmentToken] = useState("");
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -27,6 +28,7 @@ export default function ForgotPasswordPage() {
         body: JSON.stringify({ email: form.get("email") })
       });
       setDevelopmentToken(result.developmentResetToken ?? "");
+      setMessage(result.message);
       setSent(true);
     } catch (requestError) {
       setError(requestError instanceof ApiError ? requestError.message : "提交失败");
@@ -43,7 +45,7 @@ export default function ForgotPasswordPage() {
             <div className="auth-heading">
               <span className="auth-heading__icon"><Mail size={21} /></span>
               <h2>找回密码</h2>
-              <p>输入管理员邮箱，我们会创建一次性重置请求。</p>
+              <p>输入账号邮箱，查看本站可用的账号恢复方式。</p>
             </div>
             <label className="field">
               <span>邮箱地址</span>
@@ -51,7 +53,7 @@ export default function ForgotPasswordPage() {
             </label>
             {error && <div className="form-message is-error">{error}</div>}
             <Button className="auth-submit" disabled={submitting} type="submit">
-              {submitting ? <LoaderCircle className="spin" size={17} /> : "创建重置请求"}
+                {submitting ? <LoaderCircle className="spin" size={17} /> : "恢复账号"}
               {!submitting && <ArrowRight size={17} />}
             </Button>
             <Button asChild variant="ghost"><Link href="/login"><ArrowLeft size={16} />返回登录</Link></Button>
@@ -60,7 +62,7 @@ export default function ForgotPasswordPage() {
           <div className="auth-result">
             <span><CircleCheck size={28} /></span>
             <h2>请求已经处理</h2>
-            <p>如果该邮箱存在，系统已经创建密码重置请求。</p>
+            <p>{message}</p>
             {developmentToken && (
               <div className="development-reset">
                 <strong>本地开发恢复入口</strong>

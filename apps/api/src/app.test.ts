@@ -25,9 +25,10 @@ import {
   hashPassword,
   totpAt
 } from "./security.js";
-import { AppStore } from "./store.js";
+import { AppStore, type AppState } from "./store.js";
 import { MaintenanceGate } from "./maintenance.js";
 import { assertProductionConfiguration } from "./runtime.js";
+import { recoverAccount } from "./recover-account.js";
 
 const apps: Awaited<ReturnType<typeof buildApp>>[] = [];
 const rawInjectors = new WeakMap<
@@ -43,6 +44,7 @@ async function createTestApp(
   options: {
     now?: () => Date;
     store?: AppStore;
+    exposeDevelopmentResetToken?: boolean;
     onDataDirectory?: (directory: string) => void;
   } = {}
 ) {
@@ -54,7 +56,7 @@ async function createTestApp(
   const app = await buildApp({
     store: options.store ?? new AppStore(null),
     dataDirectory,
-    exposeDevelopmentResetToken: true,
+    exposeDevelopmentResetToken: options.exposeDevelopmentResetToken ?? true,
     now: options.now
   });
   const inject = app.inject.bind(app) as (request: any) => Promise<any>;
@@ -92,6 +94,7 @@ function rawInject(
 
 afterEach(async () => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   if (initialSecretKey === undefined) {
     delete process.env.OU_SECRET_KEY;
   } else {
@@ -141,11 +144,11 @@ describe("OU-Image API", () => {
     expect(health.statusCode).toBe(200);
     expect(health.json()).toMatchObject({
       status: "ok",
-      version: "1.0.0"
+      version: "1.1.0"
     });
     expect(live.json()).toMatchObject({
       status: "ok",
-      version: "1.0.0"
+      version: "1.1.0"
     });
     expect(ready.statusCode).toBe(200);
     expect(ready.json()).toMatchObject({
@@ -471,6 +474,16 @@ describe("OU-Image API", () => {
     });
     expect(adminAudit.statusCode).toBe(200);
 
+    const issuedToken = await app.inject({
+      method: "POST", url: "/api-tokens",
+      cookies: { ou_session: adminCookie.value },
+      headers: { "x-workspace-id": backofficeWorkspaceId },
+      payload: { name: "停用回归验证", scopes: ["images:read"] }
+    });
+    expect(issuedToken.statusCode).toBe(201);
+    const tokenAuthorization = { authorization: `Bearer ${issuedToken.json().value}` };
+    expect((await app.inject({ method: "GET", url: "/uploads", headers: tokenAuthorization })).statusCode).toBe(200);
+
     const reset = await app.inject({
       method: "POST",
       url: `/site/users/${memberId}/password-reset`,
@@ -494,6 +507,7 @@ describe("OU-Image API", () => {
       payload: { disabled: true }
     });
     expect(disabled.statusCode).toBe(200);
+    expect((await app.inject({ method: "GET", url: "/uploads", headers: tokenAuthorization })).statusCode).toBe(401);
     const revokedSession = await app.inject({
       method: "GET",
       url: "/auth/session",
@@ -579,7 +593,8 @@ describe("OU-Image API", () => {
   });
 
   it("keeps password recovery responses account-neutral", async () => {
-    const app = await createTestApp();
+    const store = new AppStore(null);
+    const app = await createTestApp({ store, exposeDevelopmentResetToken: false });
     await app.inject({ method: "POST", url: "/setup", payload: owner });
     const known = await app.inject({
       method: "POST",
@@ -594,6 +609,34 @@ describe("OU-Image API", () => {
 
     expect(known.json().message).toBe(unknown.json().message);
     expect(unknown.json().developmentResetToken).toBeUndefined();
+    expect(known.json()).toEqual(unknown.json());
+    expect(known.json().recoveryMethod).toBe("administrator");
+    expect(store.snapshot().passwordResets).toEqual([]);
+  });
+
+  it("recovers an account offline and revokes prior sessions and API tokens", async () => {
+    const store = new AppStore(null);
+    const app = await createTestApp({ store });
+    const setup = await app.inject({ method: "POST", url: "/setup", payload: owner });
+    const cookies = { ou_session: setup.cookies.find((item) => item.name === "ou_session")!.value };
+    const token = await app.inject({ method: "POST", url: "/api-tokens", cookies, payload: { name: "old-automation", scopes: ["images:read"] } });
+    expect(token.statusCode).toBe(201);
+    const headers = { authorization: `Bearer ${token.json().value}` };
+    expect((await app.inject({ method: "GET", url: "/uploads", headers })).statusCode).toBe(200);
+    const before = store.snapshot();
+    await expect(recoverAccount(store, owner.email, "weak")).rejects.toThrow();
+    await expect(recoverAccount(store, "missing@example.com", "Recovered-Password-2026!")).rejects.toThrow();
+    expect(store.snapshot()).toEqual(before);
+    await recoverAccount(store, owner.email, "Recovered-Password-2026!");
+    expect((await app.inject({ method: "GET", url: "/auth/session", cookies })).statusCode).toBe(401);
+    expect((await app.inject({ method: "GET", url: "/uploads", headers })).statusCode).toBe(401);
+    const login = await app.inject({ method: "POST", url: "/auth/login", payload: { email: owner.email, password: "Recovered-Password-2026!" } });
+    expect(login.statusCode).toBe(200);
+    await store.update((state) => { state.users[0]!.totpSecretCiphertext = "preserve-this-encrypted-secret"; });
+    await recoverAccount(store, owner.email, "Recovered-Password-Again-2026!");
+    expect(store.snapshot().users[0]!.totpSecretCiphertext).toBe("preserve-this-encrypted-secret");
+    await recoverAccount(store, owner.email, "Recovered-Password-Again-2026!", true);
+    expect(store.snapshot().users[0]!.totpSecretCiphertext).toBeUndefined();
   });
 
   it("uploads, thumbnails and deduplicates a real PNG", async () => {
@@ -1326,6 +1369,100 @@ describe("OU-Image API", () => {
       accessCount: 1
     });
     expect(detail.json().image.shares[0].revokedAt).toBeTypeOf("string");
+  });
+
+  it("keeps quota atomic across simultaneous image uploads", async () => {
+    const colors = ["#0099cc", "#cc7700"];
+    const images = await Promise.all(colors.map((background) => sharp({ create: { width: 16, height: 16, channels: 3, background } }).png().toBuffer()));
+    vi.stubEnv("OU_STORAGE_QUOTA_BYTES", String(images[0]!.byteLength + images[1]!.byteLength - 1));
+    let dataDirectory = "";
+    const store = new AppStore(null);
+    const app = await createTestApp({ store, onDataDirectory: (directory) => { dataDirectory = directory; } });
+    const setup = await app.inject({ method: "POST", url: "/setup", payload: owner });
+    const cookies = { ou_session: setup.cookies.find((item) => item.name === "ou_session")!.value };
+    const responses = await Promise.all(images.map((buffer, index) => {
+      const form = new FormData();
+      form.append("file", buffer, { filename: `concurrent-${index}.png`, contentType: "image/png" });
+      return app.inject({ method: "POST", url: "/uploads", headers: form.getHeaders(), cookies, payload: form.getBuffer() });
+    }));
+    expect(responses.map((response) => response.statusCode).sort()).toEqual([201, 413]);
+    expect(store.snapshot().images).toHaveLength(1);
+    expect(await readdir(path.join(dataDirectory, "storage/originals"))).toHaveLength(1);
+    expect(await readdir(path.join(dataDirectory, "storage/thumbnails"))).toHaveLength(1);
+  });
+
+  it("does not unlink an original reused by an upload during permanent deletion", async () => {
+    const store = new AppStore(null);
+    let dataDirectory = "";
+    const app = await createTestApp({ store, onDataDirectory: (directory) => { dataDirectory = directory; } });
+    const setup = await app.inject({ method: "POST", url: "/setup", payload: owner });
+    const cookies = { ou_session: setup.cookies.find((item) => item.name === "ou_session")!.value };
+    const png = await sharp({ create: { width: 16, height: 16, channels: 3, background: "#712ad3" } }).png().toBuffer();
+    const send = () => {
+      const form = new FormData();
+      form.append("file", png, { filename: "same-original.png", contentType: "image/png" });
+      return app.inject({ method: "POST", url: "/uploads", headers: form.getHeaders(), cookies, payload: form.getBuffer() });
+    };
+    const original = await send();
+    const id = original.json().image.id;
+    await app.inject({ method: "POST", url: "/uploads/bulk", cookies, payload: { ids: [id], action: "trash" } });
+    let releaseDeletion!: () => void;
+    let deletionEntered!: () => void;
+    const barrier = new Promise<void>((resolve) => { releaseDeletion = resolve; });
+    const entered = new Promise<void>((resolve) => { deletionEntered = resolve; });
+    const update = store.update.bind(store);
+    store.update = async <T>(mutate: (draft: AppState) => T | Promise<T>) => {
+      const result = await update(mutate);
+      if (result && typeof result === "object" && "deleted" in result && "keys" in result) {
+        deletionEntered();
+        await barrier;
+      }
+      return result;
+    };
+    const deletion = Promise.resolve(app.inject({ method: "POST", url: "/trash/bulk", cookies, payload: { ids: [id], action: "delete" } }));
+    await entered;
+    const replacement = Promise.resolve(send());
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    releaseDeletion();
+    expect((await deletion).statusCode).toBe(200);
+    const uploaded = await replacement;
+    expect(uploaded.statusCode).toBe(201);
+    const current = store.snapshot().images[0]!;
+    expect(current.id).not.toBe(id);
+    expect(await readFile(path.join(dataDirectory, "storage", current.originalKey))).toEqual(png);
+    expect(await readdir(path.join(dataDirectory, "storage/thumbnails"))).toHaveLength(1);
+  });
+
+  it("searches and paginates the full library when adding images to albums", async () => {
+    const store = new AppStore(null);
+    const app = await createTestApp({ store });
+    const setup = await app.inject({ method: "POST", url: "/setup", payload: owner });
+    const cookies = { ou_session: setup.cookies.find((item) => item.name === "ou_session")!.value };
+    const png = await sharp({ create: { width: 8, height: 8, channels: 3, background: "blue" } }).png().toBuffer();
+    const form = new FormData();
+    form.append("file", png, { filename: "seed.png", contentType: "image/png" });
+    const upload = await app.inject({ method: "POST", url: "/uploads", headers: form.getHeaders(), cookies, payload: form.getBuffer() });
+    expect(upload.statusCode).toBe(201);
+    const albumResponse = await app.inject({ method: "POST", url: "/albums", cookies, payload: { name: "已有归档" } });
+    const albumId = albumResponse.json().album.id as string;
+    await store.update((state) => {
+      const seed = state.images[0]!;
+      state.images = Array.from({ length: 105 }, (_, index) => ({
+        ...seed, id: `catalog-${index}`, name: index === 104 ? "很早以前的海边.png" : `素材-${index}.png`,
+        createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, 105 - index)).toISOString(),
+        albumIds: index < 5 ? [albumId] : []
+      }));
+      state.images.push({ ...seed, id: "foreign", workspaceId: "another-workspace", name: "很早以前的海边.png" });
+    });
+    const search = await app.inject({ method: "GET", url: `/uploads?excludeAlbumId=${albumId}&q=${encodeURIComponent("海边")}&limit=24`, cookies });
+    expect(search.statusCode).toBe(200);
+    expect(search.json()).toMatchObject({ total: 1, images: [{ id: "catalog-104" }] });
+    const secondPage = await app.inject({ method: "GET", url: `/uploads?excludeAlbumId=${albumId}&page=2&limit=24`, cookies });
+    expect(secondPage.json()).toMatchObject({ page: 2, total: 100, totalPages: 5 });
+    expect(secondPage.json().images).toHaveLength(24);
+    expect(secondPage.json().images[0].id).toBe("catalog-29");
+    const cover = await app.inject({ method: "GET", url: `/uploads?albumId=${albumId}&limit=2&page=2`, cookies });
+    expect(cover.json()).toMatchObject({ total: 5, totalPages: 3, images: [{ id: "catalog-2" }, { id: "catalog-3" }] });
   });
 
   it("manages albums, tags, favorites and tag merges", async () => {
@@ -2278,6 +2415,13 @@ describe("OU-Image API", () => {
     expect(allowed.statusCode).toBe(200);
     expect(allowed.rawPayload.equals(png)).toBe(true);
 
+    const versionedPreview = await app.inject({
+      method: "GET", url: `${internalUrl}&v=current-version`,
+      headers: { referer: "https://app.example.com/gallery" }
+    });
+    expect(versionedPreview.statusCode).toBe(200);
+    expect(versionedPreview.rawPayload.equals(png)).toBe(true);
+
     const badSignature = new URL(originalUrl);
     badSignature.searchParams.set("signature", "0".repeat(64));
     const rejectedSignature = await app.inject({
@@ -2549,7 +2693,7 @@ describe("OU-Image API", () => {
     const oversized = JSON.parse(
       gunzipSync(downloaded.rawPayload).toString("utf8")
     );
-    oversized.manifest.files[0].size = 24 * 1024 * 1024 + 1;
+    oversized.manifest.files[0].size = 64 * 1024 * 1024 + 1;
     const oversizedArchive = gzipSync(
       Buffer.from(JSON.stringify(oversized))
     );
@@ -3386,6 +3530,59 @@ describe("OU-Image API", () => {
     const publicConfig = await app.inject({ method: "GET", url: "/public/config" });
     expect(publicConfig.json().site.publicUploadLivePhotoEnabled).toBe(true);
   }, 30000);
+
+  it("stores, reloads, streams and removes Live Photo video with the still image", async () => {
+    const stateDirectory = await mkdtemp(path.join(tmpdir(), "ou-live-state-"));
+    temporaryDirectories.push(stateDirectory);
+    const statePath = path.join(stateDirectory, "state.json");
+    const store = new AppStore(statePath);
+    let dataDirectory = "";
+    const app = await createTestApp({ store, onDataDirectory: (directory) => { dataDirectory = directory; } });
+    const setup = await app.inject({ method: "POST", url: "/setup", payload: owner });
+    const cookies = { ou_session: setup.cookies.find((item) => item.name === "ou_session")!.value };
+    await app.inject({ method: "PATCH", url: "/site/settings", cookies, payload: { publicUploadLivePhotoEnabled: true } });
+    const video = await readFile(new URL("../test-fixtures/live-preview.mp4", import.meta.url));
+    const png = await sharp({ create: { width: 12, height: 12, channels: 3, background: "#78af62" } }).png().toBuffer();
+    const sendPhoto = async (clip: Buffer) => {
+      const form = new FormData();
+      form.append("file", png, { filename: "IMG_001.png", contentType: "image/png" });
+      form.append("livePhotoVideo", clip, { filename: "IMG_001.mp4", contentType: "video/mp4" });
+      return app.inject({ method: "POST", url: "/public/uploads", headers: form.getHeaders(), cookies, payload: form.getBuffer() });
+    };
+    const invalid = await sendPhoto(Buffer.from("disguised video"));
+    expect(invalid.statusCode).toBe(415);
+    expect(await readdir(path.join(dataDirectory, "storage/live"))).toEqual([]);
+    const uploaded = await sendPhoto(video);
+    expect(uploaded.statusCode).toBe(201);
+    const image = uploaded.json().image;
+    expect(image.liveVideoUrl).toBe(`/api/files/${image.id}/live`);
+    const duplicate = await sendPhoto(video);
+    expect(duplicate.json()).toMatchObject({ duplicate: true, image: { id: image.id } });
+    expect(store.snapshot().images).toHaveLength(1);
+    const summary = await app.inject({ method: "GET", url: "/uploads/summary", cookies });
+    expect(summary.json().bytes).toBe(png.byteLength + video.byteLength);
+    const full = await app.inject({ method: "GET", url: `/files/${image.id}/live` });
+    expect(full.statusCode).toBe(200);
+    expect(full.headers["content-type"]).toBe("video/mp4");
+    expect(full.rawPayload).toEqual(video);
+    const range = await app.inject({ method: "GET", url: `/files/${image.id}/live`, headers: { range: "bytes=0-31" } });
+    expect(range.statusCode).toBe(206);
+    expect(range.headers["content-range"]).toBe(`bytes 0-31/${video.byteLength}`);
+    expect(range.rawPayload).toEqual(video.subarray(0, 32));
+    const badRange = await app.inject({ method: "GET", url: `/files/${image.id}/live`, headers: { range: "bytes=999999-" } });
+    expect(badRange.statusCode).toBe(416);
+    const gallery = await app.inject({ method: "GET", url: "/public/images" });
+    expect(gallery.json().images[0].liveVideoUrl).toBe(image.liveVideoUrl);
+    const reloaded = new AppStore(statePath);
+    await reloaded.initialize();
+    expect(reloaded.snapshot().site?.publicUploadLivePhotoEnabled).toBe(true);
+    expect(reloaded.snapshot().images[0]?.livePhotoVideoKey).toBeTruthy();
+    await app.inject({ method: "POST", url: "/uploads/bulk", cookies, payload: { ids: [image.id], action: "trash" } });
+    const removed = await app.inject({ method: "POST", url: "/trash/bulk", cookies, payload: { ids: [image.id], action: "delete" } });
+    expect(removed.statusCode).toBe(200);
+    expect(await readdir(path.join(dataDirectory, "storage/live"))).toEqual([]);
+    expect((await app.inject({ method: "GET", url: `/files/${image.id}/live` })).statusCode).toBe(404);
+  });
 
   it("filters public gallery metadata and lets only moderators hide public images", async () => {
     const store = new AppStore(null);

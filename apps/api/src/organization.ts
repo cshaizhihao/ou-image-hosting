@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { randomUUID } from "node:crypto";
 import { unlink } from "node:fs/promises";
 import path from "node:path";
+import type { MediaCoordinator } from "./media-coordinator.js";
 import {
   requireCapability,
   type Principal
@@ -17,6 +18,7 @@ import type {
 } from "./store.js";
 
 type OrganizationRouteOptions = {
+  media: MediaCoordinator;
   store: AppStore;
   dataDirectory: string;
   now: () => Date;
@@ -890,6 +892,7 @@ export function registerOrganizationRoutes(
         return { restored };
       }
 
+      return options.media.run(async () => {
       const deletion = await store.update((draft) => {
         const timestamp = now().toISOString();
         const targets = draft.images.filter(
@@ -913,6 +916,7 @@ export function registerOrganizationRoutes(
           });
           candidateKeys.add(image.originalKey);
           candidateKeys.add(image.thumbnailKey);
+          if (image.livePhotoVideoKey) candidateKeys.add(image.livePhotoVideoKey);
         });
         draft.images = draft.images.filter((image) => !ids.has(image.id));
         draft.imageShares = draft.imageShares.filter(
@@ -937,6 +941,7 @@ export function registerOrganizationRoutes(
           });
           retainedKeys.add(image.originalKey);
           retainedKeys.add(image.thumbnailKey);
+          if (image.livePhotoVideoKey) retainedKeys.add(image.livePhotoVideoKey);
         });
         return {
           deleted: targets.length,
@@ -948,6 +953,7 @@ export function registerOrganizationRoutes(
         await removeFile(storagePath(storageRoot, key));
       }
       return { deleted: deletion.deleted };
+      });
     }
   );
 }

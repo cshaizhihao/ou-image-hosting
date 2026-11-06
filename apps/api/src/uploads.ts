@@ -7,13 +7,13 @@ import type {
 import { createHash, randomInt, randomUUID } from "node:crypto";
 import { lookup } from "node:dns/promises";
 import { createReadStream } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, stat, unlink, writeFile } from "node:fs/promises";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { BlockList, isIP } from "node:net";
 import path from "node:path";
 import heicConvert from "heic-convert";
-import sharp from "sharp";
+import sharp, { type Metadata } from "sharp";
 import {
   assertDeliveryAccess,
   buildDeliveryUrl,
@@ -34,6 +34,8 @@ import {
 } from "./security.js";
 import { registerImageDetailRoutes } from "./image-details.js";
 import { registerOrganizationRoutes } from "./organization.js";
+import { inspectLivePhotoVideo, parseByteRange } from "./media-files.js";
+import { MediaCoordinator } from "./media-coordinator.js";
 import {
   calculateImageStorageBytes,
   defaultWorkspaceSettings,
@@ -120,6 +122,8 @@ function workspaceDate(timestamp: Date, timezone: string) {
 type UrlUploadBody = { url: string };
 type UploadQuery = {
   q?: string;
+  albumId?: string;
+  excludeAlbumId?: string;
   format?: "all" | StoredImage["format"];
   page?: string;
   limit?: string;
@@ -285,6 +289,9 @@ function publicImageCard(
     uploaderName: state.site?.publicGalleryShowUploader
       ? uploader?.displayName ?? "OU 用户"
       : undefined,
+    liveVideoUrl: image.livePhotoVideoKey
+      ? buildDeliveryUrl(state, image.id, "live", timestamp)
+      : undefined,
     thumbnailUrl: buildDeliveryUrl(state, image.id, "thumbnail", timestamp),
     originalUrl: buildDeliveryUrl(state, image.id, "original", timestamp),
     createdAt: state.site?.publicGalleryShowUploadTime
@@ -441,7 +448,7 @@ async function readRemoteImage(rawUrl: string, maximumBytes: number) {
           family,
           headers: {
             accept: "image/avif,image/heic,image/heif,image/webp,image/png,image/jpeg,image/gif",
-            "user-agent": "OU-Image-Hosting/1.0.0"
+            "user-agent": "OU-Image-Hosting/1.1.0"
           },
           lookup: (_hostname, _options, callback) => {
             callback(null, address, family);
@@ -504,6 +511,7 @@ export async function registerUploadRoutes(
   options: UploadRouteOptions
 ) {
   const { store, dataDirectory, now, authenticate } = options;
+  const media = new MediaCoordinator();
   const storageRoot = path.join(dataDirectory, "storage");
   const originalsDirectory = path.join(storageRoot, "originals");
   const thumbnailsDirectory = path.join(storageRoot, "thumbnails");
@@ -513,6 +521,7 @@ export async function registerUploadRoutes(
 
   await mkdir(originalsDirectory, { recursive: true });
   await mkdir(thumbnailsDirectory, { recursive: true });
+  await mkdir(path.join(storageRoot, "live"), { recursive: true });
   await app.register(multipart, {
     limits: {
       files: 2,
@@ -704,7 +713,8 @@ export async function registerUploadRoutes(
     });
   };
 
-  const ingest = async ({
+  const ingest = (input: Parameters<typeof ingestUnlocked>[0]) => media.run(() => ingestUnlocked(input));
+  const ingestUnlocked = async ({
     buffer,
     filename,
     mime,
@@ -720,9 +730,9 @@ export async function registerUploadRoutes(
     publicVisible?: boolean;
     publicUploadGuest?: boolean;
     livePhotoVideo?: {
-      key: string;
-      size: number;
+      buffer: Buffer;
       mime: string;
+      extension: string;
     };
   }) => {
     const state = store.snapshot();
@@ -738,7 +748,7 @@ export async function registerUploadRoutes(
       throw new PublicError(413, "FILE_TOO_LARGE", "图片超过工作区上传上限");
     }
 
-    let metadata: sharp.Metadata;
+    let metadata: Metadata;
     let format: string | undefined;
     let processingBuffer: Buffer | undefined;
     try {
@@ -776,12 +786,15 @@ export async function registerUploadRoutes(
     }
 
     const sha256 = createHash("sha256").update(buffer).digest("hex");
+    const liveKey = livePhotoVideo
+      ? `live/${createHash("sha256").update(livePhotoVideo.buffer).digest("hex")}.${livePhotoVideo.extension}`
+      : undefined;
     const existing = store
       .snapshot()
       .images.find(
         (image) =>
           image.workspaceId === principal.workspaceId &&
-          image.sha256 === sha256
+          image.sha256 === sha256 && image.livePhotoVideoKey === liveKey
       );
     if (existing) {
       if (existing.deletedAt) {
@@ -810,11 +823,6 @@ export async function registerUploadRoutes(
       };
     }
 
-    const usedBytes = calculateImageStorageBytes(store.snapshot().images);
-    if (usedBytes + buffer.byteLength > quotaBytes) {
-      throw new PublicError(413, "QUOTA_EXCEEDED", "存储空间不足");
-    }
-
     const id = randomUUID();
     const originalKey = `originals/${sha256}.${extensionByFormat[typedFormat]}`;
     const thumbnailKey = `thumbnails/${id}.webp`;
@@ -836,11 +844,6 @@ export async function registerUploadRoutes(
       })
       .webp({ quality: settings.processingQuality, effort: 3 })
       .toBuffer();
-
-    await Promise.all([
-      writeFile(originalPath, buffer, { mode: 0o600 }),
-      writeFile(thumbnailPath, thumbnail, { mode: 0o600 })
-    ]);
 
     const createdAt = now();
     const timestamp = createdAt.toISOString();
@@ -878,13 +881,33 @@ export async function registerUploadRoutes(
       albumIds: [],
       tagIds: [],
       publicUploadGuest,
-      livePhotoVideoKey: livePhotoVideo?.key,
-      livePhotoVideoSize: livePhotoVideo?.size,
+      livePhotoVideoKey: liveKey,
+      livePhotoVideoSize: livePhotoVideo?.buffer.byteLength,
       livePhotoVideoMime: livePhotoVideo?.mime,
       createdAt: timestamp,
       updatedAt: timestamp
     };
-    await store.update((state) => {
+    // Commit the quota check and image metadata together. Other upload requests
+    // may have completed while Sharp was processing this image.
+    const createdFiles: string[] = [];
+    await store.update(async (state) => {
+      if (calculateImageStorageBytes([...state.images, image]) > quotaBytes) {
+        throw new PublicError(413, "QUOTA_EXCEEDED", "存储空间不足");
+      }
+      const duplicate = state.images.find((candidate) => candidate.workspaceId === image.workspaceId && candidate.sha256 === sha256 && candidate.livePhotoVideoKey === liveKey);
+      if (duplicate) throw new PublicError(409, "CONCURRENT_DUPLICATE", "同一图片正在由其他任务上传，请重试以取回链接");
+      // Serialize file writes with metadata changes so failed quota reservations
+      // do not leave uploaded files behind or delete another request's files.
+      const writes: [string, Buffer][] = [[originalPath, buffer], [thumbnailPath, thumbnail]];
+      if (liveKey && livePhotoVideo) writes.push([path.join(storageRoot, liveKey), livePhotoVideo.buffer]);
+      for (const [filePath, contents] of writes) {
+        try {
+          await writeFile(filePath, contents, { mode: 0o600, flag: "wx" });
+          createdFiles.push(filePath);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        }
+      }
       state.images.push(image);
       const date = workspaceDate(createdAt, settings.timezone);
       let daily = state.analyticsDaily.find(
@@ -916,6 +939,9 @@ export async function registerUploadRoutes(
           item.workspaceId !== principal.workspaceId ||
           retainedDates.has(item.date)
       );
+    }).catch(async (error: unknown) => {
+      await Promise.allSettled(createdFiles.map((filePath) => unlink(filePath)));
+      throw error;
     });
     return {
       image: publicImage(
@@ -953,6 +979,8 @@ export async function registerUploadRoutes(
           additionalProperties: false,
           properties: {
             q: { type: "string", maxLength: 120 },
+            albumId: { type: "string", minLength: 1, maxLength: 80 },
+            excludeAlbumId: { type: "string", minLength: 1, maxLength: 80 },
             format: {
               type: "string",
               enum: ["all", "jpeg", "png", "webp", "gif", "avif", "heic", "heif"]
@@ -990,6 +1018,8 @@ export async function registerUploadRoutes(
             !query || image.name.toLocaleLowerCase().includes(query)
         )
         .filter((image) => format === "all" || image.format === format)
+        .filter((image) => !request.query.albumId || image.albumIds.includes(request.query.albumId))
+        .filter((image) => !request.query.excludeAlbumId || !image.albumIds.includes(request.query.excludeAlbumId))
         .sort((a, b) => {
           if (sort === "oldest") return a.createdAt.localeCompare(b.createdAt);
           if (sort === "name") return a.name.localeCompare(b.name, "zh-CN");
@@ -1586,29 +1616,22 @@ export async function registerUploadRoutes(
       const { buffer } = imageFile;
       let quotaReserved = false;
       try {
+        const uploadedBytes = buffer.byteLength + (liveVideoFile?.buffer.byteLength ?? 0);
         await reservePublicUploadQuota({
           ...reservation,
           sourceIp,
           authenticated,
-          bytes: buffer.byteLength
+          bytes: uploadedBytes
         });
         quotaReserved = true;
         let livePhotoVideo:
-          | { key: string; size: number; mime: string }
+          | { buffer: Buffer; mime: string; extension: string }
           | undefined;
         if (liveVideoFile) {
-          const videoHash = createHash("sha256").update(liveVideoFile.buffer).digest("hex");
-          const extension = liveVideoFile.filename.toLowerCase().endsWith(".mp4")
-            ? "mp4"
-            : "mov";
-          const key = `live/${videoHash}.${extension}`;
-          await writeFile(path.join(storageRoot, key), liveVideoFile.buffer, {
-            mode: 0o600
-          });
+          const videoInfo = inspectLivePhotoVideo(liveVideoFile.buffer);
           livePhotoVideo = {
-            key,
-            size: liveVideoFile.buffer.byteLength,
-            mime: liveVideoFile.mimetype || "video/quicktime"
+            buffer: liveVideoFile.buffer,
+            ...videoInfo
           };
         }
         const result = await ingest({
@@ -1624,7 +1647,7 @@ export async function registerUploadRoutes(
           ...reservation,
           sourceIp,
           authenticated,
-          bytes: buffer.byteLength,
+          bytes: uploadedBytes,
           imageId: result.image.id,
           duplicate: result.duplicate,
           quotaReserved
@@ -1635,7 +1658,7 @@ export async function registerUploadRoutes(
           ...reservation,
           sourceIp,
           authenticated,
-          bytes: buffer.byteLength,
+          bytes: buffer.byteLength + (liveVideoFile?.buffer.byteLength ?? 0),
           failureCode:
             error instanceof PublicError ? error.code : "UPLOAD_FAILED",
           quotaReserved
@@ -1682,8 +1705,8 @@ export async function registerUploadRoutes(
   );
 
   app.get<{
-    Params: { id: string; variant: "original" | "thumbnail" };
-    Querystring: { expires?: string; signature?: string };
+    Params: { id: string; variant: "original" | "thumbnail" | "live" };
+    Querystring: { expires?: string; signature?: string; v?: string };
   }>(
     "/files/:id/:variant",
     {
@@ -1693,13 +1716,14 @@ export async function registerUploadRoutes(
           required: ["id", "variant"],
           properties: {
             id: { type: "string", minLength: 1, maxLength: 80 },
-            variant: { type: "string", enum: ["original", "thumbnail"] }
+            variant: { type: "string", enum: ["original", "thumbnail", "live"] }
           }
         },
         querystring: {
           type: "object",
           additionalProperties: false,
           properties: {
+            v: { type: "string", maxLength: 100 },
             expires: { type: "string", pattern: "^[0-9]+$" },
             signature: {
               type: "string",
@@ -1724,16 +1748,32 @@ export async function registerUploadRoutes(
         now()
       );
       const isThumbnail = request.params.variant === "thumbnail";
-      const key = isThumbnail ? image.thumbnailKey : image.originalKey;
+      const isLive = request.params.variant === "live";
+      const key = isLive ? image.livePhotoVideoKey : isThumbnail ? image.thumbnailKey : image.originalKey;
+      if (!key) throw new PublicError(404, "MEDIA_NOT_FOUND", "这张图片没有动态片段");
+      const filePath = path.join(storageRoot, key);
+      let fileSize: number;
+      try { fileSize = (await stat(filePath)).size; }
+      catch { throw new PublicError(404, "MEDIA_NOT_FOUND", "文件不存在，请联系管理员检查存储"); }
       reply
-        .type(isThumbnail ? "image/webp" : image.mime)
+        .type(isLive ? image.livePhotoVideoMime ?? "video/mp4" : isThumbnail ? "image/webp" : image.mime)
         .header("cache-control", "public, max-age=60, must-revalidate")
-        .header("content-disposition", "inline");
-      return reply.send(createReadStream(path.join(storageRoot, key)));
+        .header("content-disposition", "inline")
+        .header("accept-ranges", "bytes");
+      const range = parseByteRange(request.headers["if-range"] ? undefined : request.headers.range, fileSize);
+      if (range === "unsatisfiable") return reply.code(416).header("content-range", `bytes */${fileSize}`).send();
+      if (range) {
+        return reply.code(206)
+          .header("content-range", `bytes ${range.start}-${range.end}/${fileSize}`)
+          .header("content-length", range.end - range.start + 1)
+          .send(createReadStream(filePath, range));
+      }
+      return reply.header("content-length", fileSize).send(createReadStream(filePath));
     }
   );
 
   registerImageDetailRoutes(app, {
+    media,
     store,
     dataDirectory,
     now,
@@ -1742,6 +1782,7 @@ export async function registerUploadRoutes(
   });
 
   registerOrganizationRoutes(app, {
+    media,
     store,
     dataDirectory,
     now,

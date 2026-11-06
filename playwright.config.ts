@@ -1,6 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const baseURL = "http://localhost:3100";
+const baseURL = `http://localhost:${process.env.OU_E2E_WEB_PORT ?? "3100"}`;
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -30,6 +30,7 @@ export default defineConfig({
     command: "exec node tests/e2e/e2e-server.mjs",
     url: `${baseURL}/install`,
     reuseExistingServer: false,
+    gracefulShutdown: { signal: "SIGTERM", timeout: 10_000 },
     timeout: 120_000,
     stdout: "pipe",
     stderr: "pipe"

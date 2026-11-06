@@ -1,11 +1,12 @@
 import { ImageDetailView } from "@/components/image-detail";
+import { libraryReturnHref } from "@/lib/library-state";
 
 export default async function ImageDetailPage({
   params,
   searchParams
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ albumId?: string | string[] }>;
+  searchParams: Promise<{ albumId?: string | string[]; from?: string | string[] }>;
 }) {
   const { id } = await params;
   const query = await searchParams;
@@ -16,7 +17,7 @@ export default async function ImageDetailPage({
   return (
     <ImageDetailView
       imageId={id}
-      returnHref={fromAlbum ? `/albums/${encodeURIComponent(albumId)}` : "/library"}
+      returnHref={fromAlbum ? `/albums/${encodeURIComponent(albumId)}` : libraryReturnHref(query.from)}
       returnLabel={fromAlbum ? "返回相册" : "返回图片库"}
     />
   );

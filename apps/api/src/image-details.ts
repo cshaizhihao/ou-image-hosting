@@ -5,9 +5,10 @@ import type {
 } from "fastify";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
+import type { MediaCoordinator } from "./media-coordinator.js";
 import {
   requireCapability,
   type Principal
@@ -52,6 +53,7 @@ const mimeByFormat = {
 } as const;
 
 type ImageDetailRouteOptions = {
+  media: MediaCoordinator;
   store: AppStore;
   dataDirectory: string;
   now: () => Date;
@@ -551,11 +553,6 @@ export function registerImageDetailRoutes(
         settings.processingQuality
       );
       await mkdir(path.dirname(originalPath), { recursive: true });
-      await Promise.all([
-        writeFile(originalPath, transformed.buffer, { mode: 0o600 }),
-        writeFile(thumbnailPath, thumbnail, { mode: 0o600 })
-      ]);
-
       const version: StoredImageVersion = {
         id: versionId,
         operation: request.body.action,
@@ -570,7 +567,7 @@ export function registerImageDetailRoutes(
         thumbnailKey,
         createdAt: timestamp
       };
-      const updated = await store.update((state) => {
+      const updated = await options.media.run(() => store.update(async (state) => {
         const current = state.images.find(
           (item) =>
             item.id === image.id &&
@@ -580,6 +577,14 @@ export function registerImageDetailRoutes(
         if (!current) {
           throw new PublicError(404, "IMAGE_NOT_FOUND", "图片不存在");
         }
+        if (current.currentVersionId !== image.currentVersionId) {
+          throw new PublicError(409, "IMAGE_CHANGED", "图片已被其他操作更新，请刷新后再编辑");
+        }
+        if (calculateImageStorageBytes(state.images) + transformed.buffer.byteLength > quotaBytes) {
+          throw new PublicError(413, "QUOTA_EXCEEDED", "存储空间不足");
+        }
+        await writeFile(originalPath, transformed.buffer, { mode: 0o600 });
+        await writeFile(thumbnailPath, thumbnail, { mode: 0o600 });
         current.versions.push(version);
         current.currentVersionId = version.id;
         current.size = version.size;
@@ -595,7 +600,10 @@ export function registerImageDetailRoutes(
           current.name = replaceExtension(current.name, version.format);
         }
         return current;
-      });
+      }).catch(async (error: unknown) => {
+        await Promise.allSettled([unlink(originalPath), unlink(thumbnailPath)]);
+        throw error;
+      }));
       const state = store.snapshot();
       return reply.status(201).send({
         image: publicDetail(

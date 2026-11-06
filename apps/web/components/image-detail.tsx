@@ -40,6 +40,7 @@ import {
   useState
 } from "react";
 import { apiRequest } from "@/lib/api";
+import { withImageVersion } from "@/lib/image-links";
 import { AppShell } from "./app-shell";
 import { ShareQrCode } from "./share-qr-code";
 import styles from "./image-detail.module.css";
@@ -506,7 +507,7 @@ export function ImageDetailView({
                 <img
                   alt={image.name}
                   key={image.currentVersionId}
-                  src={`${image.originalUrl}?v=${encodeURIComponent(image.currentVersionId)}`}
+                  src={withImageVersion(image.originalUrl, image.currentVersionId)}
                 />
               </div>
               <div className={styles.summary}>

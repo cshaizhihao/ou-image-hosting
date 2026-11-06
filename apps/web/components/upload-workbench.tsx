@@ -1,6 +1,8 @@
 "use client";
 
-import { Badge, Button } from "@ou-image/ui";
+import * as Dialog from "@radix-ui/react-dialog";
+import Link from "next/link";
+import { Button } from "@ou-image/ui";
 import {
   AlertCircle,
   Check,
@@ -30,6 +32,7 @@ import {
   useState
 } from "react";
 import { workspaceHeaders } from "@/lib/api";
+import { imageLink } from "@/lib/image-links";
 import { AppShell } from "./app-shell";
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
@@ -38,9 +41,11 @@ const ACCEPTED_TYPES = new Set([
   "image/png",
   "image/webp",
   "image/gif",
-  "image/avif"
+  "image/avif",
+  "image/heic",
+  "image/heif"
 ]);
-const ACCEPTED_EXTENSIONS = /\.(?:jpe?g|png|webp|gif|avif)$/i;
+const ACCEPTED_EXTENSIONS = /\.(?:jpe?g|png|webp|gif|avif|heic|heif)$/i;
 
 type UploadStatus =
   | "ready"
@@ -137,11 +142,12 @@ function statusLabel(status: UploadStatus) {
   }
 }
 
-export function UploadWorkbench() {
+export function UploadWorkbench({ active = true }: { active?: boolean }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const queueRef = useRef<UploadItem[]>([]);
   const activeRequestRef = useRef<XMLHttpRequest | null>(null);
   const activeItemIdRef = useRef<string | null>(null);
+  const remoteRequestsRef = useRef(new Map<string, AbortController>());
   const [dragging, setDragging] = useState(false);
   const [items, setItems] = useState<UploadItem[]>([]);
   const [summary, setSummary] = useState<UploadSummary>({
@@ -165,6 +171,16 @@ export function UploadWorkbench() {
     queueRef.current = items;
   }, [items]);
 
+  const hasPendingUploads = items.some((item) => ["ready", "queued", "uploading", "paused"].includes(item.status));
+  useEffect(() => {
+    if (!hasPendingUploads) return;
+    const beforeUnload = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", beforeUnload);
+    return () => window.removeEventListener("beforeunload", beforeUnload);
+  }, [hasPendingUploads]);
+
+  useEffect(() => { if (!active) setUrlDialogOpen(false); }, [active]);
+
   const refreshSummary = useCallback(async () => {
     try {
       const response = await fetch("/api/uploads/summary", {
@@ -175,6 +191,7 @@ export function UploadWorkbench() {
       if (!response.ok) throw new Error("无法读取存储摘要");
       const payload = (await response.json()) as UploadSummary;
       setSummary(payload);
+      window.dispatchEvent(new Event("ou:uploads-updated"));
     } catch {
       setNotice("暂时无法读取存储用量，上传功能仍可继续使用。");
     } finally {
@@ -191,7 +208,7 @@ export function UploadWorkbench() {
       candidates.forEach((file) => {
         if (
           !ACCEPTED_TYPES.has(file.type) &&
-          !(file.type === "" && ACCEPTED_EXTENSIONS.test(file.name))
+          !((file.type === "" || file.type === "application/octet-stream") && ACCEPTED_EXTENSIONS.test(file.name))
         ) {
           rejected.push(`${file.name}：不支持的图片格式`);
           return;
@@ -261,6 +278,7 @@ export function UploadWorkbench() {
   }, []);
 
   useEffect(() => {
+    if (!active) return;
     const onPaste = (event: ClipboardEvent) => {
       const files = Array.from(event.clipboardData?.items ?? [])
         .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
@@ -275,11 +293,12 @@ export function UploadWorkbench() {
 
     window.addEventListener("paste", onPaste);
     return () => window.removeEventListener("paste", onPaste);
-  }, [appendFiles]);
+  }, [active, appendFiles]);
 
   useEffect(() => {
     return () => {
       activeRequestRef.current?.abort();
+      remoteRequestsRef.current.forEach((controller) => controller.abort());
       queueRef.current.forEach((item) => {
         if (item.previewUrl.startsWith("blob:")) {
           URL.revokeObjectURL(item.previewUrl);
@@ -373,6 +392,7 @@ export function UploadWorkbench() {
       }));
 
       request.open("POST", "/api/uploads");
+      request.timeout = 120_000;
       request.withCredentials = true;
       request.responseType = "json";
       workspaceHeaders().forEach((value, key) => {
@@ -400,26 +420,25 @@ export function UploadWorkbench() {
           payload &&
           "image" in payload
         ) {
+          let organizationWarning = "";
           try {
             await applyPostUploadSettings(payload.image.id);
           } catch (postUploadError) {
-            setNotice(
-              postUploadError instanceof Error
+            organizationWarning = postUploadError instanceof Error
                 ? postUploadError.message
-                : "图片已上传，但完成后设置没有全部保存"
-            );
+                : "图片已上传，但完成后设置没有全部保存";
           }
           updateItem(item.id, (current) => ({
             ...current,
             status: "success",
             progress: 100,
             result: payload,
-            error: undefined
+            error: organizationWarning || undefined
           }));
           setNotice(
-            payload.duplicate
+            organizationWarning || (payload.duplicate
               ? `${item.name} 已存在，已返回原有图片。`
-              : `${item.name} 上传完成。`
+              : `${item.name} 上传完成。`)
           );
           void refreshSummary();
           return;
@@ -440,6 +459,10 @@ export function UploadWorkbench() {
           status: "error",
           error: "网络连接中断，请稍后重试。"
         }));
+      });
+      request.addEventListener("timeout", () => {
+        completeRequest(item.id);
+        updateItem(item.id, (current) => ({ ...current, status: "error", error: "上传超时，请检查网络后重试。" }));
       });
 
       request.addEventListener("abort", () => {
@@ -462,6 +485,8 @@ export function UploadWorkbench() {
   }, [items, uploadFile]);
 
   const pauseUpload = (id: string) => {
+    const remote = remoteRequestsRef.current.get(id);
+    if (remote) { remote.abort(); return; }
     if (activeItemIdRef.current === id) {
       activeRequestRef.current?.abort();
       return;
@@ -470,6 +495,8 @@ export function UploadWorkbench() {
   };
 
   const resumeUpload = (id: string) => {
+    const item = queueRef.current.find((candidate) => candidate.id === id);
+    if (item?.sourceUrl) { void runRemoteUpload(id, item.sourceUrl); return; }
     updateItem(id, (item) => ({
       ...item,
       status: "queued",
@@ -545,10 +572,7 @@ export function UploadWorkbench() {
           window.location.origin
         ).toString();
         const name = item.result.image.name || item.name;
-        if (copyFormat === "markdown") return `![${name}](${url})`;
-        if (copyFormat === "html") return `<img src="${url}" alt="${name}" />`;
-        if (copyFormat === "bbcode") return `[img]${url}[/img]`;
-        return url;
+        return imageLink(name, url, copyFormat);
       })
       .join("\n");
     try {
@@ -561,6 +585,9 @@ export function UploadWorkbench() {
 
   const runRemoteUpload = useCallback(
     async (id: string, url: string) => {
+      if (remoteRequestsRef.current.has(id)) return;
+      const controller = new AbortController();
+      remoteRequestsRef.current.set(id, controller);
       updateItem(id, (item) => ({
         ...item,
         status: "uploading",
@@ -570,6 +597,7 @@ export function UploadWorkbench() {
 
       try {
         const response = await fetch("/api/uploads/from-url", {
+          signal: controller.signal,
           method: "POST",
           credentials: "include",
           headers: workspaceHeaders({ "content-type": "application/json" }),
@@ -583,27 +611,32 @@ export function UploadWorkbench() {
           throw new Error(responseError(payload, "远程图片上传失败"));
         }
 
-        await applyPostUploadSettings(payload.image.id);
+        let warning = "";
+        try { await applyPostUploadSettings(payload.image.id); }
+        catch (error) { warning = error instanceof Error ? error.message : "图片已上传，但完成后设置没有全部保存"; }
 
         updateItem(id, (item) => ({
           ...item,
           status: "success",
           progress: 100,
           result: payload,
+          error: warning || undefined,
           previewUrl: payload.image.thumbnailUrl || item.previewUrl
         }));
         setNotice(
-          payload.duplicate
+          warning || (payload.duplicate
             ? "这张远程图片已存在，已返回原有图片。"
-            : "远程图片上传完成。"
+            : "远程图片上传完成。")
         );
         void refreshSummary();
       } catch (error) {
         updateItem(id, (item) => ({
           ...item,
-          status: "error",
-          error: error instanceof Error ? error.message : "远程图片上传失败"
+          status: controller.signal.aborted ? "paused" : "error",
+          error: controller.signal.aborted ? undefined : error instanceof Error ? error.message : "远程图片上传失败"
         }));
+      } finally {
+        if (remoteRequestsRef.current.get(id) === controller) remoteRequestsRef.current.delete(id);
       }
     },
     [applyPostUploadSettings, refreshSummary, updateItem]
@@ -658,16 +691,26 @@ export function UploadWorkbench() {
       ? Math.min(100, Math.round((summary.bytes / summary.quotaBytes) * 100))
       : 0;
 
+  if (!active) {
+    if (!items.length) return null;
+    const uploading = items.some((item) => item.status === "uploading" || item.status === "queued");
+    return <Link className="upload-queue-indicator" href="/upload">
+      {uploading ? <LoaderCircle aria-hidden="true" className="is-spinning" size={18} /> : <UploadCloud aria-hidden="true" size={18} />}
+      <span>{uploading ? "正在后台上传" : activeCount ? "上传队列待处理" : "查看上传结果"}<small>{successfulCount} / {items.length} 张完成</small></span>
+      <span aria-hidden="true">{totalProgress}%</span>
+    </Link>;
+  }
+
   return (
     <AppShell activeKey="upload">
       <main className="workspace-page upload-console">
         <header className="upload-hero">
           <div>
-            <Badge tone="info">智能上传工作台</Badge>
-            <h1>把图片放进来，剩下的交给队列。</h1>
+            <h1>上传图片</h1>
             <p>
               拖拽、选择、粘贴或输入图片地址。支持 JPG、PNG、WebP、GIF 与
-              AVIF，单张最大 20 MB。
+              AVIF，也支持 HEIC / HEIF。单张最大 20 MB。
+              切换页面时队列会继续，刷新或关闭标签页将取消未完成任务。
             </p>
           </div>
           <div className="upload-hero__stat" aria-label="图片总数">
@@ -721,8 +764,8 @@ export function UploadWorkbench() {
               <UploadCloud aria-hidden="true" size={32} strokeWidth={1.65} />
             </span>
             <div>
-              <h2>{dragging ? "松开即可加入队列" : "拖入图片，立即开始上传"}</h2>
-              <p>也可以点击此区域选择多张图片</p>
+              <h2>{dragging ? "松开即可加入队列" : "把图片放到这里"}</h2>
+              <p>点击选择，或按 Ctrl / ⌘ + V 粘贴。确认后开始上传。</p>
             </div>
             <span className="upload-drop__action">
               <ImagePlus aria-hidden="true" size={17} />
@@ -793,9 +836,8 @@ export function UploadWorkbench() {
         <section className="upload-after-panel" aria-label="上传完成后设置">
           <div className="upload-after-panel__heading">
             <div>
-              <span>AFTER UPLOAD</span>
               <h2>完成后自动整理</h2>
-              <p>这些设置会应用到本次队列中随后上传成功的图片。</p>
+              <p>这些设置会应用到随后上传的图片。关闭公开展示仅会隐藏图库展示，持有直链的人仍可访问图片。</p>
             </div>
             <label className="upload-after-panel__public">
               <input
@@ -840,7 +882,6 @@ export function UploadWorkbench() {
         <section className="upload-queue" aria-labelledby="upload-queue-title">
           <div className="upload-queue__head">
             <div>
-              <span className="upload-queue__eyebrow">UPLOAD QUEUE</span>
               <h2 id="upload-queue-title">上传队列</h2>
               <p>
                 {items.length === 0
@@ -1044,19 +1085,10 @@ export function UploadWorkbench() {
         </section>
       </main>
 
-      {urlDialogOpen && (
-        <div
-          className="upload-dialog-backdrop"
-          onMouseDown={(event) => {
-            if (event.currentTarget === event.target) setUrlDialogOpen(false);
-          }}
-        >
-          <section
-            aria-labelledby="url-upload-title"
-            aria-modal="true"
-            className="upload-dialog"
-            role="dialog"
-          >
+      <Dialog.Root open={urlDialogOpen} onOpenChange={setUrlDialogOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="dialog-overlay dialog-overlay--strong" />
+          <Dialog.Content aria-describedby="url-upload-description" className="upload-dialog">
             <button
               aria-label="关闭图片地址对话框"
               className="upload-dialog__close"
@@ -1068,12 +1100,14 @@ export function UploadWorkbench() {
             <span className="upload-dialog__icon">
               <Link2 aria-hidden="true" size={22} />
             </span>
-            <h2 id="url-upload-title">从图片地址上传</h2>
-            <p>服务器会下载并验证图片，成功后加入当前图库。</p>
+            <Dialog.Title>从图片地址上传</Dialog.Title>
+            <Dialog.Description id="url-upload-description">服务器会下载并验证图片，成功后加入当前图库。</Dialog.Description>
             <form onSubmit={submitRemoteUrl}>
               <label htmlFor="remote-image-url">图片 URL</label>
               <input
                 autoFocus
+                autoComplete="off"
+                name="remote-image-url"
                 id="remote-image-url"
                 onChange={(event) => {
                   setRemoteUrl(event.target.value);
@@ -1103,9 +1137,9 @@ export function UploadWorkbench() {
                 </Button>
               </div>
             </form>
-          </section>
-        </div>
-      )}
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </AppShell>
   );
 }

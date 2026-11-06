@@ -14,7 +14,7 @@
 
 <p align="center">
   <a href="https://github.com/cshaizhihao/ou-image-hosting/releases/latest">
-    <img src="https://img.shields.io/badge/version-v1.0.0-ef8f8f?style=flat-square" alt="Current version v1.0.0" />
+    <img src="https://img.shields.io/badge/version-v1.1.0-ef8f8f?style=flat-square" alt="Current version v1.1.0" />
   </a>
   <a href="https://github.com/cshaizhihao/ou-image-hosting/actions/workflows/check.yml">
     <img src="https://img.shields.io/github/actions/workflow/status/cshaizhihao/ou-image-hosting/check.yml?branch=main&style=flat-square&label=check" alt="Check" />
@@ -77,7 +77,7 @@ OU-Image Hosting / 欧记图床，是一个给个人创作者、开发者和小�
 | 管理相册 | 创建相册、设置封面、写描述、批量加入或移出图片，并从图片详情返回原相册 |
 | 公共图床 | 访客上传、公开图库、站内浮窗预览、公开/隐藏切换、上传历史分页与批量删除 |
 | 账号权限 | 管理员、子管理员、普通用户、访客边界分离 |
-| 存储方式 | 本地存储、Amazon S3、Cloudflare R2、S3-compatible |
+| 存储方式 | 本地读写；S3 / R2 配置、连通测试与迁移复制 |
 | 日常运维 | 更新、备份、恢复、回滚、诊断、日志查看 |
 
 ## 🧑‍🔧 日常维护
@@ -130,6 +130,8 @@ ouih doctor
 - [备份与恢复](./docs/backup-restore.md)
 - [安全模型](./docs/threat-model.md)
 - [v1.0.0 发布说明](./docs/releases/v1.0.0.md)
+- [v1.1.0 体验更新与本地预览](./docs/releases/v1.1.0.md)
+- [账号恢复](./docs/account-recovery.md)
 
 ## 🤍 License
 MIT License。

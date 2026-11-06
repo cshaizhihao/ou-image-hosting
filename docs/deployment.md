@@ -1,5 +1,7 @@
 # Production deployment
 
+For a VPS already hosting other services, use the [isolated Cloudflare Tunnel deployment](./tunnel-deployment.md). It keeps existing ports 80/443 and reverse proxies untouched.
+
 This guide deploys OU-Image Hosting as three containers:
 
 - `web`: the public Next.js process, bound to host loopback by default.
@@ -72,7 +74,7 @@ COMPOSE_PARALLEL_LIMIT=1 docker compose --env-file .env.production build api
 COMPOSE_PARALLEL_LIMIT=1 docker compose --env-file .env.production build web
 ```
 
-The images pin Node.js 20.19.2 and pnpm 9.15.9, install with the frozen lockfile,
+The images pin Node.js 24.22.1 and pnpm 9.15.9, install with the frozen lockfile,
 and run as the unprivileged `node` user.
 
 On CPU-limited hosts, prefer images built by CI. `nice` does not reliably limit

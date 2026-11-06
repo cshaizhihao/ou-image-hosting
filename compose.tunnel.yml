@@ -1,0 +1,37 @@
+# Use with docker-compose.yml and an explicit, unique --project-name.
+# This profile uses released images and never binds public ports 80/443.
+services:
+  api:
+    image: ${OU_API_IMAGE:?Set OU_API_IMAGE to a released image digest}
+    cpus: "0.50"
+  web:
+    image: ${OU_WEB_IMAGE:?Set OU_WEB_IMAGE to a released image digest}
+    cpus: "0.25"
+    environment:
+      OU_SECRET_KEY: ""
+  cloudflared:
+    image: cloudflare/cloudflared:2026.10.7
+    command: [tunnel, --no-autoupdate, run]
+    env_file:
+      - .env.tunnel
+    depends_on:
+      web:
+        condition: service_healthy
+    restart: unless-stopped
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - edge
+    pids_limit: 80
+    cpus: "0.10"
+    mem_limit: 128m
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"

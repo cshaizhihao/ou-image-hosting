@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { siteAppearanceBootScript } from "@/lib/site-branding";
+import { PersistentUploadWorkspace } from "@/components/persistent-upload-workspace";
 import "./globals.css";
+import "./workspace-refresh.css";
 
 export const metadata: Metadata = {
   title: {
@@ -34,7 +36,7 @@ export default function RootLayout({
       <head>
         <script dangerouslySetInnerHTML={{ __html: siteAppearanceBootScript }} />
       </head>
-      <body>{children}</body>
+      <body><PersistentUploadWorkspace>{children}</PersistentUploadWorkspace></body>
     </html>
   );
 }

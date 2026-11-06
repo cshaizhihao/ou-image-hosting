@@ -178,6 +178,8 @@ export function OrganizationHub({
         setSelectedResourceId((current) =>
           payload.tags.some((tag) => tag.id === current)
             ? current
+            : payload.tags.some((tag) => tag.id === initialResourceId)
+              ? initialResourceId
             : (payload.tags[0]?.id ?? "")
         );
       }

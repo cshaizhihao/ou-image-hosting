@@ -4,6 +4,8 @@ import path from "node:path";
 import process from "node:process";
 
 const root = process.cwd();
+const webPort = process.env.OU_E2E_WEB_PORT ?? "3100";
+const apiPort = process.env.OU_E2E_API_PORT ?? "4100";
 const dataDirectory = path.join(root, ".data", `playwright-${process.pid}`);
 const children = [];
 let stopping = false;
@@ -93,8 +95,9 @@ start(
   "pnpm",
   ["--filter", "@ou-image/api", "exec", "tsx", "src/server.ts"],
   {
-    API_PORT: "4100",
-    APP_ORIGIN: "http://localhost:3100",
+    API_PORT: apiPort,
+    API_HOST: "127.0.0.1",
+    APP_ORIGIN: `http://localhost:${webPort}`,
     COOKIE_SECURE: "false",
     EXPOSE_DEVELOPMENT_RESET_TOKEN: "true",
     NODE_ENV: "development",
@@ -103,7 +106,7 @@ start(
   }
 );
 
-await waitFor("http://127.0.0.1:4100/health");
+await waitFor(`http://127.0.0.1:${apiPort}/health`);
 
 start(
   "pnpm",
@@ -116,12 +119,13 @@ start(
     "-H",
     "127.0.0.1",
     "-p",
-    "3100"
+    webPort
   ],
   {
-    API_PROXY_TARGET: "http://127.0.0.1:4100",
+    OU_E2E_WEB_PORT: webPort,
+    API_PROXY_TARGET: `http://127.0.0.1:${apiPort}`,
     NODE_ENV: "development",
-    PORT: "3100"
+    PORT: webPort
   }
 );
 

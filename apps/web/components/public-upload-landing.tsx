@@ -40,6 +40,7 @@ import {
   useState
 } from "react";
 import { ApiError } from "@/lib/api";
+import { imageLink } from "@/lib/image-links";
 import { paginationWindow } from "@/lib/pagination";
 import {
   DEFAULT_PUBLIC_FEATURE_CARDS,
@@ -227,8 +228,7 @@ function findLivePhotoVideoForImage(image: File, videos: File[]) {
   if (videos.length === 0) return null;
   const imageBase = livePhotoBaseName(image);
   return (
-    videos.find((video) => livePhotoBaseName(video) === imageBase) ??
-    (videos.length === 1 ? videos[0] : null)
+    videos.find((video) => livePhotoBaseName(video) === imageBase) ?? null
   );
 }
 
@@ -245,6 +245,8 @@ export function PublicUploadLanding() {
   const hasBrandingCache = hasStoredSiteBranding();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const wheelLockRef = useRef(false);
+  const personalRequestRef = useRef(0);
+  const galleryRequestRef = useRef(0);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const [dark, setDark] = useState(false);
   const [config, setConfig] = useState<PublicConfig>(() => makeFallbackConfig());
@@ -269,13 +271,14 @@ export function PublicUploadLanding() {
   );
   const [visibilityBusy, setVisibilityBusy] = useState(false);
   const [personalPage, setPersonalPage] = useState(1);
+  const [personalTotal, setPersonalTotal] = useState(0);
+  const [personalTotalPages, setPersonalTotalPages] = useState(1);
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [publicVisible, setPublicVisible] = useState(true);
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadCount, setUploadCount] = useState(0);
   const [uploadIndex, setUploadIndex] = useState(0);
-  const [pendingLivePhotoVideo, setPendingLivePhotoVideo] = useState<File | null>(null);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [result, setResult] = useState<UploadResult | null>(null);
@@ -315,21 +318,14 @@ export function PublicUploadLanding() {
   const previewImage =
     previewIndex === null ? null : galleryItems.at(previewIndex) ?? null;
   const selectedPersonalCount = selectedPersonalIds.size;
-  const personalTotalPages = Math.max(
-    1,
-    Math.ceil(personalImages.length / personalPageSize)
-  );
-  const personalPageImages = personalImages.slice(
-    (personalPage - 1) * personalPageSize,
-    personalPage * personalPageSize
-  );
+  const personalPageImages = personalImages;
   const personalPages = useMemo(
     () => paginationWindow(personalPage, personalTotalPages),
     [personalPage, personalTotalPages]
   );
   const originalUrl = result ? publicUrl(result.image.originalUrl) : "";
   const markdown = result
-    ? `![${result.image.name}](${originalUrl})`
+    ? imageLink(result.image.name, originalUrl, "markdown")
     : "";
   const historyLinks = useMemo(
     () =>
@@ -343,7 +339,7 @@ export function PublicUploadLanding() {
       history
         .map(
           (item) =>
-            `![${item.image.name}](${publicUrl(item.image.originalUrl)})`
+            imageLink(item.image.name, publicUrl(item.image.originalUrl), "markdown")
         )
         .join("\n"),
     [history]
@@ -366,6 +362,7 @@ export function PublicUploadLanding() {
   }, [configReady, site]);
 
   const refreshPublicGallery = useCallback(async (fresh = false) => {
+    const requestId = ++galleryRequestRef.current;
     if (!site.publicGalleryEnabled) {
       setGallery([]);
       setGalleryTotal(0);
@@ -385,27 +382,40 @@ export function PublicUploadLanding() {
         `/public/images?sort=${gallerySort}&format=${galleryFormat}&page=${galleryPage}&limit=${galleryPageSize}`,
         { cache: fresh ? "reload" : "default" }
       );
+      if (requestId !== galleryRequestRef.current) return;
       setGallery(payload.images);
       setGalleryPage(payload.page ?? galleryPage);
       setGalleryTotal(payload.total ?? payload.images.length);
       setGalleryTotalPages(payload.totalPages ?? 1);
       if (payload.preferences) setGalleryPreferences(payload.preferences);
+    } catch (error) {
+      if (requestId === galleryRequestRef.current) throw error;
     } finally {
-      setGalleryLoading(false);
+      if (requestId === galleryRequestRef.current) setGalleryLoading(false);
     }
   }, [galleryFormat, galleryPage, galleryPageSize, gallerySort, site.publicGalleryEnabled]);
 
   const refreshPersonalImages = useCallback(async () => {
     if (!session.authenticated) return;
-    const payload = await apiJson<{ images: PersonalImage[] }>(
-      "/uploads?limit=18&sort=newest"
+    const requestId = ++personalRequestRef.current;
+    const payload = await apiJson<{ images: PersonalImage[]; total: number; totalPages: number; page: number }>(
+      `/uploads?limit=${personalPageSize}&page=${personalPage}&sort=newest`
     );
+    if (requestId !== personalRequestRef.current) return;
     setPersonalImages(payload.images);
+    setPersonalTotal(payload.total);
+    setPersonalTotalPages(payload.totalPages);
+    setPersonalPage(payload.page);
     setSelectedPersonalIds((current) => {
       const validIds = new Set(payload.images.map((image) => image.id));
       return new Set([...current].filter((id) => validIds.has(id)));
     });
-  }, [session.authenticated]);
+  }, [session.authenticated, personalPage]);
+
+  useEffect(() => {
+    if (session.authenticated) void refreshPersonalImages().catch(() => setError("上传历史加载失败，请刷新后重试。"));
+    return () => { personalRequestRef.current += 1; };
+  }, [session.authenticated, refreshPersonalImages]);
 
   useEffect(() => {
     let alive = true;
@@ -443,12 +453,6 @@ export function PublicUploadLanding() {
           payload.site?.publicUploadDefaultPublic ??
             fallbackConfig.site!.publicUploadDefaultPublic
         );
-        if (sessionPayload.authenticated) {
-          const personal = await apiJson<{ images: PersonalImage[] }>(
-            "/uploads?limit=18&sort=newest"
-          );
-          if (alive) setPersonalImages(personal.images);
-        }
       } catch (requestError) {
         if (alive) {
           setConfigReady(true);
@@ -472,6 +476,7 @@ export function PublicUploadLanding() {
         requestError instanceof Error ? requestError.message : "公共图库加载失败"
       );
     });
+    return () => { galleryRequestRef.current += 1; };
   }, [refreshPublicGallery]);
 
   const togglePersonalSelection = (imageId: string) => {
@@ -637,15 +642,15 @@ export function PublicUploadLanding() {
   };
 
   const uploadSingleFile = useCallback(
-    async (file?: File) => {
-      if (!file || uploading || !uploadEnabled) return;
+    async (file: File, pairedVideo?: File | null) => {
+      if (!uploadEnabled) return;
       if (requiresHumanChallenge && (!humanChallenge || !humanAnswer.trim())) {
         throw new ApiError("请先完成人机验证", 400, "HUMAN_CHALLENGE_REQUIRED");
       }
       setError("");
       setNotice("");
       const livePhotoVideoFile = site.publicUploadLivePhotoEnabled
-        ? pendingLivePhotoVideo
+        ? pairedVideo
         : undefined;
       const body = new FormData();
       body.append("file", file);
@@ -689,9 +694,7 @@ export function PublicUploadLanding() {
       refreshHumanChallenge,
       requiresHumanChallenge,
       uploadEnabled,
-      pendingLivePhotoVideo,
       site.publicUploadLivePhotoEnabled,
-      uploading
     ]
   );
 
@@ -700,14 +703,17 @@ export function PublicUploadLanding() {
       if (!files || uploading || !uploadEnabled) return;
       const selectedFiles = Array.from(files);
       const imageFiles = selectedFiles.filter(isPublicUploadImageFile);
-      const liveVideo = selectedFiles.find(isLivePhotoVideoFile);
-      if (liveVideo) setPendingLivePhotoVideo(liveVideo);
+      const videos = selectedFiles.filter(isLivePhotoVideoFile);
       if (imageFiles.length === 0) {
         setError("没有发现可上传的图片文件。");
         return;
       }
       if (requiresHumanChallenge && imageFiles.length > 1) {
         setError("启用人机验证时请每次上传一张图片。");
+        return;
+      }
+      if (videos.some((video) => video.size > 60 * 1024 * 1024)) {
+        setError("Live Photo 动态片段不能超过 60 MB。");
         return;
       }
 
@@ -719,19 +725,24 @@ export function PublicUploadLanding() {
       try {
         let completed = 0;
         let duplicates = 0;
+        const usedVideos = new Set<File>();
         for (const file of imageFiles) {
           setUploadIndex(completed + 1);
-          const payload = await uploadSingleFile(file);
+          const available = videos.filter((video) => !usedVideos.has(video));
+          const pairedVideo = findLivePhotoVideoForImage(file, available)
+            ?? (imageFiles.length === 1 && videos.length === 1 ? videos[0] : null);
+          if (pairedVideo && site.publicUploadLivePhotoEnabled) usedVideos.add(pairedVideo);
+          const payload = await uploadSingleFile(file, pairedVideo);
           completed += 1;
           if (payload?.duplicate) duplicates += 1;
         }
-        setNotice(
-          imageFiles.length === 1
+        const uploadMessage = imageFiles.length === 1
             ? duplicates
               ? "图片已存在，链接已为你取回。"
               : "上传完成，链接已生成。"
-            : `已处理 ${completed} 张图片，其中 ${duplicates} 张为已存在图片。`
-        );
+            : `已处理 ${completed} 张图片，其中 ${duplicates} 张为已存在图片。`;
+        const unused = videos.length - usedVideos.size;
+        setNotice(uploadMessage + (unused ? ` ${unused} 个动态片段未上传：${site.publicUploadLivePhotoEnabled ? "请选择同名的图片与视频一起上传。" : "管理员尚未开启 Live Photo。"}` : ""));
         if (publicVisible && site.publicGalleryEnabled) {
           await refreshPublicGallery(true);
         }
@@ -765,6 +776,7 @@ export function PublicUploadLanding() {
       refreshPublicGallery,
       session.authenticated,
       site.publicGalleryEnabled,
+      site.publicUploadLivePhotoEnabled,
       uploadEnabled,
       uploading,
       uploadSingleFile
@@ -790,6 +802,7 @@ export function PublicUploadLanding() {
       );
       setSelectedPersonalIds(new Set());
       setNotice("已将选中图片移入回收站。");
+      await refreshPersonalImages();
     } catch (err) {
       setError(err instanceof Error ? err.message : "删除失败，请稍后再试。");
     } finally {
@@ -903,6 +916,7 @@ export function PublicUploadLanding() {
                 )}
                 <button
                   onClick={() => {
+                    window.dispatchEvent(new Event("ou:session-ended"));
                     void apiJson("/auth/logout", { method: "POST" }).finally(() => {
                       window.location.replace("/");
                     });
@@ -1164,7 +1178,7 @@ export function PublicUploadLanding() {
               <p>登录后上传的图片会留在这里，可多选后公开或从公共图床隐藏。</p>
             </div>
             <div className="public-user-library__actions">
-              <span>{selectedPersonalCount > 0 ? `已选择 ${selectedPersonalCount} 张` : `${personalImages.length} 张最近上传`}</span>
+              <span>{selectedPersonalCount > 0 ? `已选择 ${selectedPersonalCount} 张` : `共 ${personalTotal} 张图片`}</span>
               <Button
                 disabled={personalPageImages.length === 0 || visibilityBusy}
                 onClick={() => {
@@ -1500,7 +1514,7 @@ export function PublicUploadLanding() {
                 </div>
                 <div className="public-gallery-preview__tools">
                   <Button onClick={() => void copy(publicUrl(previewImage.originalUrl), "图片链接已复制。") } size="compact" variant="secondary"><Clipboard size={15} />复制链接</Button>
-                  <Button onClick={() => void copy(`![${previewImage.name || "图片"}](${publicUrl(previewImage.originalUrl)})`, "Markdown 已复制。") } size="compact" variant="secondary"><Clipboard size={15} />Markdown</Button>
+                  <Button onClick={() => void copy(imageLink(previewImage.name || "图片", publicUrl(previewImage.originalUrl), "markdown"), "Markdown 已复制。") } size="compact" variant="secondary"><Clipboard size={15} />Markdown</Button>
                   <Button asChild size="compact" variant="ghost"><a download href={previewImage.originalUrl}><Download size={15} />下载</a></Button>
                   <Button asChild size="compact" variant="ghost"><a href={previewImage.originalUrl} rel="noreferrer" target="_blank"><ExternalLink size={15} />原图</a></Button>
                   {session.backoffice?.allowed && (
