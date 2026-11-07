@@ -82,7 +82,8 @@ const allScopes: ApiTokenScope[] = [
   "organization:write",
   "shares:read",
   "shares:write",
-  "analytics:read"
+  "analytics:read",
+  "nodeseek:upload"
 ];
 
 const notificationTimePattern = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -339,6 +340,7 @@ function publicApiToken(token: AppState["apiTokens"][number]) {
     name: token.name,
     prefix: token.prefix,
     scopes: token.scopes,
+    nodeSeekAlbumId: token.nodeSeekAlbumId,
     ipAllowlist: token.ipAllowlist,
     createdAt: token.createdAt,
     expiresAt: token.expiresAt,
@@ -1154,6 +1156,7 @@ export function registerWorkspaceSecurityRoutes(
       name: string;
       scopes: ApiTokenScope[];
       expiresInDays?: number;
+      nodeSeekAlbumId?: string;
       ipAllowlist?: string[];
     };
   }>(
@@ -1166,6 +1169,7 @@ export function registerWorkspaceSecurityRoutes(
           required: ["name", "scopes"],
           properties: {
             name: { type: "string", minLength: 2, maxLength: 80 },
+            nodeSeekAlbumId: idSchema,
             scopes: {
               type: "array",
               minItems: 1,
@@ -1190,6 +1194,11 @@ export function registerWorkspaceSecurityRoutes(
       requireSession(principal);
       requireBackofficeAccess(store.snapshot(), principal);
       requireCapability(principal, "admin");
+      const nodeSeekScope = request.body.scopes.includes("nodeseek:upload");
+      if (nodeSeekScope !== Boolean(request.body.nodeSeekAlbumId) ||
+          (nodeSeekScope && request.body.scopes.length !== 1)) {
+        throw new PublicError(400, "INVALID_NODESEEK_TOKEN", "NodeSeek 凭据需绑定分组，并使用独立的上传权限");
+      }
       const prefix = randomBytes(6).toString("hex");
       const secret = createOpaqueToken();
       const tokenValue = `ouh_${prefix}_${secret}`;
@@ -1203,6 +1212,7 @@ export function registerWorkspaceSecurityRoutes(
         prefix,
         tokenHash: hashOpaqueToken(tokenValue),
         scopes: request.body.scopes,
+        nodeSeekAlbumId: request.body.nodeSeekAlbumId,
         ipAllowlist,
         createdAt: timestamp.toISOString(),
         expiresAt: request.body.expiresInDays
@@ -1213,6 +1223,10 @@ export function registerWorkspaceSecurityRoutes(
           : undefined
       };
       await store.update((state) => {
+        if (token.nodeSeekAlbumId && !state.albums.some((album) =>
+          album.id === token.nodeSeekAlbumId && album.workspaceId === principal.workspaceId &&
+          album.nodeSeekPublic !== undefined
+        )) throw new PublicError(404, "NODESEEK_GROUP_NOT_FOUND", "NodeSeek 分组不存在");
         state.apiTokens.push(token);
         addAuditEvent(state, {
           principal,

@@ -43,6 +43,8 @@ import {
   type StoredUser,
   type ThemePreference
 } from "./store.js";
+import { nodeSeekUserscript } from "./nodeseek-userscript.js";
+import { MediaStorage } from "./media-storage.js";
 import { registerUploadRoutes } from "./uploads.js";
 import { registerInfrastructureRoutes } from "./infrastructure.js";
 import { registerWorkspaceSecurityRoutes } from "./workspace-security.js";
@@ -92,7 +94,7 @@ export function redactCapabilityUrl(value: string) {
     .replace(/(\/invites\/)[^/?#]+/g, "$1[REDACTED]");
 }
 
-function publicSiteStatus(site: AppState["site"]) {
+function publicSiteStatus(site: AppState["site"], storage: AppState["storageSettings"]["active"]) {
   return site
     ? {
         siteName: site.siteName,
@@ -111,7 +113,7 @@ function publicSiteStatus(site: AppState["site"]) {
         loginEyebrow: site.loginEyebrow,
         loginHeroTitle: site.loginHeroTitle,
         loginHeroDescription: site.loginHeroDescription,
-        defaultStorage: site.defaultStorage,
+        defaultStorage: storage,
         theme: site.theme,
         accentPreset: site.accentPreset
       }
@@ -333,6 +335,11 @@ export async function buildApp(options: BuildAppOptions = {}) {
     if (!isRestoreRequest && !isBackupRequest && !isBackupRetryRequest) {
       writeReleases.set(request, maintenance.beginWrite());
     }
+    // This endpoint requires a dedicated bearer token and never accepts a cookie session.
+    if (request.method === "POST" && request.url.split("?", 1)[0] === "/integrations/nodeseek/uploads" &&
+        typeof request.headers.authorization === "string" &&
+        request.headers.authorization.startsWith("Bearer ")) return;
+
     const origin = request.headers.origin;
     const hasSessionCookie = Boolean(request.cookies[SESSION_COOKIE]);
     const hasBrowserSignal =
@@ -659,13 +666,13 @@ export async function buildApp(options: BuildAppOptions = {}) {
   app.get("/health", async () => ({
     status: "ok",
     service: "ou-image-api",
-    version: "1.1.1"
+    version: "1.2.0"
   }));
 
   app.get("/health/live", async () => ({
     status: "ok",
     service: "ou-image-api",
-    version: "1.1.1"
+    version: "1.2.0"
   }));
 
   const probeDirectory = async (directory: string, label: string) => {
@@ -718,7 +725,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     const state = store.snapshot();
     return {
       setupComplete: state.setupComplete,
-      site: publicSiteStatus(state.site)
+      site: publicSiteStatus(state.site, state.storageSettings.active)
     };
   });
 
@@ -1464,9 +1471,15 @@ export async function buildApp(options: BuildAppOptions = {}) {
     }
   );
 
+  app.get("/integrations/nodeseek/install.user.js", async (_request, reply) => {
+    return reply.type("text/javascript; charset=utf-8").header("cache-control", "no-store")
+      .send(nodeSeekUserscript(appOrigin));
+  });
+
+  const media = new MediaStorage(dataDirectory, store, now);
   await registerUploadRoutes(app, {
     store,
-    dataDirectory,
+    media,
     now,
     authenticate: authenticatedUser
   });
@@ -1479,6 +1492,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   });
   registerOperationsRoutes(app, {
     store,
+    media,
     dataDirectory,
     appOrigin,
     now,
@@ -1487,6 +1501,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
 
   registerInfrastructureRoutes(app, {
     store,
+    media,
     dataDirectory,
     now,
     authenticate: authenticatedUser,

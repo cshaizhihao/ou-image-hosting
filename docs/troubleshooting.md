@@ -100,7 +100,10 @@ stop the stack and create a streamed volume tarball as described in
 - PostgreSQL or Redis `configured-not-in-use` does not mean the application is
   using them.
 - CDN reachability does not mean image traffic has switched to the CDN.
-- S3/R2 migration does not switch the authoritative read/write source.
+- To change where new files are written, choose the provider in the storage
+  console and click **设为当前存储**. Copying existing files is a separate action.
+- System status checks the active bucket directly. Failed object deletions
+  remain in the cleanup queue and retry when bucket access recovers.
 
 ## CPU-limited hosts
 

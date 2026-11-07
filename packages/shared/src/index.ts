@@ -61,6 +61,7 @@ export const navigationItems: NavigationItem[] = [
     group: "manage",
     access: "admin"
   },
+  { key: "nodeseek", label: "NodeSeek 上传", href: "/nodeseek", group: "manage", access: "admin" },
   {
     key: "audit",
     label: "活动与审计",

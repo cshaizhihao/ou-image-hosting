@@ -16,6 +16,7 @@ export function generateStaticParams() {
     "team",
     "users",
     "tokens",
+    "nodeseek",
     "audit",
     "settings",
     "system"

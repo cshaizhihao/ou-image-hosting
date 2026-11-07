@@ -1,8 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { randomUUID } from "node:crypto";
 import {
-  access,
-  constants,
   mkdir,
   rename,
   unlink,
@@ -18,6 +16,7 @@ import {
   requireSession,
   type Principal
 } from "./access.js";
+import { storageLabels, type MediaStorage } from "./media-storage.js";
 import { PublicError } from "./errors.js";
 import { requireBackofficeAccess } from "./site-access.js";
 import {
@@ -27,6 +26,7 @@ import {
   defaultWorkspaceSettings,
   type AppState,
   type AppStore,
+  type StorageProvider,
   type StoredBackup,
   type StoredStorageMigration,
   type StoredSystemStatusResult,
@@ -34,6 +34,7 @@ import {
 } from "./store.js";
 
 type Options = {
+  media: MediaStorage;
   store: AppStore;
   dataDirectory: string;
   appOrigin: string;
@@ -253,7 +254,16 @@ function statusEvents(history: StoredSystemStatusResult[]) {
   }));
 }
 
-function baselineServices(): StoredSystemStatusResult["services"] {
+function storageService(provider: StorageProvider) {
+  return {
+    id: provider === "local" ? "local-storage" : `${provider}-storage`,
+    label: storageLabels[provider],
+    mode: provider === "local" ? "filesystem" : "s3-compatible",
+    inUse: true
+  };
+}
+
+function baselineServices(provider: StorageProvider): StoredSystemStatusResult["services"] {
   return [
     {
       id: "metadata-store",
@@ -266,11 +276,8 @@ function baselineServices(): StoredSystemStatusResult["services"] {
       latencyMs: 0
     },
     {
-      id: "local-storage",
-      label: "本地存储",
+      ...storageService(provider),
       status: "unknown",
-      mode: "filesystem",
-      inUse: true,
       checked: false,
       detail: "尚未执行检查",
       latencyMs: 0
@@ -336,14 +343,15 @@ function baselineServices(): StoredSystemStatusResult["services"] {
   ];
 }
 
-function publicStatus(history: StoredSystemStatusResult[]) {
-  const latest = history[0];
+function publicStatus(history: StoredSystemStatusResult[], provider: StorageProvider) {
+  const storageId = storageService(provider).id;
+  const latest = history.find((result) => result.services.some((service) => service.id === storageId));
   if (!latest) {
     return {
       checkedAt: null,
       overall: "unknown" as const,
-      services: baselineServices(),
-      events: []
+      services: baselineServices(provider),
+      events: statusEvents(history)
     };
   }
   return {
@@ -387,10 +395,12 @@ async function timedService(
 async function performSystemCheck(
   store: AppStore,
   dataDirectory: string,
+  media: MediaStorage,
   timestamp: Date
 ): Promise<StoredSystemStatusResult> {
   const started = Date.now();
-  const storageRoot = path.join(dataDirectory, "storage");
+  const snapshot = store.snapshot();
+  const provider = snapshot.storageSettings.active;
   const core = await Promise.all([
     timedService(
       {
@@ -427,19 +437,10 @@ async function performSystemCheck(
         }
       }
     ),
-    timedService(
-      {
-        id: "local-storage",
-        label: "本地存储",
-        mode: "filesystem",
-        inUse: true
-      },
-      async () => {
-        await mkdir(storageRoot, { recursive: true });
-        await access(storageRoot, constants.R_OK | constants.W_OK);
-        return "可读取且可写入";
-      }
-    ),
+    timedService(storageService(provider), async () => {
+      await media.probe(snapshot, provider);
+      return provider === "local" ? "可读取且可写入" : "当前存储桶可访问";
+    }),
     timedService(
       {
         id: "image-processing",
@@ -565,7 +566,7 @@ export function registerOperationsRoutes(
   app: FastifyInstance,
   options: Options
 ) {
-  const { store, dataDirectory, appOrigin, now, authenticate } = options;
+  const { store, media, dataDirectory, appOrigin, now, authenticate } = options;
   let statusCheckInFlight = false;
   let jobRetryInFlight = false;
 
@@ -712,7 +713,7 @@ export function registerOperationsRoutes(
       .snapshot()
       .systemStatusHistory.slice()
       .sort((a, b) => b.checkedAt.localeCompare(a.checkedAt));
-    return publicStatus(history);
+    return publicStatus(history, store.snapshot().storageSettings.active);
   });
 
   app.post(
@@ -747,6 +748,7 @@ export function registerOperationsRoutes(
         const result = await performSystemCheck(
           store,
           dataDirectory,
+          media,
           timestamp
         );
         await store.update((state) => {
@@ -773,7 +775,8 @@ export function registerOperationsRoutes(
           store
             .snapshot()
             .systemStatusHistory.slice()
-            .sort((a, b) => b.checkedAt.localeCompare(a.checkedAt))
+            .sort((a, b) => b.checkedAt.localeCompare(a.checkedAt)),
+          store.snapshot().storageSettings.active
         );
       } finally {
         statusCheckInFlight = false;

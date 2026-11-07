@@ -1,5 +1,6 @@
 "use client";
 
+import { storageProviderLabels, type StorageProvider } from "@/lib/storage-provider";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as Tooltip from "@radix-ui/react-tooltip";
@@ -92,6 +93,7 @@ const iconMap: Record<string, LucideIcon> = {
   team: Users,
   users: Users,
   tokens: KeyRound,
+  nodeseek: ImageUp,
   audit: Activity,
   system: ServerCog,
   settings: Settings
@@ -359,6 +361,7 @@ export function AppShell({
   const [storageSummary, setStorageSummary] = useState<{
     bytes: number;
     quotaBytes: number;
+    activeStorage?: StorageProvider;
   } | null>(null);
 
   const loadNotifications = useCallback(async () => {
@@ -409,7 +412,7 @@ export function AppShell({
   }, [commandOpen, query]);
 
   useEffect(() => {
-    const refreshStorage = () => { void apiRequest<{ bytes: number; quotaBytes: number }>("/uploads/summary").then(setStorageSummary).catch(() => undefined); };
+    const refreshStorage = () => { void apiRequest<{ bytes: number; quotaBytes: number; activeStorage?: StorageProvider }>("/uploads/summary").then(setStorageSummary).catch(() => undefined); };
     window.addEventListener("ou:uploads-updated", refreshStorage);
     return () => window.removeEventListener("ou:uploads-updated", refreshStorage);
   }, []);
@@ -504,7 +507,7 @@ export function AppShell({
         setCurrentWorkspace(selected);
         setAccessChecked(true);
         writeShellSessionSnapshot(bootstrap, selected.id);
-        void apiRequest<{ bytes: number; quotaBytes: number }>(
+        void apiRequest<{ bytes: number; quotaBytes: number; activeStorage?: StorageProvider }>(
           "/uploads/summary"
         )
           .then(setStorageSummary)
@@ -632,7 +635,7 @@ export function AppShell({
                 }}
               />
             </div>
-            <Link href="/storage">本地存储运行中</Link>
+            <Link href="/storage">{storageSummary?.activeStorage ? `${storageProviderLabels[storageSummary.activeStorage]} · 当前存储` : "存储中心"}</Link>
             </div>
           )}
         </aside>
