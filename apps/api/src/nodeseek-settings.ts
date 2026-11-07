@@ -11,15 +11,31 @@ export function nodeSeekSettings() {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>OU 图床设置</title>
 <style nonce="${nonce}">
-  :root { color-scheme: light dark; font: 15px/1.5 system-ui; }
+  :root {
+    color-scheme: light;
+    font: 14px/1.5 system-ui, sans-serif;
+    --surface: #f5faf8;
+    --ink: #183e34;
+    --muted: #45665a;
+    --line: #bfd8cf;
+    --accent: #236953;
+  }
   * { box-sizing: border-box; }
-  body { margin: 0; padding: 20px; background: Canvas; color: CanvasText; }
+  body { margin: 0; padding: 10px 16px 18px; background: var(--surface); color: var(--ink); }
   h1 { font-size: 19px; margin: 0 0 4px; }
-  p { margin: 0 0 14px; }
+  p { margin: 0 0 14px; color: var(--muted); }
   label { display: block; margin: 0 0 6px; font-weight: 650; }
-  input { width: 100%; padding: 10px; border: 1px solid GrayText; border-radius: 8px; font: inherit; }
-  button { border: 1px solid GrayText; border-radius: 8px; padding: 8px 12px; font: inherit; cursor: pointer; }
-  button[type=submit] { background: #275e53; color: white; border-color: #275e53; }
+  input {
+    width: 100%; padding: 8px 10px; border: 1px solid var(--line);
+    border-radius: 8px; background: #fff; color: var(--ink); font: inherit;
+  }
+  input::placeholder { color: #567167; }
+  button {
+    border: 1px solid var(--line); border-radius: 8px; padding: 7px 11px;
+    background: #fff; color: var(--ink); font: inherit; font-weight: 600; cursor: pointer;
+  }
+  button[type=submit] { background: var(--accent); color: #fff; border-color: var(--accent); }
+  :is(input, button):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   button:disabled { opacity: .5; cursor: default; }
   .actions { display: flex; flex-wrap: wrap; gap: 8px; }
   .status { min-height: 1.5em; margin: 8px 0; font-size: 13px; }
@@ -35,7 +51,6 @@ export function nodeSeekSettings() {
   <div class="actions">
     <button type="submit" disabled>保存凭据</button>
     <button id="clear" type="button" disabled>清除凭据</button>
-    <button id="close" type="button">关闭</button>
   </div>
 </form>
 <script nonce="${nonce}">
@@ -68,7 +83,6 @@ export function nodeSeekSettings() {
     port.postMessage({ type: "save", value });
   });
   clear.addEventListener("click", (event) => { if (event.isTrusted) port?.postMessage({ type: "clear" }); });
-  document.querySelector("#close").addEventListener("click", (event) => { if (event.isTrusted) port?.postMessage({ type: "close" }); });
   document.addEventListener("keydown", (event) => { if (event.key === "Escape") port?.postMessage({ type: "close" }); });
 </script>
 </body>

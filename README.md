@@ -14,7 +14,7 @@
 
 <p align="center">
   <a href="https://github.com/cshaizhihao/ou-image-hosting/releases/latest">
-    <img src="https://img.shields.io/badge/version-v1.2.2-ef8f8f?style=flat-square" alt="Current version v1.2.2" />
+    <img src="https://img.shields.io/badge/version-v1.2.3-ef8f8f?style=flat-square" alt="Current version v1.2.3" />
   </a>
   <a href="https://github.com/cshaizhihao/ou-image-hosting/actions/workflows/check.yml">
     <img src="https://img.shields.io/github/actions/workflow/status/cshaizhihao/ou-image-hosting/check.yml?branch=main&style=flat-square&label=check" alt="Check" />

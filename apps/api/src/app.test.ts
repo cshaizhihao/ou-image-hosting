@@ -145,11 +145,11 @@ describe("OU-Image API", () => {
     expect(health.statusCode).toBe(200);
     expect(health.json()).toMatchObject({
       status: "ok",
-      version: "1.2.2"
+      version: "1.2.3"
     });
     expect(live.json()).toMatchObject({
       status: "ok",
-      version: "1.2.2"
+      version: "1.2.3"
     });
     expect(ready.statusCode).toBe(200);
     expect(ready.json()).toMatchObject({
@@ -2368,6 +2368,9 @@ describe("OU-Image API", () => {
     const script = await app.inject({ url: "/integrations/nodeseek/install.user.js" });
     expect(script.headers["content-type"]).toContain("text/javascript");
     expect(script.body).toContain("// @match        https://www.nodeseek.com/*");
+    expect(script.body).toContain('button("选图上传")');
+    expect(script.body).toContain('button("上传到图床并复制Markdown")');
+    expect(script.body).not.toContain("插件已就位");
     expect(script.body).not.toContain(token.json().value);
     expect(() => new Function(script.body)).not.toThrow();
     const settings = await app.inject({ url: "/integrations/nodeseek/settings.html" });

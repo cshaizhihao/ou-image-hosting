@@ -14,7 +14,7 @@ function runNodeSeek(apiOrigin) {
         if (!toast) {
             toast = document.createElement("div");
             toast.setAttribute("role", "status");
-            toast.style.cssText = "position:fixed;right:16px;bottom:16px;max-width:calc(100vw - 32px);z-index:2147483647;background:#202633;color:white;padding:12px 16px;border-radius:10px;font:14px system-ui;pointer-events:none";
+            toast.style.cssText = "position:fixed;right:16px;bottom:16px;max-width:calc(100vw - 32px);z-index:2147483647;background:#f0faf5;color:#183e34;border:1px solid #bed8ce;box-shadow:0 4px 20px #15352b26;padding:12px 16px;border-radius:10px;font:14px system-ui;pointer-events:none";
             document.body.append(toast);
         }
         toast.textContent = message;
@@ -26,6 +26,11 @@ function runNodeSeek(apiOrigin) {
         const control = document.createElement("button");
         control.type = "button";
         control.textContent = label;
+        control.style.cssText = `
+            color-scheme:light;background:#f5faf8;color:#20493e;border:1px solid #bfd8cf;
+            border-radius:8px;padding:5px 10px;min-height:32px;outline-offset:2px;
+            cursor:pointer;font:600 13px/1.4 system-ui,sans-serif;
+        `;
         return control;
     }
 
@@ -35,22 +40,25 @@ function runNodeSeek(apiOrigin) {
         const root = host.attachShadow({ mode: "closed" });
         const dialog = document.createElement("dialog");
         dialog.setAttribute("aria-label", "OU 图床设置");
-        dialog.style.cssText = "width:min(420px,calc(100vw - 24px));max-width:none;padding:0;border:1px solid GrayText;border-radius:14px;background:Canvas;color:CanvasText;box-shadow:0 18px 64px #0005";
+        dialog.style.cssText = `
+            color-scheme:light;width:min(420px,calc(100vw - 24px));max-width:none;padding:0;
+            border:1px solid #bfd8cf;border-radius:14px;background:#f5faf8;
+            color:#183e34;box-shadow:0 16px 48px #102f2a40;
+        `;
         const actions = document.createElement("div");
-        actions.style.cssText = "display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;padding:10px 12px 0";
+        actions.style.cssText = "display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;padding:12px 16px 0";
         const feedback = document.createElement("p");
         feedback.setAttribute("role", "status");
-        feedback.style.cssText = "margin:0;padding:8px 12px;font:13px/1.4 system-ui";
+        feedback.style.cssText = "margin:0;padding:10px 16px;color:#45665a;font:13px/1.4 system-ui";
         feedback.hidden = true;
         const showFeedback = (message) => {
             feedback.textContent = message;
             feedback.hidden = false;
         };
         const importClipboard = button("从剪贴板导入");
-        const dismiss = button("关闭设置面板");
-        for (const control of [importClipboard, dismiss]) {
-            control.style.cssText = "padding:5px 9px;border:1px solid GrayText;border-radius:7px;font:13px system-ui;cursor:pointer";
-        }
+        const dismiss = button("×");
+        dismiss.setAttribute("aria-label", "关闭设置面板");
+        dismiss.style.cssText += "width:32px;padding:0;font-size:20px";
         importClipboard.addEventListener("click", async (event) => {
             if (!event.isTrusted) return;
             let value;
@@ -70,7 +78,7 @@ function runNodeSeek(apiOrigin) {
         dismiss.addEventListener("click", (event) => { if (event.isTrusted) dialog.close(); });
         const frame = document.createElement("iframe");
         frame.title = "OU 图床上传凭据";
-        frame.style.cssText = "display:block;width:100%;height:min(265px,55vh);border:0";
+        frame.style.cssText = "display:block;width:100%;height:min(260px,55vh);border:0";
         const channel = new MessageChannel();
         const frameTimer = setTimeout(() => {
             frame.style.display = "none";
@@ -249,11 +257,9 @@ function runNodeSeek(apiOrigin) {
         if (mountedEditors.get(root)?.isConnected || !editorElement(root)) return;
         const row = document.createElement("div");
         row.style.cssText = "display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:5px 8px;border-bottom:1px solid color-mix(in srgb,currentColor 18%,transparent);font:13px system-ui";
-        const pick = button("OU 图床 NS 上传插件已就位 · 选图上传");
+        const pick = button("选图上传");
+        pick.style.cssText += "background:#dff4eb;border-color:#add2c4;color:#174b3d";
         const configure = button("凭据设置");
-        for (const control of [pick, configure]) {
-            control.style.cssText = "padding:5px 8px;min-height:32px;border:1px solid color-mix(in srgb,currentColor 28%,transparent);border-radius:6px;background:transparent;color:inherit;cursor:pointer;font:inherit;text-align:left";
-        }
         const input = document.createElement("input");
         input.type = "file";
         input.accept = "image/*,.heic,.heif";
@@ -418,8 +424,11 @@ function runNodeSeek(apiOrigin) {
         }
         if (!["https:", "http:", "data:", "blob:"].includes(url.protocol) || url.username || url.password) return;
         event.preventDefault();
-        menu = button("上传到 OU 图床并复制 Markdown");
-        menu.style.cssText = "position:fixed;z-index:2147483647;background:#202633;color:white;border:0;border-radius:8px;padding:10px 12px;font:14px system-ui;cursor:pointer;max-width:calc(100vw - 16px)";
+        menu = button("上传到图床并复制Markdown");
+        menu.style.cssText += `
+            position:fixed;z-index:2147483647;background:#edf9f3;outline:2px solid #5ca88e;
+            padding:9px 12px;box-shadow:0 4px 16px #15352b33;max-width:calc(100vw - 16px);
+        `;
         document.body.append(menu);
         menu.style.left = `${Math.max(8, Math.min(event.clientX, innerWidth - menu.offsetWidth - 8))}px`;
         menu.style.top = `${Math.max(8, Math.min(event.clientY, innerHeight - menu.offsetHeight - 8))}px`;
