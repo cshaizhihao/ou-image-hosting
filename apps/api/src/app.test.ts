@@ -145,11 +145,11 @@ describe("OU-Image API", () => {
     expect(health.statusCode).toBe(200);
     expect(health.json()).toMatchObject({
       status: "ok",
-      version: "1.2.0"
+      version: "1.2.1"
     });
     expect(live.json()).toMatchObject({
       status: "ok",
-      version: "1.2.0"
+      version: "1.2.1"
     });
     expect(ready.statusCode).toBe(200);
     expect(ready.json()).toMatchObject({
@@ -2365,6 +2365,11 @@ describe("OU-Image API", () => {
     expect(script.body).toContain("// @match        https://www.nodeseek.com/*");
     expect(script.body).not.toContain(token.json().value);
     expect(() => new Function(script.body)).not.toThrow();
+    const settings = await app.inject({ url: "/integrations/nodeseek/settings.html" });
+    expect(settings.statusCode).toBe(200);
+    expect(settings.headers["content-security-policy"]).toContain("frame-ancestors 'self' https://www.nodeseek.com https://nodeseek.com");
+    expect(settings.body).toContain('type="password"');
+    expect(settings.body).not.toContain(token.json().value);
     await app.inject({ method: "DELETE", url: `/api-tokens/${token.json().token.id}`, cookies });
     expect((await upload(route, authorization)).statusCode).toBe(401);
   });

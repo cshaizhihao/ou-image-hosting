@@ -43,6 +43,7 @@ import {
   type StoredUser,
   type ThemePreference
 } from "./store.js";
+import { nodeSeekSettings } from "./nodeseek-settings.js";
 import { nodeSeekUserscript } from "./nodeseek-userscript.js";
 import { MediaStorage } from "./media-storage.js";
 import { registerUploadRoutes } from "./uploads.js";
@@ -666,13 +667,13 @@ export async function buildApp(options: BuildAppOptions = {}) {
   app.get("/health", async () => ({
     status: "ok",
     service: "ou-image-api",
-    version: "1.2.0"
+    version: "1.2.1"
   }));
 
   app.get("/health/live", async () => ({
     status: "ok",
     service: "ou-image-api",
-    version: "1.2.0"
+    version: "1.2.1"
   }));
 
   const probeDirectory = async (directory: string, label: string) => {
@@ -1470,6 +1471,11 @@ export async function buildApp(options: BuildAppOptions = {}) {
       return { user: publicUser(updated) };
     }
   );
+
+  app.get("/integrations/nodeseek/settings.html", async (_request, reply) => {
+    const page = nodeSeekSettings();
+    return reply.type("text/html; charset=utf-8").header("content-security-policy", page.csp).send(page.html);
+  });
 
   app.get("/integrations/nodeseek/install.user.js", async (_request, reply) => {
     return reply.type("text/javascript; charset=utf-8").header("cache-control", "no-store")
