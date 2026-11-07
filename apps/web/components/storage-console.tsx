@@ -198,13 +198,13 @@ const providerMeta: Record<
   },
   s3: {
     label: "Amazon S3",
-    description: "连接任意 S3 或兼容对象存储服务。",
+    description: "将本地文件复制到 S3 或兼容存储桶。",
     icon: Cloud,
     accent: "#e3a34f"
   },
   r2: {
     label: "Cloudflare R2",
-    description: "低出口成本，适合搭配自定义域名分发。",
+    description: "将本地文件复制到 Cloudflare R2 存储桶。",
     icon: UploadCloud,
     accent: "#ef8f8f"
   }
@@ -1115,7 +1115,7 @@ export function StorageConsole() {
         {activeTab === "providers" && (
           <section className={styles.tabPanel}>
             <SectionTitle
-              description="选择图片写入位置，保存前可先验证连接状态。"
+              description="图床日常使用本地存储。S3 和 R2 支持连接测试与手动迁移复制。"
               eyebrow="PROVIDERS"
               icon={Database}
               title="存储提供商"
@@ -1143,6 +1143,8 @@ export function StorageConsole() {
                   tests[provider] ?? providerHealth(health, provider);
                 const selected = selectedProvider === provider;
                 const active = actualActive === provider;
+                const guide =
+                  provider === "local" ? null : getStorageProviderGuide(provider);
                 return (
                   <div
                     className={styles.providerCardShell}
@@ -1201,6 +1203,24 @@ export function StorageConsole() {
                       >
                         <HelpCircle aria-hidden="true" size={17} />
                       </button>
+                    )}
+                    {guide && (
+                      <Button
+                        asChild
+                        className={styles.providerSetup}
+                        size="compact"
+                        variant="secondary"
+                      >
+                        <a
+                          aria-label={`${guide.setupLabel}（在新标签页打开）`}
+                          href={guide.setupUrl}
+                          rel="noopener noreferrer"
+                          target="_blank"
+                        >
+                          {guide.setupLabel}
+                          <ExternalLink aria-hidden="true" size={14} />
+                        </a>
+                      </Button>
                     )}
                   </div>
                 );
@@ -2028,7 +2048,7 @@ function RemoteProviderFields({
           placeholder={
             provider === "r2"
               ? "https://<account-id>.r2.cloudflarestorage.com"
-              : "https://s3.amazonaws.com"
+              : "https://s3.ap-southeast-1.amazonaws.com"
           }
           value={config.endpoint}
         />

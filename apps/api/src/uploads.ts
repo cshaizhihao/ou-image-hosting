@@ -448,7 +448,7 @@ async function readRemoteImage(rawUrl: string, maximumBytes: number) {
           family,
           headers: {
             accept: "image/avif,image/heic,image/heif,image/webp,image/png,image/jpeg,image/gif",
-            "user-agent": "OU-Image-Hosting/1.1.0"
+            "user-agent": "OU-Image-Hosting/1.1.1"
           },
           lookup: (_hostname, _options, callback) => {
             callback(null, address, family);

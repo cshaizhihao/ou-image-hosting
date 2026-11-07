@@ -4,28 +4,23 @@ import { Button, cn } from "@ou-image/ui";
 import {
   ArrowLeft,
   ArrowRight,
-  Check,
   Clipboard,
   Download,
   EyeOff,
   ExternalLink,
   FileType2,
   Flame,
-  FolderHeart,
-  Heart,
   ImageIcon,
   Images,
   LayoutDashboard,
+  LoaderCircle,
   LockKeyhole,
   LogOut,
   Moon,
-  ShieldCheck,
   Shuffle,
-  Sparkles,
   Sun,
   Trash2,
   UploadCloud,
-  UserRound,
   X
 } from "lucide-react";
 import Link from "next/link";
@@ -43,7 +38,6 @@ import { ApiError } from "@/lib/api";
 import { imageLink } from "@/lib/image-links";
 import { paginationWindow } from "@/lib/pagination";
 import {
-  DEFAULT_PUBLIC_FEATURE_CARDS,
   DEFAULT_SITE_BRANDING,
   bindSiteAppearance,
   hasStoredSiteBranding,
@@ -52,7 +46,6 @@ import {
   storedThemePreference,
   useFallbackLogo,
   writeStoredSiteBranding,
-  type PublicFeatureCard,
   type AccentPreset,
   type SiteThemePreference
 } from "@/lib/site-branding";
@@ -61,7 +54,6 @@ type PublicConfig = {
   setupComplete: boolean;
   site: {
     siteName: string;
-    siteDescription: string;
     siteLogoUrl: string;
     publicUploadEnabled: boolean;
     publicUploadRequiresLogin: boolean;
@@ -72,9 +64,6 @@ type PublicConfig = {
     publicUploadDefaultPublic: boolean;
     publicUploadHumanVerificationEnabled: boolean;
     publicUploadLivePhotoEnabled: boolean;
-    publicHeroTitle: string;
-    publicHeroDescription: string;
-    publicFeatureCards: PublicFeatureCard[];
     theme: SiteThemePreference;
     accentPreset: AccentPreset;
   } | null;
@@ -117,23 +106,12 @@ type UploadQueueItem = UploadResult & {
   uploadedAt: string;
 };
 
-const publicFeatureIcons = {
-  image: ImageIcon,
-  shield: ShieldCheck,
-  check: Check,
-  sparkles: Sparkles,
-  heart: Heart,
-  folder: FolderHeart
-} as const;
-
-function makeFallbackConfig(): PublicConfig {
-  const cached = readStoredSiteBranding() ?? DEFAULT_SITE_BRANDING;
+function makeFallbackConfig(branding = DEFAULT_SITE_BRANDING): PublicConfig {
   return {
     setupComplete: false,
     site: {
-      siteName: cached.siteName,
-      siteDescription: cached.siteDescription,
-      siteLogoUrl: cached.siteLogoUrl,
+      siteName: branding.siteName,
+      siteLogoUrl: branding.siteLogoUrl,
       publicUploadEnabled: true,
       publicUploadRequiresLogin: false,
       publicGalleryEnabled: true,
@@ -143,11 +121,8 @@ function makeFallbackConfig(): PublicConfig {
       publicUploadDefaultPublic: true,
       publicUploadHumanVerificationEnabled: false,
       publicUploadLivePhotoEnabled: false,
-      publicHeroTitle: cached.publicHeroTitle,
-      publicHeroDescription: cached.publicHeroDescription,
-      publicFeatureCards: DEFAULT_PUBLIC_FEATURE_CARDS,
-      theme: cached.theme,
-      accentPreset: cached.accentPreset
+      theme: branding.theme,
+      accentPreset: branding.accentPreset
     }
   };
 }
@@ -242,15 +217,14 @@ function publicDate(value?: string) {
 }
 
 export function PublicUploadLanding() {
-  const hasBrandingCache = hasStoredSiteBranding();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const wheelLockRef = useRef(false);
   const personalRequestRef = useRef(0);
   const galleryRequestRef = useRef(0);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const [dark, setDark] = useState(false);
-  const [config, setConfig] = useState<PublicConfig>(() => makeFallbackConfig());
-  const [configReady, setConfigReady] = useState(hasBrandingCache);
+  const [config, setConfig] = useState(fallbackConfig);
+  const [configReady, setConfigReady] = useState(false);
   const [session, setSession] = useState<SessionStatus>({ authenticated: false });
   const [gallery, setGallery] = useState<PublicImage[]>([]);
   const [galleryPreferences, setGalleryPreferences] = useState<GalleryPreferences>({
@@ -293,9 +267,6 @@ export function PublicUploadLanding() {
 
   const site = config.site ?? fallbackConfig.site!;
   const personalPageSize = 12;
-  const featureCards = site.publicFeatureCards?.length
-    ? site.publicFeatureCards.slice(0, 3)
-    : DEFAULT_PUBLIC_FEATURE_CARDS;
   const galleryItems = gallery;
   const galleryPages = useMemo(
     () => paginationWindow(galleryPage, galleryTotalPages),
@@ -349,7 +320,7 @@ export function PublicUploadLanding() {
     const explicit = storedThemePreference(
       window.localStorage.getItem("ou-theme")
     );
-    if (!configReady) {
+    if (!configReady && !hasStoredSiteBranding()) {
       const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
       document.documentElement.dataset.theme = prefersDark ? "dark" : "light";
       document.documentElement.dataset.accent = "neutral";
@@ -419,6 +390,9 @@ export function PublicUploadLanding() {
 
   useEffect(() => {
     let alive = true;
+    const cached = readStoredSiteBranding();
+    if (cached) setConfig(makeFallbackConfig(cached));
+
     const load = async () => {
       try {
         const [payload, sessionPayload] = await Promise.all([
@@ -660,7 +634,7 @@ export function PublicUploadLanding() {
       let payload: UploadResult;
       try {
         payload = await apiJson<UploadResult>(
-          `/public/uploads?publicVisible=${publicVisible ? "true" : "false"}`,
+          `/public/uploads?publicVisible=${publicVisible}`,
           {
             method: "POST",
             body,
@@ -827,7 +801,7 @@ export function PublicUploadLanding() {
 
   const handlePaste = useCallback(
     (event: ClipboardEvent) => {
-      if (!uploadEnabled || uploading) return;
+      if (event.defaultPrevented || !uploadEnabled || uploading) return;
       const files = Array.from(event.clipboardData?.files ?? []).filter((file) =>
         file.type.startsWith("image/")
       );
@@ -863,31 +837,18 @@ export function PublicUploadLanding() {
         跳到公共上传区域
       </a>
 
-      <div className="public-upload-sparkles" aria-hidden="true">
-        <i />
-        <i />
-        <i />
-        <i />
-        <i />
-        <i />
-        <i />
-        <i />
-        <i />
-      </div>
-
       <header className="public-upload-topbar">
         <Link className="public-upload-brand" href="/">
           <span>
             <img
-              alt={`${configReady ? site.siteName : "站点"} Logo`}
+              alt=""
               height={46}
               onError={(event) => useFallbackLogo(event.currentTarget)}
               src={site.siteLogoUrl || fallbackConfig.site!.siteLogoUrl}
               width={46}
             />
           </span>
-          <strong>{configReady ? site.siteName : ""}</strong>
-          <small>{configReady ? site.siteDescription || "欧记图床" : "正在读取站点"}</small>
+          <strong>{site.siteName}</strong>
         </Link>
 
         <div>
@@ -910,7 +871,9 @@ export function PublicUploadLanding() {
                   <strong>{session.user.displayName}</strong>
                   <small>{session.user.email}</small>
                 </header>
-                <a href="#my-uploads"><Images size={16} />我的上传</a>
+                {personalImages.length > 0 && (
+                  <a href="#my-uploads"><Images size={16} />我的上传</a>
+                )}
                 {session.backoffice?.allowed && (
                   <Link href="/overview"><LayoutDashboard size={16} />进入后台</Link>
                 )}
@@ -938,148 +901,103 @@ export function PublicUploadLanding() {
         </div>
       </header>
 
-      <section className="public-upload-hero">
-        <div className={cn("public-upload-copy", !configReady && "is-loading")}>
-          <span className="public-upload-eyebrow">{configReady ? "PUBLIC IMAGE DESK" : "LOADING IMAGE DESK"}</span>
-          <h1>{configReady ? site.publicHeroTitle : "正在准备公共上传入口"}</h1>
-          <p>{configReady ? site.publicHeroDescription : "请稍等一下，正在同步站点外观、上传规则和公共图库配置。"}</p>
-          <div className={cn("public-upload-benefits", !configReady && "public-upload-benefits--loading")}>
-            {(configReady ? featureCards : DEFAULT_PUBLIC_FEATURE_CARDS).map((card, index) => {
-              const Icon = publicFeatureIcons[card.icon] ?? ImageIcon;
-              return (
-                <span key={`${card.title}-${index}`}>
-                  <Icon size={17} />
-                  <strong>{card.title}</strong>
-                  <small>{card.description}</small>
-                </span>
-              );
-            })}
-          </div>
-        </div>
-
-        <section
-          aria-labelledby="public-upload-title"
-          className={cn(
-            "public-upload-card",
-            dragging && "is-dragging",
-            !uploadEnabled && "is-disabled"
-          )}
-          id="public-upload-drop"
-          onDragLeave={() => setDragging(false)}
-          onDragOver={(event) => {
-            event.preventDefault();
-            setDragging(true);
-          }}
-          onDrop={onDrop}
-        >
-          <input
-            accept="image/jpeg,image/png,image/webp,image/gif,image/avif,image/heic,image/heif,.heic,.heif,video/quicktime,video/mp4,.mov,.mp4"
-            hidden
-            onChange={handleFileChange}
-            multiple
-            ref={inputRef}
-            type="file"
-          />
-          <span className="public-upload-card__icon">
-            <UploadCloud aria-hidden="true" size={30} />
-          </span>
-          <span className="public-upload-card__badge">
-            <Sparkles aria-hidden="true" size={14} />
-            公共上传入口
-          </span>
-          <h2 id="public-upload-title">
-            {uploadEnabled
-              ? "拖入图片，立即生成链接"
-              : uploadLockedByLogin
-                ? "登录后即可上传图片"
-                : "公共上传暂未开放"}
-          </h2>
-          <p>
-            {uploadEnabled
-              ? "支持拖拽、批量选择和直接粘贴图片。JPG、PNG、WebP、GIF 与 AVIF，单张最大 20 MB。"
-              : uploadLockedByLogin
-                ? "当前站点允许访问公共图床，但管理员要求上传前先登录。"
-                : "管理员可以在后台「设置中心 → 站点与处理」中开启公共上传。"}
-          </p>
-          <label className="public-upload-checkbox">
-            <input
-              checked={publicVisible}
-              disabled={!site.publicGalleryEnabled}
-              onChange={(event) => setPublicVisible(event.target.checked)}
-              type="checkbox"
-            />
-            <span>
-              {site.publicGalleryEnabled
-                ? "公开展示到公共图床，可取消勾选。"
-                : "公共展示已关闭，本次上传不会进入图库。"}
-            </span>
-          </label>
-          {requiresHumanChallenge && (
-            <div className="public-upload-challenge">
-              <label htmlFor="public-upload-challenge-answer">
-                <span>简单验证</span>
-                <strong>
-                  {humanChallengeLoading
-                    ? "正在出题..."
-                    : humanChallenge?.question ?? "暂时无法获取题目"}
-                </strong>
-              </label>
-              <input
-                autoComplete="off"
-                disabled={humanChallengeLoading || !humanChallenge}
-                id="public-upload-challenge-answer"
-                inputMode="numeric"
-                maxLength={3}
-                onChange={(event) =>
-                  setHumanAnswer(event.target.value.replace(/\D/g, ""))
-                }
-                placeholder="答案"
-                value={humanAnswer}
-              />
-              <button
-                disabled={humanChallengeLoading}
-                onClick={() => void refreshHumanChallenge()}
-                type="button"
-              >
-                换一题
-              </button>
-            </div>
-          )}
-          <Button
-            disabled={
-              !uploadEnabled ||
-              uploading ||
-              (requiresHumanChallenge &&
-                (!humanChallenge || !humanAnswer.trim()))
-            }
-            onClick={() => inputRef.current?.click()}
-            type="button"
-          >
-            {uploadLockedByLogin ? (
-              <LockKeyhole aria-hidden="true" size={16} />
-            ) : (
-              <UploadCloud aria-hidden="true" size={16} />
+      <section
+        aria-labelledby="public-upload-title"
+        className={cn("public-upload-card", dragging && "is-dragging")}
+        id="public-upload-drop"
+        onDragLeave={() => setDragging(false)}
+        onDragOver={(event) => {
+          event.preventDefault();
+          if (uploadEnabled && !uploading) setDragging(true);
+        }}
+        onDrop={onDrop}
+      >
+        <input
+          accept="image/jpeg,image/png,image/webp,image/gif,image/avif,image/heic,image/heif,.heic,.heif,video/quicktime,video/mp4,.mov,.mp4"
+          hidden
+          onChange={handleFileChange}
+          multiple
+          ref={inputRef}
+          type="file"
+        />
+        <span className="public-upload-card__icon">
+          <UploadCloud aria-hidden="true" size={28} />
+        </span>
+        <h1 id="public-upload-title">上传图片</h1>
+        {uploadEnabled ? (
+          <>
+            {requiresHumanChallenge && (
+              <div className="public-upload-challenge">
+                <label htmlFor="public-upload-challenge-answer">
+                  <span>简单验证</span>
+                  <strong>
+                    {humanChallengeLoading
+                      ? "正在出题..."
+                      : humanChallenge?.question ?? "暂时无法获取题目"}
+                  </strong>
+                </label>
+                <input
+                  autoComplete="off"
+                  disabled={humanChallengeLoading || !humanChallenge}
+                  id="public-upload-challenge-answer"
+                  inputMode="numeric"
+                  maxLength={3}
+                  onChange={(event) =>
+                    setHumanAnswer(event.target.value.replace(/\D/g, ""))
+                  }
+                  placeholder="答案"
+                  value={humanAnswer}
+                />
+                <button
+                  disabled={humanChallengeLoading}
+                  onClick={() => void refreshHumanChallenge()}
+                  type="button"
+                >
+                  换一题
+                </button>
+              </div>
             )}
-            {uploadLockedByLogin
-              ? "请先登录"
-              : uploading && uploadCount > 1
-                ? `正在上传 ${uploadIndex}/${uploadCount}`
-                : uploading
-                  ? "正在上传..."
-                  : "选择图片上传"}
-          </Button>
-          {uploadLockedByLogin && (
-            <Button asChild size="compact" variant="secondary">
-              <Link href="/login">
-                <LockKeyhole aria-hidden="true" size={15} />
-                登录后上传
-              </Link>
+            <Button
+              disabled={
+                uploading ||
+                (requiresHumanChallenge && (!humanChallenge || !humanAnswer.trim()))
+              }
+              onClick={() => inputRef.current?.click()}
+              type="button"
+            >
+              {uploading ? (
+                <LoaderCircle aria-hidden="true" className="spin" size={16} />
+              ) : (
+                <ImageIcon aria-hidden="true" size={16} />
+              )}
+              {uploading
+                ? (uploadCount > 1 ? `上传中 ${uploadIndex}/${uploadCount}` : "上传中…")
+                : (dragging ? "松开上传" : "选择图片")}
             </Button>
-          )}
-          <small className="public-upload-card__hint">
-            也可以按 Ctrl/⌘ + V 粘贴剪贴板里的图片。
-          </small>
-        </section>
+            {site.publicGalleryEnabled && (
+              <label className="public-upload-checkbox">
+                <input
+                  checked={publicVisible}
+                  disabled={uploading}
+                  onChange={(event) => setPublicVisible(event.target.checked)}
+                  type="checkbox"
+                />
+                <span>公开展示</span>
+              </label>
+            )}
+          </>
+        ) : uploadLockedByLogin ? (
+          <Button asChild>
+            <Link href="/login">
+              <LockKeyhole aria-hidden="true" size={16} />
+              登录后上传
+            </Link>
+          </Button>
+        ) : (
+          <span className="public-upload-card__status" role="status">
+            {configReady ? "上传已关闭" : "加载中…"}
+          </span>
+        )}
       </section>
 
       {(notice || error) && (
@@ -1173,9 +1091,7 @@ export function PublicUploadLanding() {
         <section className="public-user-library" aria-label="我的上传历史" id="my-uploads">
           <div className="public-user-library__head">
             <div>
-              <span>MY UPLOADS</span>
               <h2>我的上传历史</h2>
-              <p>登录后上传的图片会留在这里，可多选后公开或从公共图床隐藏。</p>
             </div>
             <div className="public-user-library__actions">
               <span>{selectedPersonalCount > 0 ? `已选择 ${selectedPersonalCount} 张` : `共 ${personalTotal} 张图片`}</span>
@@ -1248,7 +1164,7 @@ export function PublicUploadLanding() {
                 />
                 <span>
                   <strong title={image.name}>{image.name}</strong>
-                  <small>{image.publicVisible ? "正在公共图床展示" : "仅自己可见"}</small>
+                  <small>{image.publicVisible ? "已公开" : "未公开"}</small>
                 </span>
               </label>
             ))}
@@ -1292,9 +1208,7 @@ export function PublicUploadLanding() {
         <section className="public-gallery" aria-label="公共图床展示">
           <div className="public-gallery__head public-gallery__head--toolbar">
             <div>
-              <span>PUBLIC GALLERY</span>
-              <h2>公共图片展台</h2>
-              <p>轻量缩略图浏览，点击后在当前页面查看。</p>
+              <h2>公共图库</h2>
             </div>
             <div className="public-gallery__filters" aria-label="公共图库筛选">
               <div className="public-gallery__segments">
@@ -1360,7 +1274,6 @@ export function PublicUploadLanding() {
             <div className="public-gallery__empty">
               <Images aria-hidden="true" size={30} />
               <strong>{galleryFormat === "all" ? "公共图库还没有图片" : "这个格式暂时没有公开图片"}</strong>
-              <span>上传时选择公开展示，图片就会来到这里。</span>
             </div>
           ) : (
             <div className="public-gallery__grid">

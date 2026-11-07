@@ -2,7 +2,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
 const corePages = [
-  { path: "/", heading: "把图片放进来，剩下的交给队列。" },
+  { path: "/", heading: "上传图片" },
   { path: "/library", heading: "图片库" },
   { path: "/settings", heading: "设置中心" },
   { path: "/analytics", heading: "数据统计" },

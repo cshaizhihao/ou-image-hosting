@@ -41,6 +41,9 @@ describe("storage provider guides", () => {
   });
 
   it("only links to the providers' official HTTPS destinations", () => {
+    expect(storageProviderGuides.s3.setupUrl).toMatch(
+      /^https:\/\/signin\.aws\.amazon\.com\/signup\?/
+    );
     expect(storageProviderGuides.s3.consoleUrl).toMatch(
       /^https:\/\/console\.aws\.amazon\.com\//
     );
@@ -50,6 +53,9 @@ describe("storage provider guides", () => {
     expect(storageProviderGuides.r2.consoleUrl).toMatch(
       /^https:\/\/dash\.cloudflare\.com\//
     );
+    const r2Setup = new URL(storageProviderGuides.r2.setupUrl);
+    expect(r2Setup.origin).toBe("https://dash.cloudflare.com");
+    expect(r2Setup.searchParams.get("to")).toBe("/:account/r2/overview");
     expect(storageProviderGuides.r2.docsUrl).toMatch(
       /^https:\/\/developers\.cloudflare\.com\//
     );
