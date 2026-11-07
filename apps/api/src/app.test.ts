@@ -145,11 +145,11 @@ describe("OU-Image API", () => {
     expect(health.statusCode).toBe(200);
     expect(health.json()).toMatchObject({
       status: "ok",
-      version: "1.2.1"
+      version: "1.2.2"
     });
     expect(live.json()).toMatchObject({
       status: "ok",
-      version: "1.2.1"
+      version: "1.2.2"
     });
     expect(ready.statusCode).toBe(200);
     expect(ready.json()).toMatchObject({
@@ -2318,6 +2318,11 @@ describe("OU-Image API", () => {
       payload: { name: "论坛图片", nodeSeekPublic: false }
     });
     const albumId = group.json().album.id;
+    const anonymousIssue = await app.inject({
+      method: "POST", url: "/api-tokens",
+      payload: { name: "NodeSeek", scopes: ["nodeseek:upload"], nodeSeekAlbumId: albumId }
+    });
+    expect(anonymousIssue.statusCode).toBe(401);
     const token = await app.inject({
       method: "POST", url: "/api-tokens", cookies,
       payload: { name: "NodeSeek", scopes: ["nodeseek:upload"], nodeSeekAlbumId: albumId }
@@ -2369,6 +2374,8 @@ describe("OU-Image API", () => {
     expect(settings.statusCode).toBe(200);
     expect(settings.headers["content-security-policy"]).toContain("frame-ancestors 'self' https://www.nodeseek.com https://nodeseek.com");
     expect(settings.body).toContain('type="password"');
+    expect(settings.body).toContain("管理员发给你的上传凭据");
+    expect(settings.body).not.toContain('href="/nodeseek"');
     expect(settings.body).not.toContain(token.json().value);
     await app.inject({ method: "DELETE", url: `/api-tokens/${token.json().token.id}`, cookies });
     expect((await upload(route, authorization)).statusCode).toBe(401);

@@ -21,14 +21,13 @@ export function nodeSeekSettings() {
   button { border: 1px solid GrayText; border-radius: 8px; padding: 8px 12px; font: inherit; cursor: pointer; }
   button[type=submit] { background: #275e53; color: white; border-color: #275e53; }
   button:disabled { opacity: .5; cursor: default; }
-  a { color: LinkText; }
   .actions { display: flex; flex-wrap: wrap; gap: 8px; }
   .status { min-height: 1.5em; margin: 8px 0; font-size: 13px; }
 </style>
 </head>
 <body>
 <h1>OU 图床 · 上传凭据</h1>
-<p><a href="/nodeseek" target="_blank" rel="noopener noreferrer">前往图床后台生成凭据</a></p>
+<p>请粘贴这台图床的管理员发给你的上传凭据。</p>
 <form>
   <label for="credential">NodeSeek 专用凭据</label>
   <input id="credential" type="password" autocomplete="off" spellcheck="false" placeholder="粘贴 ouh_ 开头的凭据" required disabled>
