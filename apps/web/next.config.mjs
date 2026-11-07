@@ -12,10 +12,13 @@ const nextConfig = {
   async headers() {
     return [
       {
+        source: "/((?!api/integrations/nodeseek/settings\\.html$).*)",
+        headers: [{ key: "X-Frame-Options", value: "SAMEORIGIN" }]
+      },
+      {
         source: "/(.*)",
         headers: [
           { key: "X-Content-Type-Options", value: "nosniff" },
-          { key: "X-Frame-Options", value: "SAMEORIGIN" },
           { key: "Referrer-Policy", value: "same-origin" },
           {
             key: "Permissions-Policy",

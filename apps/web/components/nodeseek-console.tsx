@@ -130,7 +130,7 @@ export function NodeSeekConsole() {
       <ManagementHeader
         eyebrow="浏览器集成"
         title="NodeSeek 快捷上传"
-        description="粘贴截图或右键上传论坛图片，直接生成 Markdown。"
+        description="在论坛编辑器里粘贴或选图上传，也可以用快捷菜单上传论坛图片。"
         action={!denied && (
           <Button asChild>
             <a href="/api/integrations/nodeseek/install.user.js" target="_blank" rel="noopener noreferrer">
@@ -145,8 +145,8 @@ export function NodeSeekConsole() {
         <>
           <ol className={styles.steps} aria-label="安装步骤">
             <li><strong>安装脚本</strong><span>先安装 <a href="https://www.tampermonkey.net/" target="_blank" rel="noopener noreferrer">Tampermonkey <ExternalLink aria-hidden="true" size={12} /></a>，再点击页面上的安装按钮。</span></li>
-            <li><strong>绑定分组</strong><span>创建分组和上传凭据，在脚本菜单选择「设置 OU 图床上传凭据」。</span></li>
-            <li><strong>开始上传</strong><span>在编辑框按 Ctrl/⌘＋V，或右键论坛图片。Shift＋右键打开浏览器菜单。</span></li>
+            <li><strong>绑定分组</strong><span>创建分组和上传凭据，在论坛编辑器点击「凭据设置」，或从脚本菜单打开设置面板。</span></li>
+            <li><strong>开始上传</strong><span>在编辑框粘贴或选图上传。论坛图片用 Shift＋右键上传，Firefox 用 Alt＋右键。</span></li>
           </ol>
           <div className={styles.grid}>
             <section className={managementStyles.panel} aria-labelledby="nodeseek-groups">
@@ -223,7 +223,7 @@ export function NodeSeekConsole() {
         open={Boolean(secret)}
         onOpenChange={(open) => { if (!open) setSecret(""); }}
         title="NodeSeek 上传凭据"
-        description="复制到浏览器脚本菜单的「设置 OU 图床上传凭据」。"
+        description="复制到论坛编辑器的「凭据设置」。"
         secret={secret}
       />
       <ConfirmActionDialog

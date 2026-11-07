@@ -1,9 +1,15 @@
 function runNodeSeek(apiOrigin) {
     const maximumBytes = 20 * 1024 * 1024;
     const tokenKey = "ou-nodeseek-upload-token";
+    const tokenFormat = /^ouh_[a-f0-9]{12}_[A-Za-z0-9_-]+$/;
+    const firefox = /Firefox\//.test(navigator.userAgent);
+    const editorSelector = ".md-editor, #editor, #code-mirror-editor";
+    const mountedEditors = new WeakMap();
     let menu;
+    let settings;
     let toast;
     let toastTimer;
+
     function notify(message) {
         if (!toast) {
             toast = document.createElement("div");
@@ -15,34 +21,127 @@ function runNodeSeek(apiOrigin) {
         clearTimeout(toastTimer);
         toastTimer = setTimeout(() => { toast?.remove(); toast = undefined; }, 4800);
     }
-    GM_registerMenuCommand("设置 OU 图床上传凭据", () => {
-        const value = window.prompt("粘贴图床后台生成的 NodeSeek 上传凭据。留空可清除。");
-        if (value === null)
-            return;
-        const token = value.trim();
-        if (token && !/^ouh_[a-f0-9]{12}_[A-Za-z0-9_-]+$/.test(token)) {
-            notify("凭据格式无效");
-            return;
+
+    function button(label) {
+        const control = document.createElement("button");
+        control.type = "button";
+        control.textContent = label;
+        return control;
+    }
+
+    function openSettings() {
+        if (settings) return;
+        const host = document.createElement("div");
+        const root = host.attachShadow({ mode: "closed" });
+        const dialog = document.createElement("dialog");
+        dialog.setAttribute("aria-label", "OU 图床设置");
+        dialog.style.cssText = "width:min(420px,calc(100vw - 24px));max-width:none;padding:0;border:1px solid GrayText;border-radius:14px;background:Canvas;color:CanvasText;box-shadow:0 18px 64px #0005";
+        const actions = document.createElement("div");
+        actions.style.cssText = "display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;padding:10px 12px 0";
+        const feedback = document.createElement("p");
+        feedback.setAttribute("role", "status");
+        feedback.style.cssText = "margin:0;padding:8px 12px;font:13px/1.4 system-ui";
+        feedback.hidden = true;
+        const showFeedback = (message) => {
+            feedback.textContent = message;
+            feedback.hidden = false;
+        };
+        const importClipboard = button("从剪贴板导入");
+        const dismiss = button("关闭设置面板");
+        for (const control of [importClipboard, dismiss]) {
+            control.style.cssText = "padding:5px 9px;border:1px solid GrayText;border-radius:7px;font:13px system-ui;cursor:pointer";
         }
-        GM_setValue(tokenKey, token);
-        notify(token ? "OU 图床凭据已保存" : "OU 图床凭据已清除");
-    });
+        importClipboard.addEventListener("click", async (event) => {
+            if (!event.isTrusted) return;
+            let value;
+            try {
+                value = (await navigator.clipboard.readText()).trim();
+            } catch {
+                showFeedback("读取剪贴板失败，可在凭据表单里粘贴，或允许读取后重试。");
+                return;
+            }
+            if (!dialog.open) return;
+            if (!tokenFormat.test(value)) {
+                showFeedback("剪贴板里没有完整的 NodeSeek 上传凭据。");
+                return;
+            }
+            saveCredential(value);
+        });
+        dismiss.addEventListener("click", (event) => { if (event.isTrusted) dialog.close(); });
+        const frame = document.createElement("iframe");
+        frame.title = "OU 图床上传凭据";
+        frame.style.cssText = "display:block;width:100%;height:min(265px,55vh);border:0";
+        const channel = new MessageChannel();
+        const frameTimer = setTimeout(() => {
+            frame.style.display = "none";
+            showFeedback("凭据表单未能加载。请先复制凭据，再点击「从剪贴板导入」。");
+        }, 5000);
+        frame.addEventListener("load", () => {
+            frame.contentWindow.postMessage({
+                type: "ou-nodeseek-settings",
+                configured: Boolean(GM_getValue(tokenKey, ""))
+            }, apiOrigin, [channel.port2]);
+        }, { once: true });
+        function saveCredential(value) {
+            GM_setValue(tokenKey, value);
+            dialog.close();
+            notify("OU 图床凭据已保存");
+        }
+        channel.port1.onmessage = ({ data }) => {
+            if (data?.type === "ready") {
+                clearTimeout(frameTimer);
+                feedback.hidden = true;
+                frame.style.display = "block";
+                return;
+            }
+            if (data?.type === "save" && typeof data.value === "string" && tokenFormat.test(data.value)) {
+                saveCredential(data.value);
+                return;
+            } else if (data?.type === "clear") {
+                GM_setValue(tokenKey, "");
+                notify("OU 图床凭据已清除");
+            } else if (data?.type !== "close") {
+                return;
+            }
+            dialog.close();
+        };
+        dialog.addEventListener("close", () => {
+            clearTimeout(frameTimer);
+            channel.port1.close();
+            host.remove();
+            settings = undefined;
+        });
+        frame.src = `${apiOrigin}/api/integrations/nodeseek/settings.html`;
+        actions.append(importClipboard, dismiss);
+        dialog.append(actions, feedback, frame);
+        root.append(dialog);
+        document.body.append(host);
+        settings = dialog;
+        dialog.showModal();
+    }
+
+    GM_registerMenuCommand("设置 OU 图床上传凭据", openSettings);
+
     function token() {
         const value = GM_getValue(tokenKey, "");
-        if (!value)
-            notify("请在脚本菜单设置 OU 图床上传凭据");
+        if (!value) openSettings();
         return value;
     }
+
+    function imageTooLarge() {
+        const error = new Error("图片不能超过 20 MB");
+        error.code = "FILE_TOO_LARGE";
+        return error;
+    }
+
     function upload(value, credential) {
         const headers = { Authorization: `Bearer ${credential}` };
         let data;
         if (typeof value === "string") {
             headers["Content-Type"] = "application/json";
             data = JSON.stringify({ url: value });
-        }
-        else {
-            if (value.size > maximumBytes)
-                throw new Error("图片不能超过 20 MB");
+        } else {
+            if (value.size > maximumBytes) throw imageTooLarge();
             data = new FormData();
             data.append("file", value);
         }
@@ -55,15 +154,15 @@ function runNodeSeek(apiOrigin) {
                     try {
                         const body = JSON.parse(result.responseText);
                         if (result.status >= 300 || result.status < 200 || typeof body.url !== "string") {
-                            throw new Error(body.error?.message || `上传失败（HTTP ${result.status}）`);
+                            const error = new Error(body.error?.message || `上传失败（HTTP ${result.status}）`);
+                            error.code = body.error?.code;
+                            throw error;
                         }
                         const url = new URL(body.url, apiOrigin);
-                        if (url.protocol !== "https:" && url.protocol !== "http:")
-                            throw new Error("图床返回的链接无效");
+                        if (url.protocol !== "https:" && url.protocol !== "http:") throw new Error("图床返回的链接无效");
                         const href = url.href.replace(/\(/g, "%28").replace(/\)/g, "%29");
                         resolve(`![图片](${href})`);
-                    }
-                    catch (error) {
+                    } catch (error) {
                         reject(error);
                     }
                 },
@@ -72,55 +171,40 @@ function runNodeSeek(apiOrigin) {
             });
         });
     }
+
     function editorFor(target) {
-        if (!(target instanceof Element))
-            return;
+        if (!(target instanceof Element)) return;
         const mirrorElement = target.closest(".CodeMirror");
         if (mirrorElement) {
-            const element = mirrorElement;
-            let mirror = (element.wrappedJSObject ?? element).CodeMirror;
+            let mirror = (mirrorElement.wrappedJSObject ?? mirrorElement).CodeMirror;
             if (!mirror && typeof unsafeWindow !== "undefined") {
-                const index = [...document.querySelectorAll(".CodeMirror")].indexOf(element);
-                const pageElement = unsafeWindow.document.querySelectorAll(".CodeMirror").item(index);
-                mirror = pageElement?.CodeMirror;
+                const index = [...document.querySelectorAll(".CodeMirror")].indexOf(mirrorElement);
+                mirror = unsafeWindow.document.querySelectorAll(".CodeMirror").item(index)?.CodeMirror;
             }
-            if (!mirror || typeof mirror.replaceRange !== "function")
-                return;
+            if (!mirror || typeof mirror.replaceRange !== "function" || mirror.getOption?.("readOnly")) return;
             return {
-                element,
+                element: mirrorElement,
                 value: () => mirror.getValue(),
                 selected: () => mirror.getSelection(),
                 insert: (text) => mirror.replaceSelection(text),
                 replace: (start, end, text) => mirror.replaceRange(text, mirror.posFromIndex(start), mirror.posFromIndex(end))
             };
         }
-        if (!(target instanceof HTMLTextAreaElement) || target.readOnly || target.disabled ||
-            !target.closest(".md-editor, #editor, #code-mirror-editor"))
-            return;
-        const replace = (start, end, text) => {
-            target.setRangeText(text, start, end, "preserve");
+        if (!(target instanceof HTMLTextAreaElement) || target.readOnly || target.disabled || !target.closest(editorSelector)) return;
+        const replace = (start, end, text, mode = "preserve") => {
+            target.setRangeText(text, start, end, mode);
             target.dispatchEvent(new Event("input", { bubbles: true }));
         };
         return {
             element: target,
             value: () => target.value,
             selected: () => target.value.slice(target.selectionStart, target.selectionEnd),
-            insert: (text) => replace(target.selectionStart, target.selectionEnd, text),
+            insert: (text) => replace(target.selectionStart, target.selectionEnd, text, "end"),
             replace
         };
     }
-    document.addEventListener("paste", async (event) => {
-        if (!event.isTrusted || event.defaultPrevented)
-            return;
-        const editor = editorFor(event.target);
-        const files = Array.from(event.clipboardData?.files ?? []).filter((file) => file.type.startsWith("image/"));
-        if (!editor || !files.length)
-            return;
-        const credential = token();
-        if (!credential)
-            return;
-        event.preventDefault();
-        event.stopImmediatePropagation();
+
+    async function uploadIntoEditor(editor, files, credential) {
         const marker = `<!-- OU 上传中 ${crypto.randomUUID()} -->`;
         const selection = editor.selected();
         editor.insert(marker);
@@ -130,76 +214,226 @@ function runNodeSeek(apiOrigin) {
         for (const file of files) {
             try {
                 links.push(await upload(file, credential));
-            }
-            catch (error) {
+            } catch (error) {
                 failure = error instanceof Error ? error.message : "上传失败";
             }
         }
         const position = editor.element.isConnected ? editor.value().indexOf(marker) : -1;
         if (position >= 0) {
             editor.replace(position, position + marker.length, links.length ? links.join("\n") : selection);
-        }
-        else if (links.length) {
+        } else if (links.length) {
             GM_setClipboard(links.join("\n"));
             notify("图片已上传，Markdown 已复制");
             return;
         }
         notify(failure ? `已上传 ${links.length}/${files.length} 张 · ${failure}` : `已插入 ${links.length} 张图片`);
+    }
+
+    document.addEventListener("paste", (event) => {
+        if (!event.isTrusted || event.defaultPrevented) return;
+        const editor = editorFor(event.target);
+        const files = Array.from(event.clipboardData?.files ?? []).filter((file) => file.type.startsWith("image/"));
+        if (!editor || !files.length) return;
+        const credential = token();
+        if (!credential) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        void uploadIntoEditor(editor, files, credential);
     }, true);
+
+    function editorElement(root) {
+        return root.querySelector(".CodeMirror") ?? root.querySelector("textarea");
+    }
+
+    function mountEditor(root) {
+        if (mountedEditors.get(root)?.isConnected || !editorElement(root)) return;
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:5px 8px;border-bottom:1px solid color-mix(in srgb,currentColor 18%,transparent);font:13px system-ui";
+        const pick = button("OU 图床 NS 上传插件已就位 · 选图上传");
+        const configure = button("凭据设置");
+        for (const control of [pick, configure]) {
+            control.style.cssText = "padding:5px 8px;min-height:32px;border:1px solid color-mix(in srgb,currentColor 28%,transparent);border-radius:6px;background:transparent;color:inherit;cursor:pointer;font:inherit;text-align:left";
+        }
+        const input = document.createElement("input");
+        input.type = "file";
+        input.accept = "image/*,.heic,.heif";
+        input.multiple = true;
+        input.hidden = true;
+        let activeEditor;
+        pick.addEventListener("click", (event) => {
+            if (!event.isTrusted || !token()) return;
+            activeEditor = editorFor(editorElement(root));
+            if (!activeEditor) {
+                notify("请切回编辑器的内容页再上传图片");
+                return;
+            }
+            input.click();
+        });
+        input.addEventListener("change", (event) => {
+            if (!event.isTrusted) return;
+            const files = Array.from(input.files ?? []);
+            input.value = "";
+            if (!activeEditor || !files.length) return;
+            const credential = token();
+            if (credential) void uploadIntoEditor(activeEditor, files, credential);
+        });
+        configure.addEventListener("click", (event) => { if (event.isTrusted) openSettings(); });
+        row.append(pick, configure, input);
+        const toolbar = root.querySelector(".mde-toolbar");
+        if (toolbar) toolbar.after(row);
+        else root.prepend(row);
+        mountedEditors.set(root, row);
+    }
+
+    let scanQueued = false;
+    function scanEditors() {
+        scanQueued = false;
+        for (const root of document.querySelectorAll(editorSelector)) {
+            if (!root.parentElement?.closest(editorSelector)) mountEditor(root);
+        }
+    }
+
+    scanEditors();
+    new MutationObserver(() => {
+        if (!scanQueued) {
+            scanQueued = true;
+            requestAnimationFrame(scanEditors);
+        }
+    }).observe(document.body, { childList: true, subtree: true });
+
     function closeMenu() {
         menu?.remove();
         menu = undefined;
     }
+
+    function downloadAcrossOrigins(url) {
+        return new Promise((resolve, reject) => {
+            const fail = () => {
+                clearTimeout(timer);
+                reject(new Error("浏览器无法读取这张站外图片"));
+            };
+            let request;
+            const timer = setTimeout(() => {
+                request?.abort();
+                fail();
+            }, 15_000);
+            try {
+                request = GM_xmlhttpRequest({
+                    method: "GET",
+                    url: url.href,
+                    responseType: "blob",
+                    anonymous: true,
+                    redirect: "error",
+                    timeout: 15_000,
+                    onprogress(event) {
+                        if (event.loaded > maximumBytes) {
+                            clearTimeout(timer);
+                            request?.abort();
+                            reject(imageTooLarge());
+                        }
+                    },
+                    onload(response) {
+                        clearTimeout(timer);
+                        if (response.status < 200 || response.status >= 300 ||
+                            (response.finalUrl && response.finalUrl !== url.href) || !(response.response instanceof Blob)) {
+                            fail();
+                            return;
+                        }
+                        if (response.response.size > maximumBytes) reject(imageTooLarge());
+                        else resolve(response.response);
+                    },
+                    onerror: fail,
+                    ontimeout: fail
+                });
+            } catch { fail(); }
+        });
+    }
+
+    async function downloadInPage(url) {
+        const response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+        if (!response.ok || !response.body) throw new Error("无法读取原图片");
+        if (Number(response.headers.get("content-length")) > maximumBytes) {
+            await response.body.cancel();
+            throw imageTooLarge();
+        }
+        const reader = response.body.getReader();
+        const chunks = [];
+        let bytes = 0;
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            bytes += value.byteLength;
+            if (bytes > maximumBytes) {
+                await reader.cancel();
+                throw imageTooLarge();
+            }
+            chunks.push(value);
+        }
+        return new Blob(chunks, { type: response.headers.get("content-type") ?? "" });
+    }
+
+    async function uploadForumImage(url, image, credential) {
+        let blob;
+        try {
+            blob = await downloadInPage(url);
+        } catch (error) {
+            if (error?.code === "FILE_TOO_LARGE" || !["https:", "http:"].includes(url.protocol)) throw error;
+            // Only request the exact, already rendered image selected by the user.
+            if (url.origin !== location.origin && image.complete && image.naturalWidth > 0) {
+                try {
+                    blob = await downloadAcrossOrigins(url);
+                } catch (downloadError) {
+                    if (downloadError?.code === "FILE_TOO_LARGE") throw downloadError;
+                }
+            }
+        }
+        if (blob) {
+            const name = url.pathname.split("/").at(-1)?.slice(0, 100) || "nodeseek-image";
+            return upload(new File([blob], name, { type: blob.type }), credential);
+        }
+        try {
+            return await upload(url.href, credential);
+        } catch (error) {
+            if (error?.code === "BLOCKED_URL" || error?.code === "REMOTE_FETCH_FAILED") {
+                throw new Error("无法自动读取这张图片。请先保存图片，再用编辑器里的「选图上传」。");
+            }
+            throw error;
+        }
+    }
+
     document.addEventListener("pointerdown", (event) => {
-        if (event.target !== menu)
-            closeMenu();
+        if (event.target !== menu) closeMenu();
     }, true);
-    document.addEventListener("keydown", (event) => { if (event.key === "Escape")
-        closeMenu(); });
+    document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeMenu(); });
+
     document.addEventListener("contextmenu", (event) => {
         closeMenu();
-        if (!event.isTrusted || event.shiftKey || !(event.target instanceof HTMLImageElement))
-            return;
-        const source = event.target.currentSrc || event.target.src;
+        if (!event.isTrusted || !(event.shiftKey || (firefox && event.altKey)) || !(event.target instanceof HTMLImageElement)) return;
+        const image = event.target;
         let url;
         try {
-            url = new URL(source, location.href);
-        }
-        catch {
+            url = new URL(image.currentSrc || image.src, location.href);
+        } catch {
             return;
         }
-        if (!["https:", "http:", "data:", "blob:"].includes(url.protocol))
-            return;
+        if (!["https:", "http:", "data:", "blob:"].includes(url.protocol) || url.username || url.password) return;
         event.preventDefault();
-        menu = document.createElement("button");
-        menu.type = "button";
-        menu.textContent = "上传到 OU 图床并复制 Markdown";
+        menu = button("上传到 OU 图床并复制 Markdown");
         menu.style.cssText = "position:fixed;z-index:2147483647;background:#202633;color:white;border:0;border-radius:8px;padding:10px 12px;font:14px system-ui;cursor:pointer;max-width:calc(100vw - 16px)";
         document.body.append(menu);
         menu.style.left = `${Math.max(8, Math.min(event.clientX, innerWidth - menu.offsetWidth - 8))}px`;
         menu.style.top = `${Math.max(8, Math.min(event.clientY, innerHeight - menu.offsetHeight - 8))}px`;
         menu.focus();
         menu.addEventListener("click", async (click) => {
-            if (!click.isTrusted)
-                return;
+            if (!click.isTrusted) return;
             closeMenu();
             const credential = token();
-            if (!credential)
-                return;
+            if (!credential) return;
             notify("正在上传图片");
             try {
-                let value = url.href;
-                if (url.origin === location.origin || url.protocol === "data:" || url.protocol === "blob:") {
-                    const response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
-                    if (!response.ok)
-                        throw new Error("无法读取原图片");
-                    const blob = await response.blob();
-                    value = new File([blob], url.pathname.split("/").at(-1)?.slice(0, 100) || "nodeseek-image", { type: blob.type });
-                }
-                GM_setClipboard(await upload(value, credential));
+                GM_setClipboard(await uploadForumImage(url, image, credential));
                 notify("图片已上传，Markdown 已复制");
-            }
-            catch (error) {
+            } catch (error) {
                 notify(error instanceof Error ? error.message : "上传失败");
             }
         });
