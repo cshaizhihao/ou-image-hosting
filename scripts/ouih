@@ -707,8 +707,8 @@ update_application() {
     return 1
   fi
   info "启动更新后的服务"
-  if ! compose up -d; then
-    update_recovery_hint "启动服务" "$previous_revision"
+  if ! compose up -d --wait --wait-timeout 150; then
+    update_recovery_hint "等待服务就绪" "$previous_revision"
     return 1
   fi
   local updated_revision

@@ -91,6 +91,29 @@ test("设置、统计与系统状态核心 smoke", async ({ page }) => {
   ).toBeVisible();
 });
 
+test("首页快速连续粘贴时只发起一次上传", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "选择图片", exact: true })).toBeEnabled();
+  const postRequests: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST" && new URL(request.url()).pathname === "/api/public/uploads") {
+      postRequests.push(request.url());
+    }
+  });
+  const image = (await imageFixture()).toString("base64");
+  await page.evaluate((base64) => {
+    const data = new DataTransfer();
+    const bytes = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
+    data.items.add(new File([bytes], "ou-e2e-paste.jpg", { type: "image/jpeg" }));
+    const target = document.querySelector("main")!;
+    for (let index = 0; index < 2; index += 1) {
+      target.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: data }));
+    }
+  }, image);
+  await expect(page.getByText(/^(上传完成，链接已生成。|图片已存在，链接已为你取回。)$/)).toBeVisible();
+  expect(postRequests).toHaveLength(1);
+});
+
 test("命令面板可完全使用键盘导航", async ({ page }) => {
   await page.goto("/overview");
   await page.keyboard.press("Control+k");

@@ -21,7 +21,6 @@ type PublicShareMetadata = {
     accessCount: number;
   };
   image: {
-    id: string;
     name: string;
     size: number;
     mime: string;

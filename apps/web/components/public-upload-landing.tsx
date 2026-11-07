@@ -218,6 +218,7 @@ function publicDate(value?: string) {
 
 export function PublicUploadLanding() {
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const uploadInProgress = useRef(false);
   const wheelLockRef = useRef(false);
   const personalRequestRef = useRef(0);
   const galleryRequestRef = useRef(0);
@@ -674,7 +675,7 @@ export function PublicUploadLanding() {
 
   const uploadFiles = useCallback(
     async (files: File[] | FileList | undefined) => {
-      if (!files || uploading || !uploadEnabled) return;
+      if (!files || uploadInProgress.current || !uploadEnabled) return;
       const selectedFiles = Array.from(files);
       const imageFiles = selectedFiles.filter(isPublicUploadImageFile);
       const videos = selectedFiles.filter(isLivePhotoVideoFile);
@@ -691,6 +692,7 @@ export function PublicUploadLanding() {
         return;
       }
 
+      uploadInProgress.current = true;
       setUploading(true);
       setUploadCount(imageFiles.length);
       setUploadIndex(0);
@@ -738,6 +740,7 @@ export function PublicUploadLanding() {
             : "上传失败，请稍后再试"
         );
       } finally {
+        uploadInProgress.current = false;
         setUploading(false);
         setUploadCount(0);
         setUploadIndex(0);
@@ -752,7 +755,6 @@ export function PublicUploadLanding() {
       site.publicGalleryEnabled,
       site.publicUploadLivePhotoEnabled,
       uploadEnabled,
-      uploading,
       uploadSingleFile
     ]
   );

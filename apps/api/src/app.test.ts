@@ -141,15 +141,16 @@ describe("OU-Image API", () => {
       url: "/health/ready"
     });
     const status = await app.inject({ method: "GET", url: "/setup/status" });
+    const version = (await readFile(new URL("../../../VERSION", import.meta.url), "utf8")).trim();
 
     expect(health.statusCode).toBe(200);
     expect(health.json()).toMatchObject({
       status: "ok",
-      version: "2.0.0"
+      version
     });
     expect(live.json()).toMatchObject({
       status: "ok",
-      version: "2.0.0"
+      version
     });
     expect(ready.statusCode).toBe(200);
     expect(ready.json()).toMatchObject({
@@ -1259,6 +1260,7 @@ describe("OU-Image API", () => {
       });
       expect(JSON.stringify(metadata.json())).not.toContain("passwordHash");
       expect(JSON.stringify(metadata.json())).not.toContain("originalKey");
+      expect(metadata.body).not.toContain(imageId);
 
       const wrongPassword = await app.inject({
         method: "POST",
@@ -2338,13 +2340,16 @@ describe("OU-Image API", () => {
         cookies: bearer ? undefined : cookies,
         headers: {
           ...form.getHeaders(),
-          ...(bearer ? { authorization: bearer, origin: "https://www.nodeseek.com" } : {})
+          ...(bearer ? { authorization: bearer } : {})
         },
         payload: form.getBuffer()
       });
     };
     const route = "/integrations/nodeseek/uploads";
     expect((await upload(route)).statusCode).toBe(403);
+    const publicUpload = await upload("/public/uploads", authorization);
+    expect(publicUpload.statusCode).toBe(403);
+    expect(publicUpload.json().error.code).toBe("TOKEN_SCOPE_DENIED");
     const uploaded = await upload(route, authorization);
     expect(uploaded.statusCode).toBe(201);
     expect(uploaded.json().url).toMatch(/^\/api\/files\//);
@@ -2423,7 +2428,7 @@ describe("OU-Image API", () => {
       payload: {
         storage: {
           s3: {
-            endpoint: "https://s3.example.com",
+            endpoint: "https://s3.example.com/gateway",
             bucket: "images",
             region: "us-east-1",
             accessKeyId: "access-key",
@@ -2461,7 +2466,7 @@ describe("OU-Image API", () => {
     expect(tested.statusCode).toBe(200);
     expect(requests[0]).toMatchObject({
       method: "HEAD",
-      url: "https://s3.example.com/images"
+      url: "https://s3.example.com/gateway/images"
     });
     expect(requests[0]!.authorization).toContain("AWS4-HMAC-SHA256");
 
@@ -2483,6 +2488,9 @@ describe("OU-Image API", () => {
     expect(requests.filter((request) => request.method === "PUT")).toHaveLength(
       2
     );
+    expect(requests.filter((request) => request.method === "PUT").every((request) =>
+      request.url.startsWith("https://s3.example.com/gateway/images/")
+    )).toBe(true);
 
     const unsupported = await app.inject({
       method: "POST",
@@ -2600,6 +2608,7 @@ describe("OU-Image API", () => {
       headers: { referer: "https://app.example.com/gallery" }
     });
     expect(allowed.statusCode).toBe(200);
+    expect(allowed.headers["cache-control"]).toBe("private, no-store");
     expect(allowed.rawPayload.equals(png)).toBe(true);
 
     const versionedPreview = await app.inject({
@@ -3111,6 +3120,15 @@ describe("OU-Image API", () => {
       });
       expect(denied.statusCode).toBe(403);
     }
+    const viewerUpload = await app.inject({
+      method: "POST",
+      url: "/public/uploads",
+      headers: { ...form.getHeaders(), "x-workspace-id": alphaId },
+      cookies: { ou_session: "viewer-token" },
+      payload: form.getBuffer()
+    });
+    expect(viewerUpload.statusCode).toBe(403);
+    expect(viewerUpload.json().error.code).toBe("INSUFFICIENT_ROLE");
     const ownerId = store.snapshot().workspaces.find(
       (item) => item.id === alphaId
     )!.ownerUserId;
@@ -3619,6 +3637,53 @@ describe("OU-Image API", () => {
       loggedInPublicUpload.json().image.id
     );
   }, 30000);
+
+  it("isolates anonymous uploads of identical bytes from existing image records", async () => {
+    const app = await createTestApp();
+    const setup = await app.inject({ method: "POST", url: "/setup", payload: owner });
+    const cookies = { ou_session: setup.cookies.find((item) => item.name === "ou_session")!.value };
+    const settings = await app.inject({
+      method: "PATCH",
+      url: "/site/settings",
+      cookies,
+      payload: { publicGalleryShowUploader: true }
+    });
+    expect(settings.statusCode).toBe(200);
+    const png = await sharp({
+      create: { width: 24, height: 16, channels: 3, background: "#4c6387" }
+    }).png().toBuffer();
+    const upload = (url: string, filename: string, session?: typeof cookies) => {
+      const form = new FormData();
+      form.append("file", png, { filename, contentType: "image/png" });
+      return app.inject({
+        method: "POST", url, cookies: session, headers: form.getHeaders(), payload: form.getBuffer()
+      });
+    };
+    const original = await upload("/uploads", "owner-only.png", cookies);
+    expect(original.statusCode).toBe(201);
+    const ownerImage = original.json().image;
+    expect(ownerImage.publicVisible).toBe(false);
+
+    const unlisted = await upload("/public/uploads?publicVisible=false", "guest-unlisted.png");
+    expect.soft(unlisted.statusCode).toBe(201);
+    expect.soft(unlisted.json()).toMatchObject({
+      duplicate: false, image: { name: "guest-unlisted.png", publicVisible: false }
+    });
+    expect.soft(unlisted.json().image.originalUrl).not.toBe(ownerImage.originalUrl);
+
+    const listed = await upload("/public/uploads?publicVisible=true", "guest-listed.png");
+    expect.soft(listed.statusCode).toBe(201);
+    expect.soft(listed.json()).toMatchObject({
+      duplicate: false, image: { name: "guest-listed.png", publicVisible: true }
+    });
+    expect.soft(listed.json().image.originalUrl).not.toBe(ownerImage.originalUrl);
+    expect.soft(new Set([ownerImage.id, unlisted.json().image.id, listed.json().image.id]).size).toBe(3);
+
+    const history = await app.inject({ url: "/uploads", cookies });
+    expect.soft(history.json().images).toMatchObject([{ id: ownerImage.id, publicVisible: false }]);
+    const gallery = await app.inject({ url: "/public/images" });
+    expect(gallery.json().images).toMatchObject([{ id: listed.json().image.id, uploaderName: "匿名访客" }]);
+  });
 
   it("keeps anonymous public uploads out of personal upload history", async () => {
     const store = new AppStore(null);

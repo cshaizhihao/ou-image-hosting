@@ -171,14 +171,15 @@ function awsEncode(value: string) {
 
 function remoteUrl(config: RuntimeRemoteConfig, key?: string) {
   const url = new URL(config.endpoint);
+  const prefix = url.pathname.replace(/\/$/, "");
   const keyPath = key
     ? key.split("/").map(awsEncode).join("/")
     : "";
   if (config.pathStyle) {
-    url.pathname = `/${awsEncode(config.bucket)}${keyPath ? `/${keyPath}` : ""}`;
+    url.pathname = `${prefix}/${awsEncode(config.bucket)}${keyPath ? `/${keyPath}` : ""}`;
   } else {
     url.hostname = `${config.bucket}.${url.hostname}`;
-    url.pathname = keyPath ? `/${keyPath}` : "/";
+    url.pathname = keyPath ? `${prefix}/${keyPath}` : prefix || "/";
   }
   return url;
 }

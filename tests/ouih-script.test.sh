@@ -66,6 +66,9 @@ printf 'docker %s\n' "$*" >> "$MOCK_LOG"
 if [[ "${1:-}" == "info" ]]; then
   exit "${MOCK_DOCKER_INFO_EXIT:-0}"
 fi
+if [[ "$*" == *"up -d --wait --wait-timeout"* ]]; then
+  exit "${MOCK_DOCKER_READY_EXIT:-0}"
+fi
 if [[ "$*" == *"ps --status running --services"* ]]; then
   printf 'api\nweb\ncaddy\n'
 fi
@@ -160,7 +163,17 @@ assert_log_contains "git -C $install_one checkout -B main origin/main"
 assert_log_contains "git -C $install_one reset --hard origin/main"
 assert_log_contains "docker compose --env-file .env.production -f docker-compose.yml --profile https build api"
 assert_log_contains "docker compose --env-file .env.production -f docker-compose.yml --profile https build web"
-assert_log_contains "docker compose --env-file .env.production -f docker-compose.yml --profile https up -d"
+assert_log_contains "docker compose --env-file .env.production -f docker-compose.yml --profile https up -d --wait --wait-timeout 150"
+
+install_unhealthy="$TEST_ROOT/install-unhealthy"
+make_install "$install_unhealthy"
+if MOCK_DOCKER_READY_EXIT=1 OUIH_INSTALL_DIR="$install_unhealthy" \
+  "$SOURCE_SCRIPT" update >"$TEST_ROOT/unhealthy.out" 2>&1; then
+  fail "服务未就绪时不应报告更新成功"
+fi
+assert_contains "$(cat "$TEST_ROOT/unhealthy.out")" "等待服务就绪"
+[[ ! -e "$install_unhealthy.backups/.ouih-state/last-update-to" ]] ||
+  fail "服务未就绪时不应写入成功更新记录"
 
 reset_log
 if MOCK_GIT_DIRTY=1 OUIH_INSTALL_DIR="$install_one" \

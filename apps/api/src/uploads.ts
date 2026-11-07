@@ -275,7 +275,9 @@ function publicImageCard(
         : total,
     0
   );
-  const uploader = state.users.find((user) => user.id === image.userId);
+  const uploaderName = image.publicUploadGuest
+    ? "匿名访客"
+    : state.users.find((user) => user.id === image.userId)?.displayName ?? "OU 用户";
   return {
     id: image.id,
     name: state.site?.publicGalleryShowFileName ? image.name : undefined,
@@ -285,9 +287,7 @@ function publicImageCard(
     width: image.width,
     height: image.height,
     shareViews,
-    uploaderName: state.site?.publicGalleryShowUploader
-      ? uploader?.displayName ?? "OU 用户"
-      : undefined,
+    uploaderName: state.site?.publicGalleryShowUploader ? uploaderName : undefined,
     liveVideoUrl: image.livePhotoVideoKey
       ? buildDeliveryUrl(state, image.id, "live", timestamp)
       : undefined,
@@ -438,8 +438,13 @@ async function assertRemoteUrl(rawUrl: string) {
 
 async function readRemoteImage(rawUrl: string, maximumBytes: number) {
   const { url, address, family } = await assertRemoteUrl(rawUrl);
+  const signal = AbortSignal.timeout(REMOTE_UPLOAD_TIMEOUT_MS);
   return new Promise<{ buffer: Buffer; filename: string; mime: string }>(
     (resolve, reject) => {
+      const fail = (error: Error) => {
+        const message = signal.aborted ? "远程图片读取超时" : "无法读取远程图片";
+        reject(error instanceof PublicError ? error : new PublicError(400, "REMOTE_FETCH_FAILED", message));
+      };
       const requestImpl = url.protocol === "https:" ? httpsRequest : httpRequest;
       const request = requestImpl(
         url,
@@ -447,18 +452,18 @@ async function readRemoteImage(rawUrl: string, maximumBytes: number) {
           family,
           headers: {
             accept: "image/avif,image/heic,image/heif,image/webp,image/png,image/jpeg,image/gif",
-            "user-agent": "OU-Image-Hosting/2.0.0"
+            "user-agent": "OU-Image-Hosting/2.0.1"
           },
           lookup: (_hostname, _options, callback) => {
             callback(null, address, family);
           },
           servername: url.hostname,
-          timeout: REMOTE_UPLOAD_TIMEOUT_MS
+          signal
         },
         (response) => {
           const statusCode = response.statusCode ?? 0;
           if (statusCode < 200 || statusCode >= 300) {
-            response.resume();
+            response.destroy();
             reject(new PublicError(400, "REMOTE_FETCH_FAILED", "远程图片响应不可用"));
             return;
           }
@@ -487,19 +492,10 @@ async function readRemoteImage(rawUrl: string, maximumBytes: number) {
               mime: String(response.headers["content-type"] ?? "").split(";")[0] ?? ""
             });
           });
-          response.on("error", reject);
+          response.on("error", fail);
         }
       );
-      request.on("timeout", () => {
-        request.destroy(new PublicError(400, "REMOTE_FETCH_FAILED", "远程图片读取超时"));
-      });
-      request.on("error", (error) => {
-        reject(
-          error instanceof PublicError
-            ? error
-            : new PublicError(400, "REMOTE_FETCH_FAILED", "无法读取远程图片")
-        );
-      });
+      request.on("error", fail);
       request.end();
     }
   );
@@ -797,7 +793,10 @@ export async function registerUploadRoutes(
     const liveName = livePhotoVideo
       ? `${createHash("sha256").update(livePhotoVideo.buffer).digest("hex")}.${livePhotoVideo.extension}`
       : undefined;
+    // Guests share the owner's storage workspace but do not share image records.
     const matches = (candidate: StoredImage) =>
+      !publicUploadGuest &&
+      !candidate.publicUploadGuest &&
       candidate.workspaceId === principal.workspaceId &&
       candidate.sha256 === sha256 &&
       candidate.livePhotoVideoKey?.split("/").at(-1) === liveName &&
@@ -1571,6 +1570,7 @@ export async function registerUploadRoutes(
           "管理员已开启登录后上传，请先登录再上传图片"
         );
       }
+      if (principal) requireCapability(principal, "write", ["images:write"]);
       const authenticated = Boolean(principal);
       if (!authenticated && state.site.publicUploadHumanVerificationEnabled) {
         await consumeHumanChallenge(request);
@@ -1797,9 +1797,10 @@ export async function registerUploadRoutes(
       const key = isLive ? image.livePhotoVideoKey : isThumbnail ? image.thumbnailKey : image.originalKey;
       if (!key) throw new PublicError(404, "MEDIA_NOT_FOUND", "这张图片没有动态片段");
       const { size, range, body } = await media.open(key, request.headers["if-range"] ? undefined : request.headers.range);
+      const protectedDelivery = state.deliverySettings.signedUrls || state.deliverySettings.hotlinkEnabled;
       reply
         .type(isLive ? image.livePhotoVideoMime ?? "video/mp4" : isThumbnail ? "image/webp" : image.mime)
-        .header("cache-control", "public, max-age=60, must-revalidate")
+        .header("cache-control", protectedDelivery ? "private, no-store" : "public, max-age=60, must-revalidate")
         .header("content-disposition", "inline")
         .header("accept-ranges", "bytes");
       if (range === "unsatisfiable") return reply.code(416).header("content-range", `bytes */${size}`).send();

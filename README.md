@@ -7,7 +7,7 @@
 <p align="center">给发帖、写博客和做教程的人用的自托管图床。</p>
 
 <p align="center">
-  <a href="https://github.com/cshaizhihao/ou-image-hosting/releases/tag/v2.0.0"><img src="https://img.shields.io/badge/版本-V2.0.0-24775f?style=flat-square" alt="V2.0.0" /></a>
+  <a href="https://github.com/cshaizhihao/ou-image-hosting/releases/tag/v2.0.1"><img src="https://img.shields.io/badge/版本-V2.0.1-24775f?style=flat-square" alt="V2.0.1" /></a>
   <a href="https://github.com/cshaizhihao/ou-image-hosting/actions/workflows/check.yml"><img src="https://img.shields.io/github/actions/workflow/status/cshaizhihao/ou-image-hosting/check.yml?branch=main&style=flat-square&label=check" alt="Check" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-343a38?style=flat-square" alt="MIT License" /></a>
 </p>
@@ -74,4 +74,4 @@ ouih status
 | `ouih restore` | 从备份恢复 |
 | `ouih rollback` | 回退最近一次成功更新 |
 
-项目基于 Next.js、React、Fastify、Sharp 和 Docker Compose，采用 MIT 许可。欢迎通过 Issue 反馈使用体验，也欢迎提交 PR。 [V2.0.0 发布说明](./docs/releases/v2.0.0.md) · [安全模型](./docs/threat-model.md) · [故障排查](./docs/troubleshooting.md)
+项目基于 Next.js、React、Fastify、Sharp 和 Docker Compose，采用 MIT 许可。欢迎通过 Issue 反馈使用体验，也欢迎提交 PR。 [V2.0.1 发布说明](./docs/releases/v2.0.1.md) · [安全模型](./docs/threat-model.md) · [故障排查](./docs/troubleshooting.md)

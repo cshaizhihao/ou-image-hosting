@@ -852,7 +852,6 @@ export function registerImageDetailRoutes(
           accessCount: share.accessCount
         },
         image: {
-          id: image.id,
           name: image.name,
           size: image.size,
           mime: image.mime,
