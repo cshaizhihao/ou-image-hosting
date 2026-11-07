@@ -5,14 +5,10 @@ import { Badge, Button, cn } from "@ou-image/ui";
 import QRCode from "qrcode";
 import {
   BellRing,
-  Check,
   Fingerprint,
-  FolderHeart,
   FolderCog,
   Globe2,
-  Heart,
   ImageDown,
-  ImageIcon,
   KeyRound,
   Languages,
   Laptop,
@@ -24,7 +20,6 @@ import {
   Save,
   ShieldCheck,
   SlidersHorizontal,
-  Sparkles,
   Smartphone,
   Trash2,
   UserRound,
@@ -78,13 +73,11 @@ import {
   requestMessage
 } from "./management-ui";
 import {
-  PUBLIC_FEATURE_ICON_VALUES,
   applySiteAppearance,
   storedThemePreference,
   useFallbackLogo,
   writeStoredSiteBranding,
-  type AccentPreset,
-  type PublicFeatureIcon
+  type AccentPreset
 } from "@/lib/site-branding";
 
 type SettingsSection =
@@ -120,32 +113,6 @@ const accentPresets: Array<{ value: AccentPreset; label: string }> = [
   { value: "ocean", label: "海湾蓝" },
   { value: "amber", label: "暖琥珀" }
 ];
-
-const publicFeatureIconOptions: Array<{
-  value: PublicFeatureIcon;
-  label: string;
-  icon: LucideIcon;
-}> = PUBLIC_FEATURE_ICON_VALUES.map((value) => ({
-  value,
-  label:
-    {
-      image: "图片",
-      shield: "盾牌",
-      check: "勾选",
-      sparkles: "星光",
-      heart: "爱心",
-      folder: "相册"
-    }[value],
-  icon:
-    {
-      image: ImageIcon,
-      shield: ShieldCheck,
-      check: Check,
-      sparkles: Sparkles,
-      heart: Heart,
-      folder: FolderHeart
-    }[value]
-}));
 
 const notificationCategories: Array<{
   key: "security" | "collaboration" | "system";
@@ -219,7 +186,6 @@ export function SettingsConsole() {
     useState<ActiveSession | null>(null);
   const [revokeOthersOpen, setRevokeOthersOpen] = useState(false);
   const [resetBrandingOpen, setResetBrandingOpen] = useState(false);
-  const [featureIconPicker, setFeatureIconPicker] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1408,7 +1374,7 @@ export function SettingsConsole() {
                     <div className={styles.settingsCardHead}>
                       <div>
                         <strong>站点外观</strong>
-                        <span>品牌、主题、公共页和登录页文案已拆成折叠分类，避免设置页继续瀑布流。</span>
+                        <span>管理站点品牌、主题和登录页文案。</span>
                       </div>
                       <Palette aria-hidden="true" size={19} />
                     </div>
@@ -1535,183 +1501,6 @@ export function SettingsConsole() {
 
                       <details className={styles.settingsAccordion}>
                         <summary>
-                          <span>公共首页</span>
-                          <small>公共上传页标题、说明和三张欢迎卡片。</small>
-                        </summary>
-                        <div className={styles.formGrid}>
-                          <label className={styles.field}>
-                            <span>
-                              <strong>公共首页标题</strong>
-                              <small>用于访客上传首页的大标题。</small>
-                            </span>
-                            <input
-                              className={styles.input}
-                              maxLength={80}
-                              onChange={(event) =>
-                                setSiteSettings((current) =>
-                                  current ? { ...current, publicHeroTitle: event.target.value } : current
-                                )
-                              }
-                              value={siteSettings.publicHeroTitle}
-                            />
-                          </label>
-                          <label className={cn(styles.field, styles.spanFull)}>
-                            <span>
-                              <strong>公共首页说明</strong>
-                              <small>控制首页标题下方的说明文案。</small>
-                            </span>
-                            <textarea
-                              className={styles.textarea}
-                              maxLength={280}
-                              onChange={(event) =>
-                                setSiteSettings((current) =>
-                                  current
-                                    ? { ...current, publicHeroDescription: event.target.value }
-                                    : current
-                                )
-                              }
-                              value={siteSettings.publicHeroDescription}
-                            />
-                          </label>
-                          <div className={cn(styles.field, styles.spanFull)}>
-                            <span>
-                              <strong>首页欢迎卡片</strong>
-                              <small>三张小卡片会展示在公共上传页左侧。</small>
-                            </span>
-                            <div className={styles.featureEditorGrid}>
-                              {siteSettings.publicFeatureCards.map((card, index) => {
-                                const selectedOption = publicFeatureIconOptions.find((option) => option.value === card.icon) ?? publicFeatureIconOptions[0]!;
-                                const Icon = selectedOption.icon;
-                                const pickerOpen = featureIconPicker === index;
-                                return (
-                                  <article className={styles.featureEditorCard} key={index}>
-                                    <div className={styles.featureEditorCardHead}>
-                                      <div className={styles.featureEditorCardTitle}>
-                                        <span><Icon aria-hidden="true" size={18} /></span>
-                                        <div>
-                                          <strong>卡片 {index + 1}</strong>
-                                          <small>{card.title || "未命名欢迎卡片"}</small>
-                                        </div>
-                                      </div>
-                                      <div className={styles.iconPicker}>
-                                        <Dialog.Root
-                                          onOpenChange={(open) => setFeatureIconPicker(open ? index : null)}
-                                          open={pickerOpen}
-                                        >
-                                          <Dialog.Trigger asChild>
-                                            <button
-                                              aria-expanded={pickerOpen}
-                                              className={styles.iconPickerTrigger}
-                                              type="button"
-                                            >
-                                              <Icon aria-hidden="true" size={17} />
-                                              <span>{selectedOption.label}</span>
-                                            </button>
-                                          </Dialog.Trigger>
-                                          <Dialog.Portal>
-                                            <Dialog.Overlay className="dialog-overlay" />
-                                            <Dialog.Content className={styles.iconPickerDialog}>
-                                              <div className={styles.iconPickerDialogHead}>
-                                                <div>
-                                                  <Dialog.Title>选择卡片图标</Dialog.Title>
-                                                  <Dialog.Description>
-                                                    选择后会立即显示在当前卡片预览中。
-                                                  </Dialog.Description>
-                                                </div>
-                                                <Dialog.Close asChild>
-                                                  <button aria-label="关闭图标选择" type="button">
-                                                    <X aria-hidden="true" size={18} />
-                                                  </button>
-                                                </Dialog.Close>
-                                              </div>
-                                              <div className={styles.iconPickerOptions} role="listbox">
-                                                {publicFeatureIconOptions.map((option) => {
-                                                  const OptionIcon = option.icon;
-                                                  const selected = option.value === card.icon;
-                                                  return (
-                                                    <button
-                                                      aria-selected={selected}
-                                                      className={cn(selected && styles.iconPickerOptionActive)}
-                                                      key={option.value}
-                                                      onClick={() => {
-                                                        setSiteSettings((current) =>
-                                                          current
-                                                            ? {
-                                                                ...current,
-                                                                publicFeatureCards: current.publicFeatureCards.map((item, itemIndex) =>
-                                                                  itemIndex === index
-                                                                    ? { ...item, icon: option.value }
-                                                                    : item
-                                                                )
-                                                              }
-                                                            : current
-                                                        );
-                                                        setFeatureIconPicker(null);
-                                                      }}
-                                                      role="option"
-                                                      type="button"
-                                                    >
-                                                      <span><OptionIcon aria-hidden="true" size={20} /></span>
-                                                      <strong>{option.label}</strong>
-                                                    </button>
-                                                  );
-                                                })}
-                                              </div>
-                                            </Dialog.Content>
-                                          </Dialog.Portal>
-                                        </Dialog.Root>
-                                      </div>
-                                    </div>
-                                    <label className={styles.field}>
-                                      <span><strong>标题</strong></span>
-                                      <input
-                                        className={styles.input}
-                                        maxLength={24}
-                                        onChange={(event) =>
-                                          setSiteSettings((current) =>
-                                            current
-                                              ? {
-                                                  ...current,
-                                                  publicFeatureCards: current.publicFeatureCards.map((item, itemIndex) =>
-                                                    itemIndex === index ? { ...item, title: event.target.value } : item
-                                                  )
-                                                }
-                                              : current
-                                          )
-                                        }
-                                        value={card.title}
-                                      />
-                                    </label>
-                                    <label className={styles.field}>
-                                      <span><strong>说明</strong></span>
-                                      <textarea
-                                        className={styles.textarea}
-                                        maxLength={80}
-                                        onChange={(event) =>
-                                          setSiteSettings((current) =>
-                                            current
-                                              ? {
-                                                  ...current,
-                                                  publicFeatureCards: current.publicFeatureCards.map((item, itemIndex) =>
-                                                    itemIndex === index ? { ...item, description: event.target.value } : item
-                                                  )
-                                                }
-                                              : current
-                                          )
-                                        }
-                                        value={card.description}
-                                      />
-                                    </label>
-                                  </article>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        </div>
-                      </details>
-
-                      <details className={styles.settingsAccordion}>
-                        <summary>
                           <span>登录页文案</span>
                           <small>登录页左侧品牌文案。</small>
                         </summary>
@@ -1784,9 +1573,6 @@ export function SettingsConsole() {
                           busy === "site-configuration" ||
                           !siteSettings.siteName.trim() ||
                           !siteSettings.siteLogoUrl.trim() ||
-                          !siteSettings.publicHeroTitle.trim() ||
-                          !siteSettings.publicHeroDescription.trim() ||
-                          siteSettings.publicFeatureCards.some((card) => !card.title.trim() || !card.description.trim()) ||
                           !siteSettings.loginEyebrow.trim() ||
                           !siteSettings.loginHeroTitle.trim() ||
                           !siteSettings.loginHeroDescription.trim()

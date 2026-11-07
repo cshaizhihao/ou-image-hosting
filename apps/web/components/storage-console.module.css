@@ -309,6 +309,10 @@
   min-width: 0;
 }
 
+.providerSetup {
+  margin: 8px 0 0 14px;
+}
+
 .providerCard {
   position: relative;
   display: grid;

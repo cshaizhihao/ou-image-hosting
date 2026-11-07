@@ -27,6 +27,8 @@ export type StorageProviderGuide = {
   provider: StorageGuideProvider;
   label: string;
   eyebrow: string;
+  setupLabel: string;
+  setupUrl: string;
   consoleLabel: string;
   consoleUrl: string;
   docsLabel: string;
@@ -41,11 +43,15 @@ export type StorageConnectionError = {
   suggestions: string[];
 };
 
+const r2DashboardUrl = "https://dash.cloudflare.com/?to=/:account/r2/overview";
+
 export const storageProviderGuides = {
   s3: {
     provider: "s3",
     label: "Amazon S3",
     eyebrow: "AWS SETUP GUIDE",
+    setupLabel: "注册 AWS 账号",
+    setupUrl: "https://signin.aws.amazon.com/signup?request_type=register",
     consoleLabel: "打开 S3 控制台",
     consoleUrl: "https://console.aws.amazon.com/s3/",
     docsLabel: "查看 S3 官方文档",
@@ -55,8 +61,8 @@ export const storageProviderGuides = {
       {
         key: "endpoint",
         label: "Endpoint",
-        description: "AWS S3 可留空；仅在使用 S3 兼容服务时填写其 HTTPS API 地址。",
-        example: "留空，或 https://s3.example.com"
+        description: "填写存储桶所在区域的 HTTPS API 地址，地址中省略存储桶名称。",
+        example: "https://s3.ap-southeast-1.amazonaws.com"
       },
       {
         key: "region",
@@ -85,7 +91,7 @@ export const storageProviderGuides = {
       {
         key: "publicBaseUrl",
         label: "Public Base URL",
-        description: "可选的 CloudFront 或公开自定义域名，用于生成图片访问链接。",
+        description: "可选，可保存 CloudFront 或自定义域名供参考。图床链接在「域名与链接」中配置。",
         example: "https://img.example.com"
       },
       {
@@ -111,8 +117,8 @@ export const storageProviderGuides = {
         description:
           "在 IAM 中创建供 OU-Image Hosting 使用的用户或访问密钥，只授予目标存储桶所需权限。",
         checklist: [
-          "允许列出存储桶：s3:ListBucket",
-          "允许读写对象：s3:GetObject、s3:PutObject、s3:DeleteObject",
+          "连接测试需要目标桶的 s3:ListBucket 权限",
+          "迁移复制需要目标桶对象的 s3:PutObject 权限",
           "复制 Access Key ID 与 Secret Access Key，Secret 只显示一次"
         ],
         fieldKeys: ["accessKeyId", "secretAccessKey"]
@@ -120,7 +126,7 @@ export const storageProviderGuides = {
       {
         title: "填写连接信息",
         description:
-          "返回本页填写区域、存储桶和凭证。使用 AWS S3 时 Endpoint 可留空，由服务端按区域解析。",
+          "返回本页填写 Endpoint、区域、存储桶和凭证。Endpoint 与 Region 使用同一个 AWS 区域。",
         checklist: [
           "Region 与创建存储桶时选择的区域完全一致",
           "Bucket 只填写名称，不要填写 s3:// 前缀",
@@ -129,15 +135,15 @@ export const storageProviderGuides = {
         fieldKeys: ["endpoint", "region", "bucket", "pathStyle"]
       },
       {
-        title: "验证并保存",
+        title: "测试连接并复制文件",
         description:
-          "先点击“测试连接”，确认可以列出和写入对象，再保存配置。需要公开域名时可填写 CloudFront 或自定义分发域名。",
+          "点击「测试连接」检查存储桶是否可访问。保存后，可在「数据迁移」中手动复制本地文件。",
         checklist: [
-          "测试成功后再点击“保存配置”",
-          "公开访问地址应使用 HTTPS",
-          "上传一张测试图片并确认原图与缩略图均可访问"
+          "确认测试通过后保存配置",
+          "发起迁移后在 S3 控制台查看复制结果",
+          "图床日常上传和读取仍使用本地存储"
         ],
-        fieldKeys: ["publicBaseUrl"]
+        fieldKeys: ["bucket"]
       }
     ]
   },
@@ -145,10 +151,12 @@ export const storageProviderGuides = {
     provider: "r2",
     label: "Cloudflare R2",
     eyebrow: "R2 SETUP GUIDE",
+    setupLabel: "开通 Cloudflare R2",
+    setupUrl: r2DashboardUrl,
     consoleLabel: "打开 R2 控制台",
-    consoleUrl: "https://dash.cloudflare.com/?to=/:account/r2/overview",
+    consoleUrl: r2DashboardUrl,
     docsLabel: "查看 R2 官方文档",
-    docsUrl: "https://developers.cloudflare.com/r2/api/s3/tokens/",
+    docsUrl: "https://developers.cloudflare.com/r2/api/tokens/",
     fields: [
       {
         key: "endpoint",
@@ -183,7 +191,7 @@ export const storageProviderGuides = {
       {
         key: "publicBaseUrl",
         label: "Public Base URL",
-        description: "绑定到该桶的公开自定义域名，不是 R2 S3 API Endpoint。",
+        description: "可选，可保存该桶的自定义域名供参考。图床链接在「域名与链接」中配置。",
         example: "https://img.example.com"
       },
       {
@@ -197,7 +205,7 @@ export const storageProviderGuides = {
       {
         title: "创建 R2 存储桶",
         description:
-          "在 Cloudflare 控制台进入 R2 Object Storage，创建一个专用于图片的存储桶。",
+          "打开 Cloudflare 的 R2 概览页，按页面提示开通 R2，再创建一个专用存储桶。",
         checklist: [
           "使用独立、易识别的存储桶名称",
           "创建后记录 Bucket 名称",
@@ -232,15 +240,15 @@ export const storageProviderGuides = {
         ]
       },
       {
-        title: "配置公开访问并验证",
+        title: "测试连接并复制文件",
         description:
-          "需要公开图片时，在 R2 存储桶中连接自定义域名；将该 HTTPS 地址填入公开访问域名后测试连接并保存。",
+          "点击「测试连接」检查存储桶是否可访问。保存后，可在「数据迁移」中手动复制本地文件。",
         checklist: [
-          "生产环境优先使用自定义域名，不建议依赖开发地址",
-          "确认自定义域名状态为 Active",
-          "测试连接、保存配置，再上传图片验证访问"
+          "确认测试通过后保存配置",
+          "发起迁移后在 R2 概览页查看复制结果",
+          "图床日常上传和读取仍使用本地存储"
         ],
-        fieldKeys: ["publicBaseUrl"]
+        fieldKeys: ["bucket"]
       }
     ]
   }
