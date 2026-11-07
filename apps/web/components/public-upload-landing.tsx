@@ -801,7 +801,7 @@ export function PublicUploadLanding() {
 
   const handlePaste = useCallback(
     (event: ClipboardEvent) => {
-      if (!uploadEnabled || uploading) return;
+      if (event.defaultPrevented || !uploadEnabled || uploading) return;
       const files = Array.from(event.clipboardData?.files ?? []).filter((file) =>
         file.type.startsWith("image/")
       );
