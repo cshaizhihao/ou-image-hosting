@@ -9,7 +9,7 @@ export function nodeSeekUserscript(origin: string) {
     "// ==UserScript==",
     "// @name         OU 图床 · NodeSeek 上传",
     `// @namespace    ${url.origin}`,
-    "// @version      1.1.0",
+    "// @version      1.1.1",
     "// @description  在 NodeSeek 粘贴、选图或 Shift＋右键上传图片，生成 Markdown。",
     "// @match        https://www.nodeseek.com/*",
     "// @match        https://nodeseek.com/*",
