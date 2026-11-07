@@ -1,140 +1,77 @@
 <p align="center">
-  <img src="./docs/assets/logo/ou-image-hosting-logo.jpg" width="144" alt="OU-Image Hosting Logo" />
+  <img src="./apps/web/public/brand/ou-image-hosting-logo.jpg" width="144" alt="欧记图床猫咪 Logo" />
 </p>
 
-<h1 align="center">OU-Image Hosting</h1>
+<h1 align="center">OU-Image Hosting · 欧记图床</h1>
+
+<p align="center">给发帖、写博客和做教程的人用的自托管图床。</p>
 
 <p align="center">
-  <strong>欧记图床</strong> · 图片放好，页面也要好看 🐾
-</p>
-
-<p align="center">
-  自托管图床 / 图片库 / 相册 / 公共上传 / R2 & S3 / 一键安装
-</p>
-
-<p align="center">
-  <a href="https://github.com/cshaizhihao/ou-image-hosting/releases/latest">
-    <img src="https://img.shields.io/badge/version-v1.2.3-ef8f8f?style=flat-square" alt="Current version v1.2.3" />
-  </a>
-  <a href="https://github.com/cshaizhihao/ou-image-hosting/actions/workflows/check.yml">
-    <img src="https://img.shields.io/github/actions/workflow/status/cshaizhihao/ou-image-hosting/check.yml?branch=main&style=flat-square&label=check" alt="Check" />
-  </a>
-  <a href="https://github.com/cshaizhihao/ou-image-hosting/actions/workflows/docker.yml">
-    <img src="https://img.shields.io/github/actions/workflow/status/cshaizhihao/ou-image-hosting/docker.yml?branch=main&style=flat-square&label=docker" alt="Docker" />
-  </a>
-  <img src="https://img.shields.io/badge/Next.js-15-111111?style=flat-square" alt="Next.js 15" />
-  <img src="https://img.shields.io/badge/license-MIT-111111?style=flat-square" alt="MIT License" />
+  <a href="https://github.com/cshaizhihao/ou-image-hosting/releases/tag/v2.0.0"><img src="https://img.shields.io/badge/版本-V2.0.0-24775f?style=flat-square" alt="V2.0.0" /></a>
+  <a href="https://github.com/cshaizhihao/ou-image-hosting/actions/workflows/check.yml"><img src="https://img.shields.io/github/actions/workflow/status/cshaizhihao/ou-image-hosting/check.yml?branch=main&style=flat-square&label=check" alt="Check" /></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-343a38?style=flat-square" alt="MIT License" /></a>
 </p>
 
 <p align="center">
-  <a href="#-快速开始">快速开始</a>
-  ·
-  <a href="#-预览">预览</a>
-  ·
-  <a href="#-能做什么">能做什么</a>
-  ·
-  <a href="#-日常维护">日常维护</a>
-  ·
-  <a href="./docs/deployment.md">部署文档</a>
+  <a href="#快速安装">快速安装</a> · <a href="#功能与截图">功能与截图</a> · <a href="#nodeseek-发图">NodeSeek 发图</a> · <a href="#升级与维护">升级与维护</a> · <a href="https://img.zze.cc/">在线预览</a>
 </p>
 
-## 🚀 快速开始
+## 快速安装
+
+在 Linux 服务器上运行安装器。跟随提示选择访问地址和部署方式，再打开安装器给出的地址创建管理员。
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/cshaizhihao/ou-image-hosting/main/install.sh | bash
 ```
 
-安装器会自动处理依赖、配置、反向代理和服务启动。完成后，打开提示里的访问地址，创建第一个管理员账号就能用。
+安装器会配置 Docker Compose 和所选的反向代理。已在用反向代理的服务器可参考部署文档。使用 Cloudflare Tunnel 时，可参考隔离部署方案。 [部署指南](./docs/deployment.md) · [Cloudflare Tunnel](./docs/tunnel-deployment.md)
 
-Cloudflare 小黄云用户建议提前确认：DNS 已指向服务器 IP，SSL/TLS 为 **Full (strict)**，服务器放行 `80` / `443` 端口。安装时选择 Cloudflare 模式即可。
+## 功能与截图
 
-无人值守安装示例：
+### 上传图片
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/cshaizhihao/ou-image-hosting/main/install.sh \
-  | bash -s -- --yes --origin https://img.example.com --proxy cloudflare --port 3080
-```
+首页打开就是上传区，支持选择文件、拖放和粘贴。上传后可复制外链或 Markdown，登录用户可以在同一页查看自己的上传记录。后台还支持批量上传、URL 导入、HEIC / HEIF 和带视频片段的 Live Photo。
 
-## 🖼️ 预览
+![首页上传区、链接复制和个人上传历史](./docs/screenshots/ou-image-hosting-main.png)
 
-<p align="center">
-  <img src="./docs/screenshots/ou-image-hosting-main.png" width="100%" alt="OU-Image Hosting 主界面" />
-</p>
+### 整理图片
 
-## 🌷 这是什么
+图片库支持搜索、筛选、相册、标签、收藏和批量操作。分享时可以复制 URL、Markdown、HTML 或 BBCode。公共图库可单独开启，公共上传可限制为登录后使用，也可设置速率、每日额度和人机验证。
 
-OU-Image Hosting / 欧记图床，是一个给个人创作者、开发者和小团队准备的自托管图床。
+![图片库的筛选、批量操作和图片卡片](./docs/screenshots/v2-library.png)
 
-它不是网盘，也不是临时上传脚本。它更像一间自己的图片小屋：可以上传、整理、分享，也可以开放给别人使用；重要的是，后台和公共页都要顺眼、清楚、好维护。
+### 切换存储
 
-## ✨ 能做什么
+本地存储、Amazon S3 和 Cloudflare R2 可以设为当前写入位置。切换前会验证连接和读写权限。新图片写入当前存储，已有图片继续从原位置读取，原链接可继续使用。需要复制本地图片到对象存储时，可以在「数据迁移」里单独发起任务。
 
-| 场景 | 内容 |
-| --- | --- |
-| 上传图片 | 拖拽、粘贴、URL、HEIC / HEIF、JPEG/HEIC + MOV Live Photo 动态片段、公共上传、登录后上传历史 |
-| 分享外链 | 一键复制 URL、Markdown、HTML、BBCode |
-| 整理图片 | 图片库、搜索、筛选、收藏、回收站、批量操作 |
-| 管理相册 | 创建相册、设置封面、写描述、批量加入或移出图片，并从图片详情返回原相册 |
-| 公共图床 | 访客上传、公开图库、站内浮窗预览、公开/隐藏切换、上传历史分页与批量删除 |
-| 账号权限 | 管理员、子管理员、普通用户、访客边界分离 |
-| 存储方式 | 本地 / Amazon S3 / Cloudflare R2 可切换，旧图保留原位置 |
-| NodeSeek | 后台安装浏览器脚本，支持粘贴、右键上传和分组公开设置 |
-| 日常运维 | 更新、备份、恢复、回滚、诊断、日志查看 |
+![存储中心和 Cloudflare R2 配置](./docs/screenshots/v2-storage.png)
 
-## 🧑‍🔧 日常维护
+## NodeSeek 发图
 
-安装完成后，可以使用：
+在自己部署的图床后台打开「NodeSeek 上传」，创建分组并签发专用上传凭据，然后从自己的站点安装脚本。在论坛编辑器里打开「凭据设置」并粘贴凭据即可使用。
+
+- **在编辑器里发图。** 按 Ctrl / ⌘ + V 粘贴截图，或点击「选图上传」。上传后会在草稿中插入 Markdown。
+- **保存帖子里的图。** 按 Shift + 右键打开「上传到图床并复制Markdown」。Firefox 可用 Alt + 右键。普通右键保留浏览器菜单。
+- **按用途分组。** 上传凭据只允许写入绑定的分组，管理员可撤销凭据。关闭分组的公开展示会将其图片从公共图库隐藏，持有直链的人仍可访问。
+
+![NodeSeek 编辑器里的选图上传入口和图片右键菜单，演示环境](./docs/screenshots/v2-nodeseek.png)
+
+## 升级与维护
+
+已有安装先备份，再在服务器上执行升级。使用远端存储时，保留原有对象存储配置、桶访问凭据和 `OU_SECRET_KEY`。 [升级指南](./docs/upgrading.md) · [备份与恢复](./docs/backup-restore.md)
 
 ```bash
-ouih
+ouih backup
+ouih update
+ouih status
 ```
-
-常用命令：
 
 | 命令 | 用途 |
 | --- | --- |
-| `ouih status` | 查看服务状态 |
+| `ouih` | 打开交互菜单 |
 | `ouih logs` | 查看运行日志 |
-| `ouih update` | 更新项目 |
-| `ouih doctor` | 检查 Docker、端口、DNS、HTTPS、磁盘、内存和配置 |
-| `ouih backup` | 创建备份 |
-| `ouih restore` | 恢复备份 |
+| `ouih doctor` | 检查端口、DNS、HTTPS、磁盘和运行环境 |
+| `ouih restore` | 从备份恢复 |
 | `ouih rollback` | 回退最近一次成功更新 |
-| `ouih url` | 查看访问地址 |
-| `ouih dir` | 查看安装目录 |
-| `ouih uninstall` | 卸载服务 |
 
-网站打不开时，先跑：
-
-```bash
-ouih doctor
-```
-
-它会把常见问题先帮你过一遍。
-
-## 🔒 安全边界
-
-后台和公共上传默认分开。普通注册用户只能使用公共图床和查看自己的上传历史，游客上传不会混入管理员个人历史，也不会误进后台。
-
-公共上传可以配置速率限制、每日额度、人机验证、IP 封禁和审计记录。后台不会展示用户密码，只提供重置入口。站点设置和站点外观已分开：常用上传开关更好找，品牌、主题色、公共页文案和三枚欢迎卡片可折叠编辑，欢迎卡片图标提供可视化选择；刷新时会用中性加载态避免默认文案和默认主题色闪烁。
-
-## 📦 技术栈
-
-- Next.js 15 / React 19 / Radix UI / CSS Modules
-- Fastify / TypeScript / Sharp
-- Docker Compose / Caddy
-- Vitest / Playwright / GitHub Actions
-
-## 📚 文档
-
-- [部署文档](./docs/deployment.md)
-- [备份与恢复](./docs/backup-restore.md)
-- [安全模型](./docs/threat-model.md)
-- [v1.0.0 发布说明](./docs/releases/v1.0.0.md)
-- [v1.1.0 体验更新与本地预览](./docs/releases/v1.1.0.md)
-- [账号恢复](./docs/account-recovery.md)
-
-## 🤍 License
-MIT License。
-
-如果它刚好让你的图片小屋舒服了一点，那就很好。
+项目基于 Next.js、React、Fastify、Sharp 和 Docker Compose，采用 MIT 许可。欢迎通过 Issue 反馈使用体验，也欢迎提交 PR。 [V2.0.0 发布说明](./docs/releases/v2.0.0.md) · [安全模型](./docs/threat-model.md) · [故障排查](./docs/troubleshooting.md)
