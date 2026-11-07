@@ -30,7 +30,7 @@ OU-Image Hosting 是为个人创作者、开发者和小型团队设计的图片
 
 主 Logo 使用用户提供的黑白猫图像：
 
-`docs/assets/logo/ou-image-hosting-logo.jpg`
+`apps/web/public/brand/ou-image-hosting-logo.jpg`
 
 ### 使用规则
 
