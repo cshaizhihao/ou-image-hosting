@@ -5488,6 +5488,20 @@ kbd {
   }
 }
 
+@media (max-width: 480px) {
+  .public-upload-topbar {
+    gap: 10px;
+  }
+
+  .public-upload-brand strong {
+    display: -webkit-box;
+    overflow-wrap: anywhere;
+    white-space: normal;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .public-upload-toast,
   .public-upload-result,
