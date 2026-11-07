@@ -118,7 +118,7 @@ export const storageProviderGuides = {
           "在 IAM 中创建供 OU-Image Hosting 使用的用户或访问密钥，只授予目标存储桶所需权限。",
         checklist: [
           "连接测试需要目标桶的 s3:ListBucket 权限",
-          "迁移复制需要目标桶对象的 s3:PutObject 权限",
+          "当前存储需要 s3:GetObject、s3:PutObject 和 s3:DeleteObject 权限",
           "复制 Access Key ID 与 Secret Access Key，Secret 只显示一次"
         ],
         fieldKeys: ["accessKeyId", "secretAccessKey"]
@@ -137,10 +137,10 @@ export const storageProviderGuides = {
       {
         title: "测试连接并复制文件",
         description:
-          "点击「测试连接」检查存储桶是否可访问。保存后，可在「数据迁移」中手动复制本地文件。",
+          "点击「测试连接」检查存储桶。点击「设为当前存储」会验证读写与删除权限，然后切换新文件的写入位置。",
         checklist: [
           "确认测试通过后保存配置",
-          "发起迁移后在 S3 控制台查看复制结果",
+          "旧图保留原有位置，仍可通过原链接访问",
           "图床日常上传和读取仍使用本地存储"
         ],
         fieldKeys: ["bucket"]
@@ -230,7 +230,7 @@ export const storageProviderGuides = {
         checklist: [
           "Endpoint 格式为 https://<ACCOUNT_ID>.r2.cloudflarestorage.com",
           "Bucket 填写刚创建的存储桶名称",
-          "保持 Path-style 关闭，除非现有兼容配置明确要求开启"
+          "可使用默认的 Path-style。使用桶子域名时，请核对端点和证书"
         ],
         fieldKeys: [
           "endpoint",
@@ -242,10 +242,10 @@ export const storageProviderGuides = {
       {
         title: "测试连接并复制文件",
         description:
-          "点击「测试连接」检查存储桶是否可访问。保存后，可在「数据迁移」中手动复制本地文件。",
+          "点击「测试连接」检查存储桶。点击「设为当前存储」会验证读写与删除权限，然后切换新文件的写入位置。",
         checklist: [
           "确认测试通过后保存配置",
-          "发起迁移后在 R2 概览页查看复制结果",
+          "旧图保留原有位置，仍可通过原链接访问",
           "图床日常上传和读取仍使用本地存储"
         ],
         fieldKeys: ["bucket"]

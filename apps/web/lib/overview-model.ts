@@ -1,3 +1,4 @@
+import type { StorageProvider } from "./storage-provider";
 import type {
   SessionBootstrap,
   WorkspaceSummary
@@ -7,6 +8,7 @@ export type OverviewSummary = {
   count: number;
   bytes: number;
   quotaBytes: number;
+  activeStorage?: StorageProvider;
 };
 
 export type OverviewStorageTone = "calm" | "watch" | "danger";

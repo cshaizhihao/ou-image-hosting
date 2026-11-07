@@ -4,11 +4,10 @@ import type {
   FastifyRequest
 } from "fastify";
 import { createHash, randomUUID } from "node:crypto";
-import { createReadStream } from "node:fs";
-import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
-import type { MediaCoordinator } from "./media-coordinator.js";
+import type { MediaStorage } from "./media-storage.js";
+import type { Readable } from "node:stream";
 import {
   requireCapability,
   type Principal
@@ -53,9 +52,8 @@ const mimeByFormat = {
 } as const;
 
 type ImageDetailRouteOptions = {
-  media: MediaCoordinator;
+  media: MediaStorage;
   store: AppStore;
-  dataDirectory: string;
   now: () => Date;
   quotaBytes: number;
   authenticate: (request: FastifyRequest) => Principal;
@@ -217,15 +215,6 @@ function replaceExtension(name: string, format: StoredImage["format"]) {
   return `${base}.${extension}`;
 }
 
-function storagePath(storageRoot: string, key: string) {
-  const root = path.resolve(storageRoot);
-  const target = path.resolve(root, key);
-  if (!target.startsWith(`${root}${path.sep}`)) {
-    throw new PublicError(500, "INVALID_STORAGE_KEY", "图片存储记录无效");
-  }
-  return target;
-}
-
 function findOwnedImage(store: AppStore, id: string, workspaceId: string) {
   const image = store
     .snapshot()
@@ -280,7 +269,7 @@ function workspaceDate(timestamp: Date, timezone: string) {
 
 function sendImage(
   reply: FastifyReply,
-  filePath: string,
+  body: Readable,
   mime: string,
   name: string
 ) {
@@ -291,7 +280,7 @@ function sendImage(
       "content-disposition",
       `inline; filename*=UTF-8''${encodeURIComponent(name)}`
     );
-  return reply.send(createReadStream(filePath));
+  return reply.send(body);
 }
 
 async function createThumbnail(
@@ -366,8 +355,7 @@ export function registerImageDetailRoutes(
   app: FastifyInstance,
   options: ImageDetailRouteOptions
 ) {
-  const { store, dataDirectory, now, authenticate, quotaBytes } = options;
-  const storageRoot = path.join(dataDirectory, "storage");
+  const { store, media, now, authenticate, quotaBytes } = options;
 
   app.get<{ Params: IdParams }>(
     "/uploads/:id",
@@ -510,7 +498,7 @@ export function registerImageDetailRoutes(
           processingQuality: 85,
           thumbnailWidth: 480
         };
-      const input = await readFile(storagePath(storageRoot, image.originalKey));
+      const input = await media.read(image.originalKey);
       let transformed;
       try {
         transformed = await transformBuffer(
@@ -541,33 +529,30 @@ export function registerImageDetailRoutes(
       if (usedBytes + transformed.buffer.byteLength > quotaBytes) {
         throw new PublicError(413, "QUOTA_EXCEEDED", "存储空间不足");
       }
-      const originalKey =
-        `versions/${image.id}/${versionId}.` +
-        extensionByFormat[transformed.format];
-      const thumbnailKey = `thumbnails/${image.id}-${versionId}.webp`;
-      const originalPath = storagePath(storageRoot, originalKey);
-      const thumbnailPath = storagePath(storageRoot, thumbnailKey);
       const thumbnail = await createThumbnail(
         transformed.buffer,
         settings.thumbnailWidth,
         settings.processingQuality
       );
-      await mkdir(path.dirname(originalPath), { recursive: true });
-      const version: StoredImageVersion = {
-        id: versionId,
-        operation: request.body.action,
-        sourceVersionId: image.currentVersionId,
-        size: transformed.buffer.byteLength,
-        mime: mimeByFormat[transformed.format],
-        format: transformed.format,
-        width: metadata.width,
-        height: metadata.height,
-        sha256: createHash("sha256").update(transformed.buffer).digest("hex"),
-        originalKey,
-        thumbnailKey,
-        createdAt: timestamp
-      };
-      const updated = await options.media.run(() => store.update(async (state) => {
+      const created: string[] = [];
+      const updated = await media.run(() => store.update(async (state) => {
+        const provider = state.storageSettings.active;
+        const originalKey = media.key(provider, `versions/${image.id}/${versionId}.${extensionByFormat[transformed.format]}`);
+        const thumbnailKey = media.key(provider, `thumbnails/${image.id}-${versionId}.webp`);
+        const version: StoredImageVersion = {
+          id: versionId,
+          operation: request.body.action,
+          sourceVersionId: image.currentVersionId,
+          size: transformed.buffer.byteLength,
+          mime: mimeByFormat[transformed.format],
+          format: transformed.format,
+          width: metadata.width,
+          height: metadata.height,
+          sha256: createHash("sha256").update(transformed.buffer).digest("hex"),
+          originalKey,
+          thumbnailKey,
+          createdAt: timestamp
+        };
         const current = state.images.find(
           (item) =>
             item.id === image.id &&
@@ -583,8 +568,8 @@ export function registerImageDetailRoutes(
         if (calculateImageStorageBytes(state.images) + transformed.buffer.byteLength > quotaBytes) {
           throw new PublicError(413, "QUOTA_EXCEEDED", "存储空间不足");
         }
-        await writeFile(originalPath, transformed.buffer, { mode: 0o600 });
-        await writeFile(thumbnailPath, thumbnail, { mode: 0o600 });
+        await media.write(state, originalKey, transformed.buffer, created);
+        await media.write(state, thumbnailKey, thumbnail, created);
         current.versions.push(version);
         current.currentVersionId = version.id;
         current.size = version.size;
@@ -601,7 +586,7 @@ export function registerImageDetailRoutes(
         }
         return current;
       }).catch(async (error: unknown) => {
-        await Promise.allSettled([unlink(originalPath), unlink(thumbnailPath)]);
+        await media.rollbackWrites(created);
         throw error;
       }));
       const state = store.snapshot();
@@ -613,7 +598,7 @@ export function registerImageDetailRoutes(
           now(),
           principal.user.id
         ),
-        version: publicVersion(updated.id, version, state, now())
+        version: publicVersion(updated.id, updated.versions.at(-1)!, state, now())
       });
     }
   );
@@ -740,7 +725,7 @@ export function registerImageDetailRoutes(
       }
       return sendImage(
         reply,
-        storagePath(storageRoot, version.originalKey),
+        (await media.open(version.originalKey)).body!,
         version.mime,
         replaceExtension(image.name, version.format)
       );
@@ -978,7 +963,7 @@ export function registerImageDetailRoutes(
       });
       return sendImage(
         reply,
-        storagePath(storageRoot, image.originalKey),
+        (await media.open(image.originalKey)).body!,
         image.mime,
         image.name
       );

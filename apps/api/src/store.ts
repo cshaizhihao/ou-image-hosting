@@ -231,6 +231,7 @@ export type StoredImage = {
   albumIds: string[];
   tagIds: string[];
   publicUploadGuest: boolean;
+  nodeSeekAlbumId?: string;
   livePhotoVideoKey?: string;
   livePhotoVideoSize?: number;
   livePhotoVideoMime?: string;
@@ -276,6 +277,7 @@ export type StoredImageShare = {
 };
 
 export type StoredAlbum = {
+  nodeSeekPublic?: boolean;
   id: string;
   userId: string;
   workspaceId: string;
@@ -311,6 +313,8 @@ export type RemoteStorageSettings = {
 
 export type StorageSettings = {
   active: StorageProvider;
+  copies?: Record<string, ("s3" | "r2")[]>;
+  pendingDeletes?: string[];
   s3?: RemoteStorageSettings;
   r2?: RemoteStorageSettings;
 };
@@ -348,6 +352,7 @@ export type StoredBackup = {
 };
 
 export type StoredStorageMigration = {
+  tracksCopies?: boolean;
   id: string;
   source: StorageProvider;
   target: StorageProvider;
@@ -475,9 +480,11 @@ export type ApiTokenScope =
   | "organization:write"
   | "shares:read"
   | "shares:write"
-  | "analytics:read";
+  | "analytics:read"
+  | "nodeseek:upload";
 
 export type StoredApiToken = {
+  nodeSeekAlbumId?: string;
   id: string;
   workspaceId: string;
   userId: string;
@@ -807,6 +814,8 @@ const serviceDefinitions = {
     mode: "filesystem",
     inUse: true
   },
+  "s3-storage": { label: "Amazon S3", mode: "s3-compatible", inUse: true },
+  "r2-storage": { label: "Cloudflare R2", mode: "s3-compatible", inUse: true },
   "image-processing": {
     label: "图片处理",
     mode: "sharp-in-process",
@@ -1013,7 +1022,8 @@ function normalizeStorageMigration(
           ? value.error.slice(0, 300)
           : undefined,
     retriedAt: normalizeIso(value.retriedAt),
-    retryInProgress: false
+    retryInProgress: false,
+    tracksCopies: value.tracksCopies === true
   };
 }
 
@@ -1021,7 +1031,7 @@ function validSystemServiceState(
   service: StoredSystemStatusResult["services"][number]
 ) {
   if (
-    ["metadata-store", "local-storage", "image-processing"].includes(
+    ["metadata-store", "local-storage", "s3-storage", "r2-storage", "image-processing"].includes(
       service.id
     )
   ) {

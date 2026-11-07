@@ -4,11 +4,7 @@ import type {
   FastifyRequest
 } from "fastify";
 import {
-  createCipheriv,
-  createDecipheriv,
   createHash,
-  createHmac,
-  randomBytes,
   randomUUID
 } from "node:crypto";
 import { createReadStream } from "node:fs";
@@ -42,6 +38,8 @@ import {
   type StoredBackup,
   type StoredStorageMigration
 } from "./store.js";
+import { encryptSecret, normalizeUrl, requireRemoteSuccess, runtimeRemote, secretKey, signedS3Request, type RemoteInput } from "./object-storage.js";
+import { mediaKeys, type MediaStorage } from "./media-storage.js";
 import type { MaintenanceGate } from "./maintenance.js";
 type LegacyBackupState = Omit<Partial<AppState>, "schemaVersion"> & {
   schemaVersion: number;
@@ -57,22 +55,13 @@ const MAX_BACKUP_FILES = 5000;
 const MAX_BACKUP_COMPRESSION_RATIO = 200;
 
 type InfrastructureOptions = {
+  media: MediaStorage;
   store: AppStore;
   dataDirectory: string;
   now: () => Date;
   authenticate: (request: FastifyRequest) => Principal;
   maintenance: MaintenanceGate;
   backupSchedulerIntervalMs?: number;
-};
-
-type RemoteInput = {
-  endpoint?: string;
-  bucket?: string;
-  region?: string;
-  accessKeyId?: string;
-  secretAccessKey?: string;
-  publicBaseUrl?: string | null;
-  pathStyle?: boolean;
 };
 
 type SettingsBody = {
@@ -109,13 +98,6 @@ type MigrationBody = {
 };
 
 type IdParams = { id: string };
-
-type RuntimeRemoteConfig = Omit<
-  RemoteStorageSettings,
-  "secretAccessKeyCiphertext"
-> & {
-  secretAccessKey: string;
-};
 
 type BackupEnvelope = {
   format: "ou-image-backup-v1";
@@ -173,90 +155,6 @@ function requireOwner(
     throw new PublicError(403, "OWNER_REQUIRED", "仅站点所有者可执行该操作");
   }
   return principal;
-}
-
-function secretKey() {
-  const secret = process.env.OU_SECRET_KEY;
-  if (!secret) return null;
-  return createHash("sha256").update(secret).digest();
-}
-
-function encryptSecret(value: string) {
-  const key = secretKey();
-  if (!key) {
-    throw new PublicError(
-      400,
-      "SECRET_KEY_REQUIRED",
-      "配置 OU_SECRET_KEY 后才能保存远端存储密钥"
-    );
-  }
-  const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", key, iv);
-  const encrypted = Buffer.concat([
-    cipher.update(value, "utf8"),
-    cipher.final()
-  ]);
-  const tag = cipher.getAuthTag();
-  return [
-    "v1",
-    iv.toString("base64url"),
-    tag.toString("base64url"),
-    encrypted.toString("base64url")
-  ].join(".");
-}
-
-function decryptSecret(value: string) {
-  const key = secretKey();
-  if (!key) {
-    throw new PublicError(
-      400,
-      "SECRET_KEY_REQUIRED",
-      "当前环境缺少 OU_SECRET_KEY"
-    );
-  }
-  const [version, ivValue, tagValue, encryptedValue] = value.split(".");
-  if (
-    version !== "v1" ||
-    !ivValue ||
-    !tagValue ||
-    !encryptedValue
-  ) {
-    throw new PublicError(
-      500,
-      "INVALID_ENCRYPTED_SECRET",
-      "远端存储密钥记录无效"
-    );
-  }
-  try {
-    const decipher = createDecipheriv(
-      "aes-256-gcm",
-      key,
-      Buffer.from(ivValue, "base64url")
-    );
-    decipher.setAuthTag(Buffer.from(tagValue, "base64url"));
-    return Buffer.concat([
-      decipher.update(Buffer.from(encryptedValue, "base64url")),
-      decipher.final()
-    ]).toString("utf8");
-  } catch {
-    throw new PublicError(
-      500,
-      "SECRET_DECRYPTION_FAILED",
-      "无法解密远端存储密钥"
-    );
-  }
-}
-
-function normalizeUrl(value: string, code: string) {
-  try {
-    const url = new URL(value);
-    if (!["http:", "https:"].includes(url.protocol)) throw new Error();
-    url.hash = "";
-    url.search = "";
-    return url.toString().replace(/\/$/, "");
-  } catch {
-    throw new PublicError(400, code, "请输入有效的 HTTP 或 HTTPS 地址");
-  }
 }
 
 function normalizeOrigin(value: string) {
@@ -379,146 +277,8 @@ function publicSettings(state: AppState) {
   };
 }
 
-function runtimeRemote(
-  state: AppState,
-  provider: "s3" | "r2",
-  override?: RemoteInput
-) {
-  const stored = state.storageSettings[provider];
-  const endpoint = override?.endpoint
-    ? normalizeUrl(override.endpoint, "INVALID_STORAGE_ENDPOINT")
-    : stored?.endpoint ?? "";
-  const bucket = override?.bucket?.trim() ?? stored?.bucket ?? "";
-  const region =
-    override?.region?.trim() ??
-    stored?.region ??
-    (provider === "r2" ? "auto" : "");
-  const accessKeyId =
-    override?.accessKeyId?.trim() ?? stored?.accessKeyId ?? "";
-  const secretAccessKey =
-    override?.secretAccessKey ??
-    (stored?.secretAccessKeyCiphertext
-      ? decryptSecret(stored.secretAccessKeyCiphertext)
-      : "");
-  const publicBaseUrl =
-    override?.publicBaseUrl === null
-      ? undefined
-      : override?.publicBaseUrl
-        ? normalizeUrl(override.publicBaseUrl, "INVALID_PUBLIC_BASE_URL")
-        : stored?.publicBaseUrl;
-  const config: RuntimeRemoteConfig = {
-    endpoint,
-    bucket,
-    region,
-    accessKeyId,
-    secretAccessKey,
-    publicBaseUrl,
-    pathStyle: override?.pathStyle ?? stored?.pathStyle ?? true
-  };
-  if (
-    !config.endpoint ||
-    !config.bucket ||
-    !config.region ||
-    !config.accessKeyId ||
-    !config.secretAccessKey
-  ) {
-    throw new PublicError(
-      400,
-      "INCOMPLETE_STORAGE_CONFIG",
-      "远端存储配置不完整"
-    );
-  }
-  return config;
-}
-
 function sha256(value: Buffer | string) {
   return createHash("sha256").update(value).digest("hex");
-}
-
-function hmac(key: Buffer | string, value: string) {
-  return createHmac("sha256", key).update(value).digest();
-}
-
-function awsEncode(value: string) {
-  return encodeURIComponent(value).replace(/[!'()*]/g, (character) =>
-    `%${character.charCodeAt(0).toString(16).toUpperCase()}`
-  );
-}
-
-function remoteUrl(config: RuntimeRemoteConfig, key?: string) {
-  const url = new URL(config.endpoint);
-  const keyPath = key
-    ? key.split("/").map(awsEncode).join("/")
-    : "";
-  if (config.pathStyle) {
-    url.pathname = `/${awsEncode(config.bucket)}${keyPath ? `/${keyPath}` : ""}`;
-  } else {
-    url.hostname = `${config.bucket}.${url.hostname}`;
-    url.pathname = keyPath ? `/${keyPath}` : "/";
-  }
-  return url;
-}
-
-async function signedS3Request(
-  config: RuntimeRemoteConfig,
-  method: "HEAD" | "PUT",
-  timestamp: Date,
-  key?: string,
-  body?: Buffer
-) {
-  const url = remoteUrl(config, key);
-  const amzDate = timestamp
-    .toISOString()
-    .replace(/[:-]|\.\d{3}/g, "");
-  const date = amzDate.slice(0, 8);
-  const payloadHash = sha256(body ?? Buffer.alloc(0));
-  const canonicalHeaders =
-    `host:${url.host}\n` +
-    `x-amz-content-sha256:${payloadHash}\n` +
-    `x-amz-date:${amzDate}\n`;
-  const signedHeaders = "host;x-amz-content-sha256;x-amz-date";
-  const canonicalRequest = [
-    method,
-    url.pathname,
-    "",
-    canonicalHeaders,
-    signedHeaders,
-    payloadHash
-  ].join("\n");
-  const scope = `${date}/${config.region}/s3/aws4_request`;
-  const stringToSign = [
-    "AWS4-HMAC-SHA256",
-    amzDate,
-    scope,
-    sha256(canonicalRequest)
-  ].join("\n");
-  const dateKey = hmac(`AWS4${config.secretAccessKey}`, date);
-  const regionKey = hmac(dateKey, config.region);
-  const serviceKey = hmac(regionKey, "s3");
-  const signingKey = hmac(serviceKey, "aws4_request");
-  const signature = createHmac("sha256", signingKey)
-    .update(stringToSign)
-    .digest("hex");
-  const authorization =
-    `AWS4-HMAC-SHA256 Credential=${config.accessKeyId}/${scope}, ` +
-    `SignedHeaders=${signedHeaders}, Signature=${signature}`;
-  const response = await fetch(url, {
-    method,
-    headers: {
-      authorization,
-      "x-amz-content-sha256": payloadHash,
-      "x-amz-date": amzDate,
-      ...(body ? { "content-type": "application/octet-stream" } : {})
-    },
-    body: body ? new Uint8Array(body).buffer : undefined
-  });
-  if (!response.ok) {
-    throw new PublicError(
-      400,
-      "REMOTE_STORAGE_FAILED",
-      `远端存储返回 HTTP ${response.status}`
-    );
-  }
 }
 
 async function listFiles(root: string, relative = "") {
@@ -871,12 +631,12 @@ async function cleanupExpiredBackups(input: {
 async function createBackupArchive(input: {
   store: AppStore;
   dataDirectory: string;
-  storageRoot: string;
+  media: MediaStorage;
   backupsRoot: string;
   now: () => Date;
   createdBy: string;
 }) {
-  const { store, dataDirectory, storageRoot, backupsRoot, now, createdBy } = input;
+  const { store, dataDirectory, media, backupsRoot, now, createdBy } = input;
   const timestamp = now();
   const backup: StoredBackup = {
     id: randomUUID(),
@@ -895,7 +655,7 @@ async function createBackupArchive(input: {
     const state = store.snapshot();
     state.backups = state.backups.filter((item) => item.id !== backup.id);
     const stateJson = JSON.stringify(state);
-    const filePaths = await listFiles(storageRoot);
+    const filePaths = [...new Set([...(await listFiles(media.root)), ...state.images.flatMap(mediaKeys)])];
     if (filePaths.length > MAX_BACKUP_FILES) {
       backupLimit("备份文件数量超过安全限制");
     }
@@ -904,15 +664,17 @@ async function createBackupArchive(input: {
     let totalFileBytes = 0;
     for (const relative of filePaths) {
       const safe = safeRelativePath(relative);
-      const fileStat = await stat(path.join(storageRoot, safe));
-      if (fileStat.size > MAX_BACKUP_SINGLE_FILE_BYTES) {
-        backupLimit("备份包含超过单文件限制的内容");
+      const maximum = Math.min(MAX_BACKUP_SINGLE_FILE_BYTES, MAX_BACKUP_TOTAL_FILE_BYTES - totalFileBytes);
+      let content: Buffer;
+      try {
+        content = await media.read(safe, maximum);
+      } catch (error) {
+        if (error instanceof PublicError && error.code === "MEDIA_TOO_LARGE") {
+          backupLimit("备份文件超过单文件或总大小限制");
+        }
+        throw error;
       }
-      totalFileBytes += fileStat.size;
-      if (totalFileBytes > MAX_BACKUP_TOTAL_FILE_BYTES) {
-        backupLimit("备份文件总大小超过安全限制");
-      }
-      const content = await readFile(path.join(storageRoot, safe));
+      totalFileBytes += content.byteLength;
       files.push({ path: safe, contentBase64: content.toString("base64") });
       manifestFiles.push({
         path: safe,
@@ -1003,8 +765,8 @@ export function registerInfrastructureRoutes(
   app: FastifyInstance,
   options: InfrastructureOptions
 ) {
-  const { store, dataDirectory, now, authenticate, maintenance } = options;
-  const storageRoot = path.join(dataDirectory, "storage");
+  const { store, media, dataDirectory, now, authenticate, maintenance } = options;
+  const storageRoot = media.root;
   const backupsRoot = path.join(dataDirectory, "backups");
   let backupInFlight = false;
   let backupPreflightInFlight = false;
@@ -1022,7 +784,7 @@ export function registerInfrastructureRoutes(
         return await createBackupArchive({
           store,
           dataDirectory,
-          storageRoot,
+          media,
           backupsRoot,
           now,
           createdBy
@@ -1080,8 +842,23 @@ export function registerInfrastructureRoutes(
       : Math.max(10, options.backupSchedulerIntervalMs)
   );
   schedulerInterval.unref();
+  let deletionInFlight = false;
+  const deletionTimer = setInterval(() => {
+    if (deletionInFlight || maintenance.restoreInProgress || maintenance.backupInProgress ||
+        !store.snapshot().storageSettings.pendingDeletes?.length) return;
+    deletionInFlight = true;
+    const release = maintenance.beginWrite();
+    void media.run(() => media.drainDeletes())
+      .catch((error: unknown) => app.log.warn({ err: error }, "Media cleanup will retry"))
+      .finally(() => {
+        release();
+        deletionInFlight = false;
+      });
+  }, 60_000);
+  deletionTimer.unref();
   app.addHook("onClose", async () => {
     clearInterval(schedulerInterval);
+    clearInterval(deletionTimer);
   });
 
   app.get("/storage/settings", async (request) => {
@@ -1171,35 +948,26 @@ export function registerInfrastructureRoutes(
     },
     async (request) => {
       requireOwner(request, authenticate);
-      if (
-        request.body.storage?.active &&
-        request.body.storage.active !== "local"
-      ) {
-        throw new PublicError(
-          400,
-          "REMOTE_ACTIVE_UNSUPPORTED",
-          "当前版本仅支持本地存储作为活动写入源"
-        );
-      }
-      await store.update((state) => {
+      await media.run(() => store.update(async (state) => {
         const input = request.body;
-        if (input.storage?.s3) {
-          state.storageSettings.s3 = mergeRemote(
-            state.storageSettings.s3,
-            input.storage.s3,
-            "s3"
-          );
+        const requested = input.storage?.active;
+        const verify = new Set<StorageProvider>();
+        for (const provider of ["s3", "r2"] as const) {
+          const override = input.storage?.[provider];
+          if (!override) continue;
+          const existing = state.storageSettings[provider];
+          const merged = mergeRemote(existing, override, provider);
+          if (media.inUse(state, provider)) {
+            if (existing && (merged.bucket !== existing.bucket || merged.endpoint !== existing.endpoint)) {
+              throw new PublicError(409, "STORAGE_BUCKET_IN_USE", "此存储桶仍有文件或正在使用，不能更换 Endpoint 或 Bucket");
+            }
+            if (JSON.stringify(existing) !== JSON.stringify(merged)) verify.add(provider);
+          }
+          state.storageSettings[provider] = merged;
         }
-        if (input.storage?.r2) {
-          state.storageSettings.r2 = mergeRemote(
-            state.storageSettings.r2,
-            input.storage.r2,
-            "r2"
-          );
-        }
-        if (input.storage?.active) {
-          state.storageSettings.active = input.storage.active;
-        }
+        if (requested) verify.add(requested);
+        for (const provider of verify) await media.probe(state, provider, { write: true });
+        if (requested) state.storageSettings.active = requested;
 
         if (input.delivery) {
           const current = state.deliverySettings;
@@ -1246,7 +1014,7 @@ export function registerInfrastructureRoutes(
         if (input.backup) {
           Object.assign(state.backupSettings, input.backup);
         }
-      });
+      }));
       return publicSettings(store.snapshot());
     }
   );
@@ -1272,31 +1040,11 @@ export function registerInfrastructureRoutes(
     async (request) => {
       requireOwner(request, authenticate);
       const startedAt = Date.now();
-      if (request.body.provider === "local") {
-        await mkdir(storageRoot, { recursive: true });
-        const probe = path.join(
-          storageRoot,
-          `.ou-storage-probe-${randomUUID()}`
-        );
-        const value = randomBytes(16);
-        await writeFile(probe, value, { mode: 0o600 });
-        const read = await readFile(probe);
-        await unlink(probe);
-        if (!read.equals(value)) {
-          throw new PublicError(
-            500,
-            "LOCAL_STORAGE_FAILED",
-            "本地存储读写校验失败"
-          );
-        }
-      } else {
-        const config = runtimeRemote(
-          store.snapshot(),
-          request.body.provider,
-          request.body.config
-        );
-        await signedS3Request(config, "HEAD", now());
-      }
+      const state = store.snapshot();
+      const provider = request.body.provider;
+      await media.probe(state, provider, {
+        config: provider === "local" ? undefined : runtimeRemote(state, provider, request.body.config)
+      });
       return {
         provider: request.body.provider,
         status: "ok",
@@ -1317,6 +1065,7 @@ export function registerInfrastructureRoutes(
     const state = store.snapshot();
     return {
       active: state.storageSettings.active,
+      pendingDeletes: state.storageSettings.pendingDeletes?.length ?? 0,
       providers: {
         local: {
           status: "ok",
@@ -1378,6 +1127,7 @@ export function registerInfrastructureRoutes(
         id: randomUUID(),
         source: request.body.source,
         target: request.body.target,
+        tracksCopies: true,
         status: "running",
         total: 0,
         completed: 0,
@@ -1409,12 +1159,9 @@ export function registerInfrastructureRoutes(
         );
       }
 
-      let config: RuntimeRemoteConfig;
+      const target = request.body.target as "s3" | "r2";
       try {
-        config = runtimeRemote(
-          store.snapshot(),
-          request.body.target as "s3" | "r2"
-        );
+        runtimeRemote(store.snapshot(), target);
       } catch (error) {
         await store.update((state) => {
           const current = state.storageMigrations.find(
@@ -1438,13 +1185,17 @@ export function registerInfrastructureRoutes(
       let lastError: string | undefined;
       for (const key of keys) {
         try {
-          const body = await readFile(path.join(storageRoot, key));
-          await signedS3Request(config, "PUT", now(), key, body);
-          await store.update((state) => {
-            const current = state.storageMigrations.find(
-              (item) => item.id === migration.id
-            )!;
-            current.completed += 1;
+          await media.run(async () => {
+            const state = store.snapshot();
+            const body = await readFile(media.localPath(key));
+            const config = runtimeRemote(state, target);
+            await requireRemoteSuccess(await signedS3Request(config, "PUT", now(), key, body));
+            await store.update((draft) => {
+              const current = draft.storageMigrations.find((item) => item.id === migration.id)!;
+              const copies = draft.storageSettings.copies ??= {};
+              copies[key] = [...new Set([...(copies[key] ?? []), target])];
+              current.completed += 1;
+            });
           });
         } catch (error) {
           lastError = error instanceof Error ? error.message : "迁移失败";

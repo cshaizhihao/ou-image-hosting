@@ -26,6 +26,7 @@ import {
   totpAt
 } from "./security.js";
 import { AppStore, type AppState } from "./store.js";
+import { MediaStorage } from "./media-storage.js";
 import { MaintenanceGate } from "./maintenance.js";
 import { assertProductionConfiguration } from "./runtime.js";
 import { recoverAccount } from "./recover-account.js";
@@ -144,11 +145,11 @@ describe("OU-Image API", () => {
     expect(health.statusCode).toBe(200);
     expect(health.json()).toMatchObject({
       status: "ok",
-      version: "1.1.1"
+      version: "1.2.0"
     });
     expect(live.json()).toMatchObject({
       status: "ok",
-      version: "1.1.1"
+      version: "1.2.0"
     });
     expect(ready.statusCode).toBe(200);
     expect(ready.json()).toMatchObject({
@@ -1411,9 +1412,11 @@ describe("OU-Image API", () => {
     const barrier = new Promise<void>((resolve) => { releaseDeletion = resolve; });
     const entered = new Promise<void>((resolve) => { deletionEntered = resolve; });
     const update = store.update.bind(store);
+    let paused = false;
     store.update = async <T>(mutate: (draft: AppState) => T | Promise<T>) => {
       const result = await update(mutate);
-      if (result && typeof result === "object" && "deleted" in result && "keys" in result) {
+      if (!paused && store.snapshot().storageSettings.pendingDeletes?.length) {
+        paused = true;
         deletionEntered();
         await barrier;
       }
@@ -2165,16 +2168,6 @@ describe("OU-Image API", () => {
       }
     });
 
-    const unsupportedActive = await app.inject({
-      method: "PATCH",
-      url: "/storage/settings",
-      cookies,
-      payload: { storage: { active: "s3" } }
-    });
-    expect(unsupportedActive.statusCode).toBe(400);
-    expect(unsupportedActive.json().error.code).toBe(
-      "REMOTE_ACTIVE_UNSUPPORTED"
-    );
 
     const member = await app.inject({
       method: "POST",
@@ -2195,6 +2188,185 @@ describe("OU-Image API", () => {
     });
     expect(denied.statusCode).toBe(403);
     expect(denied.json().error.code).toBe("OWNER_REQUIRED");
+  });
+
+  it("switches between local, R2 and S3 without losing files or retaining remote uploads on disk", async () => {
+    process.env.OU_SECRET_KEY = "remote-test-key";
+    const store = new AppStore(null);
+    let dataDirectory = "";
+    const app = await createTestApp({ store, onDataDirectory: (value) => { dataDirectory = value; } });
+    const setup = await app.inject({ method: "POST", url: "/setup", payload: owner });
+    const cookies = { ou_session: setup.cookies.find((item) => item.name === "ou_session")!.value };
+    const request = (method: "GET" | "POST" | "PATCH", url: string, payload?: object) =>
+      app.inject({ method, url, cookies, payload });
+    const config = (provider: "r2" | "s3") => ({
+      endpoint: `https://${provider}.example.com`,
+      bucket: "images",
+      region: provider === "r2" ? "auto" : "us-east-1",
+      accessKeyId: "test-access",
+      secretAccessKey: "test-secret",
+      pathStyle: true
+    });
+
+    const objects = new Map<string, Uint8Array<ArrayBuffer>>();
+    let failDelete = false;
+    let failUpload = false;
+    let denyS3 = true;
+    vi.stubGlobal("fetch", vi.fn(async (input: URL, init: RequestInit) => {
+      const url = new URL(input);
+      expect(new Headers(init.headers).get("authorization")).toContain("AWS4-HMAC-SHA256");
+      if (denyS3 && url.hostname === "s3.example.com") return new Response(null, { status: 403 });
+      const key = url.href;
+      const body = objects.get(key);
+      if (init.method === "PUT") {
+        if (failUpload && url.pathname.includes("/thumbnails/")) return new Response(null, { status: 500 });
+        objects.set(key, new Uint8Array(init.body as ArrayBuffer));
+        return new Response(null, { status: 200 });
+      }
+      if (init.method === "DELETE") {
+        if (failDelete) return new Response(null, { status: 503 });
+        objects.delete(key);
+        return new Response(null, { status: 204 });
+      }
+      if (init.method === "HEAD" && url.pathname === "/images") return new Response(null, { status: 200 });
+      if (!body) return new Response(null, { status: 404 });
+      if (init.method === "HEAD") return new Response(null, { headers: { "content-length": String(body.length) } });
+      const range = new Headers(init.headers).get("range")?.match(/^bytes=(\d+)-(\d+)$/);
+      return range
+        ? new Response(body.slice(Number(range[1]), Number(range[2]) + 1), { status: 206 })
+        : new Response(body, { headers: { "content-length": String(body.length) } });
+    }));
+
+    const image = (background: string) => sharp({
+      create: { width: 12, height: 14, channels: 3, background }
+    }).png().toBuffer();
+    const upload = async (png: Buffer, clip?: Buffer) => {
+      const form = new FormData();
+      form.append("file", png, { filename: "photo.png", contentType: "image/png" });
+      if (clip) form.append("livePhotoVideo", clip, { filename: "photo.mp4", contentType: "video/mp4" });
+      return app.inject({
+        method: "POST", url: clip ? "/public/uploads" : "/uploads",
+        cookies, headers: form.getHeaders(), payload: form.getBuffer()
+      });
+    };
+    const localBytes = await image("#8ac139");
+    const local = (await upload(localBytes)).json().image;
+    const rejected = await request("PATCH", "/storage/settings", { storage: { active: "s3", s3: config("s3") } });
+    expect(rejected.statusCode).toBe(502);
+    expect(store.snapshot().storageSettings.active).toBe("local");
+    expect(store.snapshot().storageSettings.s3).toBeUndefined();
+    expect((await request("PATCH", "/storage/settings", { storage: { active: "r2", r2: config("r2") } })).statusCode).toBe(200);
+    expect(objects.size).toBe(0); // The switch probe cleaned up its object.
+    expect((await request("GET", "/uploads/summary")).json().activeStorage).toBe("r2");
+    const health = await request("POST", "/system/status/check");
+    expect(health.json().services).toContainEqual(expect.objectContaining({ id: "r2-storage", status: "operational" }));
+    expect((await request("GET", `/files/${local.id}/original`)).rawPayload).toEqual(localBytes);
+
+    await request("PATCH", "/site/settings", { publicUploadLivePhotoEnabled: true });
+    const video = await readFile(new URL("../test-fixtures/live-preview.mp4", import.meta.url));
+    const cloudBytes = await image("#3c7ce8");
+    failUpload = true;
+    expect((await upload(cloudBytes)).statusCode).toBe(502);
+    expect(objects.size).toBe(0);
+    failUpload = false;
+    const cloudUpload = await upload(cloudBytes, video);
+    expect(cloudUpload.statusCode).toBe(201);
+    const cloud = cloudUpload.json().image;
+    const old = store.snapshot().images.find((item) => item.id === cloud.id)!;
+    for (const key of [old.originalKey, old.thumbnailKey, old.livePhotoVideoKey!]) {
+      expect(key).toMatch(/^r2\//);
+      await expect(access(path.join(dataDirectory, "storage", key))).rejects.toMatchObject({ code: "ENOENT" });
+    }
+    expect((await request("GET", `/files/${cloud.id}/original`)).rawPayload).toEqual(cloudBytes);
+    expect((await request("GET", `/files/${cloud.id}/thumbnail`)).statusCode).toBe(200);
+    const range = await app.inject({ url: `/files/${cloud.id}/live`, headers: { range: "bytes=0-31" } });
+    expect(range.statusCode).toBe(206);
+    expect(range.rawPayload).toEqual(video.subarray(0, 32));
+
+    denyS3 = false;
+    expect((await request("PATCH", "/storage/settings", { storage: { active: "s3", s3: config("s3") } })).statusCode).toBe(200);
+    const edit = await request("POST", `/uploads/${cloud.id}/transform`, { action: "rotate-right" });
+    expect(edit.statusCode).toBe(201);
+    const edited = store.snapshot().images.find((item) => item.id === cloud.id)!;
+    expect(edited.originalKey).toMatch(/^s3\/versions\//);
+    await expect(access(path.join(dataDirectory, "storage", edited.originalKey))).rejects.toMatchObject({ code: "ENOENT" });
+    expect(objects.size).toBe(5);
+    expect((await request("POST", "/backups")).statusCode).toBe(201);
+
+    expect((await request("PATCH", "/storage/settings", { storage: { active: "local" } })).statusCode).toBe(200);
+    expect((await request("GET", `/files/${cloud.id}/original`)).statusCode).toBe(200);
+    expect((await request("GET", `/files/${cloud.id}/live`)).rawPayload).toEqual(video);
+    expect((await request("PATCH", "/storage/settings", { storage: { r2: { bucket: "different" } } })).statusCode).toBe(409);
+    await request("POST", "/uploads/bulk", { ids: [cloud.id], action: "trash" });
+    failDelete = true;
+    const deletion = await request("POST", "/trash/bulk", { ids: [cloud.id], action: "delete" });
+    expect(deletion.json()).toMatchObject({ deleted: 1, pendingFiles: 5 });
+    expect(store.snapshot().storageSettings.pendingDeletes).toHaveLength(5);
+    failDelete = false;
+    const media = new MediaStorage(dataDirectory, store, () => new Date());
+    expect(await media.drainDeletes()).toBe(0);
+    expect(objects.size).toBe(0);
+    expect((await request("GET", `/files/${local.id}/original`)).rawPayload).toEqual(localBytes);
+  });
+
+  it("issues a NodeSeek-only upload token and applies the group gallery setting", async () => {
+    const app = await createTestApp();
+    const setup = await app.inject({ method: "POST", url: "/setup", payload: owner });
+    const cookies = { ou_session: setup.cookies.find((item) => item.name === "ou_session")!.value };
+    const group = await app.inject({
+      method: "POST", url: "/albums", cookies,
+      payload: { name: "论坛图片", nodeSeekPublic: false }
+    });
+    const albumId = group.json().album.id;
+    const token = await app.inject({
+      method: "POST", url: "/api-tokens", cookies,
+      payload: { name: "NodeSeek", scopes: ["nodeseek:upload"], nodeSeekAlbumId: albumId }
+    });
+    expect(token.statusCode).toBe(201);
+    const authorization = `Bearer ${token.json().value}`;
+    const png = await sharp({ create: { width: 12, height: 14, channels: 3, background: "#3ab0aa" } }).png().toBuffer();
+    const upload = (url: string, bearer?: string) => {
+      const form = new FormData();
+      form.append("file", png, { filename: "forum.png", contentType: "image/png" });
+      return app.inject({
+        method: "POST", url,
+        cookies: bearer ? undefined : cookies,
+        headers: {
+          ...form.getHeaders(),
+          ...(bearer ? { authorization: bearer, origin: "https://www.nodeseek.com" } : {})
+        },
+        payload: form.getBuffer()
+      });
+    };
+    const route = "/integrations/nodeseek/uploads";
+    expect((await upload(route)).statusCode).toBe(403);
+    const uploaded = await upload(route, authorization);
+    expect(uploaded.statusCode).toBe(201);
+    expect(uploaded.json().url).toMatch(/^\/api\/files\//);
+    expect((await upload(route, authorization)).json()).toMatchObject({ duplicate: true });
+    const groupImages = await app.inject({ url: `/uploads?albumId=${albumId}`, cookies });
+    expect(groupImages.json().images).toMatchObject([{ name: "forum.png", publicVisible: false }]);
+    expect((await app.inject({ url: "/public/images" })).json().images).toHaveLength(0);
+    const published = await app.inject({
+      method: "PATCH", url: `/albums/${albumId}`, cookies, payload: { nodeSeekPublic: true }
+    });
+    expect(published.statusCode).toBe(200);
+    expect((await app.inject({ url: "/public/images" })).json().images).toHaveLength(1);
+    expect((await app.inject({
+      url: "/uploads", headers: { authorization }
+    })).statusCode).toBe(403);
+    const forbiddenUrl = await app.inject({
+      method: "POST", url: route, headers: { authorization, origin: "https://www.nodeseek.com" },
+      payload: { url: "http://127.0.0.1:3000/test.png" }
+    });
+    expect(forbiddenUrl.statusCode).toBe(400);
+    const script = await app.inject({ url: "/integrations/nodeseek/install.user.js" });
+    expect(script.headers["content-type"]).toContain("text/javascript");
+    expect(script.body).toContain("// @match        https://www.nodeseek.com/*");
+    expect(script.body).not.toContain(token.json().value);
+    expect(() => new Function(script.body)).not.toThrow();
+    await app.inject({ method: "DELETE", url: `/api-tokens/${token.json().token.id}`, cookies });
+    expect((await upload(route, authorization)).statusCode).toBe(401);
   });
 
   it("tests SigV4 storage and records real local to remote migrations", async () => {
@@ -4825,7 +4997,7 @@ describe("OU-Image API", () => {
     expect(isIpAllowed("2001:db8::abcd", ["2001:db8::/64"])).toBe(true);
     expect(isIpAllowed("2001:db9::1", ["2001:db8::/64"])).toBe(false);
     for (const invalid of [
-      "999.1.1.1",
+      "999.1.2.0",
       "127.0.0.1/24",
       "2001:db8::1/64",
       "2001:db8::/129",

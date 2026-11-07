@@ -1,5 +1,6 @@
 "use client";
 
+import { storageProviderLabels } from "@/lib/storage-provider";
 import { Button } from "@ou-image/ui";
 import {
   ArrowRight,
@@ -323,7 +324,7 @@ export function OverviewConsole() {
                       ? formatOverviewBytes(data.summary.quotaBytes)
                       : "未限额"}
                   </p>
-                  <small>{storageLabel}</small>
+                  <small>{data.summary.activeStorage ? `${storageProviderLabels[data.summary.activeStorage]} · ` : ""}{storageLabel}</small>
                 </div>
               </article>
 
@@ -362,7 +363,7 @@ export function OverviewConsole() {
                 </h2>
                 <p>
                   {isSiteOwner
-                    ? "本地存储可直接使用；如需 Amazon S3、Cloudflare R2 或迁移数据，请前往存储中心。"
+                    ? data.summary.activeStorage ? `当前写入 ${storageProviderLabels[data.summary.activeStorage]}。可在存储中心切换或检查连接。` : "在存储中心查看当前写入位置与连接状态。"
                     : "存储连接由站点所有者管理，你可以继续浏览或上传权限范围内的图片。"}
                 </p>
               </div>

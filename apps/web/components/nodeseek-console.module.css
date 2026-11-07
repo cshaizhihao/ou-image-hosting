@@ -1,0 +1,131 @@
+.steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+}
+
+.steps li {
+  display: grid;
+  grid-template-columns: 32px 1fr;
+  gap: 3px 12px;
+  padding: 15px 0;
+  border-top: 1px solid var(--border-default);
+  counter-increment: step;
+}
+
+.steps li::before {
+  grid-row: span 2;
+  display: grid;
+  height: 32px;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--surface-muted);
+  color: var(--text-accent);
+  font-weight: 700;
+  content: counter(step);
+}
+
+.steps li > span,
+.list small {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.steps a {
+  color: var(--text-accent);
+  text-decoration: underline;
+}
+
+.steps a svg {
+  vertical-align: middle;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 16px;
+}
+
+.form,
+.field {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+}
+
+.form {
+  padding: 16px 18px;
+}
+
+.field {
+  width: 100%;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.field input,
+.field select {
+  width: 100%;
+  min-height: 42px;
+  padding: 0 10px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-page);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.checkbox,
+.credentialActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.checkbox input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--action-primary);
+}
+
+.list {
+  display: grid;
+  margin: 0 18px;
+  padding: 0;
+  list-style: none;
+}
+
+.list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 56px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border-default);
+}
+
+.list li > div:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 760px) {
+  .grid,
+  .steps {
+    grid-template-columns: 1fr;
+  }
+
+  .steps {
+    gap: 0;
+  }
+}

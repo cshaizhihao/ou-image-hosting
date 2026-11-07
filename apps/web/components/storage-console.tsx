@@ -1,5 +1,6 @@
 "use client";
 
+import { storageProviderLabels, type StorageProvider } from "@/lib/storage-provider";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Badge, Button, cn } from "@ou-image/ui";
 import {
@@ -54,7 +55,7 @@ import {
 import { AppShell } from "./app-shell";
 import styles from "./storage-console.module.css";
 
-type ProviderKey = "local" | "s3" | "r2";
+type ProviderKey = StorageProvider;
 type StorageTab = "providers" | "delivery" | "hotlink" | "migrations" | "backups";
 
 type RemoteProviderConfig = {
@@ -103,6 +104,7 @@ type ProviderHealth = {
 };
 
 type StorageHealth = {
+  pendingDeletes?: number;
   active: ProviderKey;
   providers:
     | Partial<Record<ProviderKey, ProviderHealth>>
@@ -191,20 +193,20 @@ const providerMeta: Record<
   { label: string; description: string; icon: LucideIcon; accent: string }
 > = {
   local: {
-    label: "本地存储",
+    label: storageProviderLabels.local,
     description: "直接写入服务器磁盘，部署简单、响应快速。",
     icon: HardDrive,
     accent: "#6d6d69"
   },
   s3: {
-    label: "Amazon S3",
-    description: "将本地文件复制到 S3 或兼容存储桶。",
+    label: storageProviderLabels.s3,
+    description: "直接写入 S3 或兼容存储桶。",
     icon: Cloud,
     accent: "#e3a34f"
   },
   r2: {
-    label: "Cloudflare R2",
-    description: "将本地文件复制到 Cloudflare R2 存储桶。",
+    label: storageProviderLabels.r2,
+    description: "直接写入 Cloudflare R2 存储桶。",
     icon: UploadCloud,
     accent: "#ef8f8f"
   }
@@ -751,7 +753,7 @@ export function StorageConsole() {
   const usagePercent = quotaBytes
     ? Math.min(100, Math.round((usageBytes / quotaBytes) * 100))
     : 0;
-  const actualActive = health?.active ?? "local";
+  const actualActive = settings.storage.active;
 
   const previewUrl = useMemo(() => {
     const domain =
@@ -780,17 +782,17 @@ export function StorageConsole() {
     }));
   };
 
-  const saveSettings = async (scope: "storage" | "delivery" | "backup") => {
-    setBusy(`save-${scope}`);
+  const saveSettings = async (scope: "storage" | "delivery" | "backup", activate?: ProviderKey) => {
+    setBusy(activate ? "activate-storage" : `save-${scope}`);
     setNotice("");
     setError("");
     try {
       const storagePayload = {
-        active: "local" as const,
-        ...(hasRemoteConfiguration(settings.storage.s3, secrets.s3)
+        ...(activate ? { active: activate } : {}),
+        ...((!activate || activate === "s3") && hasRemoteConfiguration(settings.storage.s3, secrets.s3)
           ? { s3: remotePayload(settings.storage.s3, secrets.s3) }
           : {}),
-        ...(hasRemoteConfiguration(settings.storage.r2, secrets.r2)
+        ...((!activate || activate === "r2") && hasRemoteConfiguration(settings.storage.r2, secrets.r2)
           ? { r2: remotePayload(settings.storage.r2, secrets.r2) }
           : {})
       };
@@ -811,17 +813,17 @@ export function StorageConsole() {
       });
       setSettings(normalizeSettings(response));
       setSecrets({ s3: "", r2: "" });
+      if (activate) window.dispatchEvent(new Event("ou:uploads-updated"));
       setNotice(
-        scope === "storage"
+        activate ? `当前存储已切换为 ${providerMeta[activate].label}` : scope === "storage"
           ? "存储提供商配置已保存"
           : scope === "delivery"
             ? "域名与访问策略已保存"
             : "备份计划已保存"
       );
-      const nextHealth = await apiRequest<StorageHealth>("/storage/health");
-      setHealth(nextHealth);
+      void apiRequest<StorageHealth>("/storage/health").then(setHealth).catch(() => undefined);
     } catch (requestError) {
-      setError(requestMessage(requestError, "配置保存失败"));
+      setError(requestMessage(requestError, activate ? "切换失败，当前存储未更改" : "配置保存失败"));
     } finally {
       setBusy("");
     }
@@ -1034,7 +1036,7 @@ export function StorageConsole() {
             <span className={styles.liveDot} />
             <div>
               <strong>{providerMeta[actualActive].label}</strong>
-              <small>当前主存储运行中</small>
+              <small>当前写入位置</small>
             </div>
           </div>
         </header>
@@ -1050,6 +1052,9 @@ export function StorageConsole() {
           </StatusNotice>
         )}
 
+        {Boolean(health?.pendingDeletes) && (
+          <p role="status">有 {health?.pendingDeletes} 个文件等待清理，系统会自动重试。</p>
+        )}
         <section className={styles.metrics} aria-label="存储概览">
           <div className={styles.metricPrimary}>
             <div className={styles.metricIcon}>
@@ -1115,13 +1120,13 @@ export function StorageConsole() {
         {activeTab === "providers" && (
           <section className={styles.tabPanel}>
             <SectionTitle
-              description="图床日常使用本地存储。S3 和 R2 支持连接测试与手动迁移复制。"
+              description="选择新图片和编辑版本的写入位置。切换前会测试读写，已有图片仍从原位置读取。"
               eyebrow="PROVIDERS"
               icon={Database}
               title="存储提供商"
               action={
                 <Button
-                  disabled={busy === "save-storage"}
+                  disabled={Boolean(busy)}
                   onClick={() => void saveSettings("storage")}
                   size="compact"
                 >
@@ -1233,19 +1238,31 @@ export function StorageConsole() {
                   <span>当前编辑</span>
                   <h3>{providerMeta[selectedProvider].label}</h3>
                 </div>
-                <Button
-                  disabled={busy === `test-${selectedProvider}`}
-                  onClick={() => void testProvider(selectedProvider)}
-                  size="compact"
-                  variant="secondary"
-                >
-                  {busy === `test-${selectedProvider}` ? (
-                    <LoaderCircle className={styles.spin} size={15} />
-                  ) : (
-                    <RefreshCw aria-hidden="true" size={15} />
+                <div className={styles.configActions}>
+                  <Button
+                    disabled={Boolean(busy)}
+                    onClick={() => void testProvider(selectedProvider)}
+                    size="compact"
+                    variant="secondary"
+                  >
+                    {busy === `test-${selectedProvider}` ? (
+                      <LoaderCircle className={styles.spin} size={15} />
+                    ) : (
+                      <RefreshCw aria-hidden="true" size={15} />
+                    )}
+                    测试连接
+                  </Button>
+                  {selectedProvider !== actualActive && (
+                    <Button
+                      disabled={Boolean(busy)}
+                      onClick={() => void saveSettings("storage", selectedProvider)}
+                      size="compact"
+                    >
+                      {busy === "activate-storage" ? <LoaderCircle className={styles.spin} size={15} /> : <Check aria-hidden="true" size={15} />}
+                      设为当前存储
+                    </Button>
                   )}
-                  测试连接
-                </Button>
+                </div>
               </div>
 
               {selectedProvider === "local" ? (
@@ -1648,7 +1665,7 @@ export function StorageConsole() {
                 <small>校验后复制</small>
               </div>
               <p>
-                迁移期间上传不受影响。当前版本继续使用本地存储作为写入源。
+                手动复制已有本地文件。新上传继续写入当前存储。
               </p>
             </div>
             <div className={styles.listCard}>

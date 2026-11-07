@@ -1,5 +1,6 @@
 "use client";
 
+import { storageProviderLabels, type StorageProvider } from "@/lib/storage-provider";
 import * as Dialog from "@radix-ui/react-dialog";
 import Link from "next/link";
 import { Button } from "@ou-image/ui";
@@ -89,6 +90,7 @@ type UploadSummary = {
   count: number;
   bytes: number;
   quotaBytes: number;
+  activeStorage?: StorageProvider;
 };
 
 type AlbumOption = { id: string; name: string };
@@ -778,7 +780,7 @@ export function UploadWorkbench({ active = true }: { active?: boolean }) {
               <div className="upload-storage__heading">
                 <span>
                   <HardDrive aria-hidden="true" size={18} />
-                  存储空间
+                  {summary.activeStorage ? storageProviderLabels[summary.activeStorage] : "存储空间"}
                 </span>
                 <strong>{summaryLoading ? "读取中" : `${quotaPercent}%`}</strong>
               </div>
